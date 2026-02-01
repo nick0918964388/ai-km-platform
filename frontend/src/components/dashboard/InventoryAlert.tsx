@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Tile, Tag, SkeletonText } from '@carbon/react';
-import { WarningAlt, Inventory } from '@carbon/icons-react';
+import { WarningAlt, Package } from '@carbon/icons-react';
 
 interface AlertItem {
   part_number: string;
@@ -51,7 +51,7 @@ export default function InventoryAlert({
       
       {displayAlerts.length === 0 ? (
         <div className="text-center py-6 text-gray-500">
-          <Inventory size={32} className="mx-auto mb-2 text-green-500" />
+          <Package size={32} className="mx-auto mb-2 text-green-500" />
           <p>庫存充足，無警示項目</p>
         </div>
       ) : (

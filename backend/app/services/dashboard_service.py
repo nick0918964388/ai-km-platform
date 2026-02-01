@@ -124,19 +124,19 @@ class DashboardService:
     
     async def get_fault_trends(self, days: int = 30) -> List[Dict[str, Any]]:
         """Get fault trends by day and type"""
-        sql = """
+        sql = f"""
         SELECT 
             DATE(fault_date) as date,
             fault_type,
             COUNT(*) as count
         FROM fault_records
-        WHERE fault_date >= NOW() - INTERVAL :days DAY
+        WHERE fault_date >= NOW() - INTERVAL '{days} days'
         GROUP BY DATE(fault_date), fault_type
         ORDER BY date DESC, count DESC
         """
         
         async with get_db_context() as session:
-            result = await session.execute(text(sql), {"days": days})
+            result = await session.execute(text(sql))
             rows = result.fetchall()
             
             return [
@@ -150,18 +150,18 @@ class DashboardService:
     
     async def get_cost_distribution(self, months: int = 3) -> List[Dict[str, Any]]:
         """Get cost distribution by type"""
-        sql = """
+        sql = f"""
         SELECT 
             cost_type,
             SUM(amount) as amount
         FROM cost_records
-        WHERE record_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL :months MONTH
+        WHERE record_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '{months} months'
         GROUP BY cost_type
         ORDER BY amount DESC
         """
         
         async with get_db_context() as session:
-            result = await session.execute(text(sql), {"months": months})
+            result = await session.execute(text(sql))
             rows = result.fetchall()
             
             total = sum(row[1] for row in rows) or 1  # Avoid division by zero
@@ -177,7 +177,7 @@ class DashboardService:
     
     async def get_vehicle_fault_ranking(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get vehicles ranked by fault count"""
-        sql = """
+        sql = f"""
         SELECT 
             v.vehicle_code,
             v.vehicle_type,
@@ -188,11 +188,11 @@ class DashboardService:
             AND f.fault_date >= NOW() - INTERVAL '90 days'
         GROUP BY v.id, v.vehicle_code, v.vehicle_type
         ORDER BY fault_count DESC
-        LIMIT :limit
+        LIMIT {limit}
         """
         
         async with get_db_context() as session:
-            result = await session.execute(text(sql), {"limit": limit})
+            result = await session.execute(text(sql))
             rows = result.fetchall()
             
             return [

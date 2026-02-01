@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Dashboard,
   Document,
@@ -12,14 +12,9 @@ import {
   Upload,
   Settings,
   Time,
-  Vehicle,
-  Warning,
-  Tool,
-  Money,
-  Inventory,
   Renew,
 } from '@carbon/icons-react';
-import { Button } from '@carbon/react';
+import { Button, Tile } from '@carbon/react';
 
 import { StatCard, TrendChart, CostDistributionChart, InventoryAlert } from '@/components/dashboard';
 import { useDashboard } from '@/hooks/useDashboard';
@@ -119,28 +114,28 @@ export default function DashboardPage() {
           title="營運車輛"
           value={summary?.active_vehicles || 0}
           unit={`/ ${summary?.total_vehicles || 0}`}
-          icon={<Vehicle size={24} className="text-blue-600" />}
+          icon={<span style={{ fontSize: '24px' }}>🚃</span>}
           color="default"
           isLoading={isLoading}
         />
         <StatCard
           title="待處理故障"
           value={summary?.open_faults || 0}
-          icon={<Warning size={24} className="text-red-600" />}
+          icon={<WarningFilled size={24} className="text-red-600" />}
           color={summary?.critical_faults && summary.critical_faults > 0 ? 'danger' : 'warning'}
           isLoading={isLoading}
         />
         <StatCard
           title="待排程檢修"
           value={summary?.pending_maintenance || 0}
-          icon={<Tool size={24} className="text-yellow-600" />}
+          icon={<Settings size={24} className="text-yellow-600" />}
           color="warning"
           isLoading={isLoading}
         />
         <StatCard
           title="本月成本"
           value={summary ? `${Math.round(summary.total_cost_this_month / 10000)}萬` : 0}
-          icon={<Money size={24} className="text-green-600" />}
+          icon={<span style={{ fontSize: '24px' }}>💰</span>}
           color="success"
           isLoading={isLoading}
         />
@@ -155,7 +150,7 @@ export default function DashboardPage() {
           title="低庫存警示"
           value={summary?.low_stock_items || 0}
           unit="項"
-          icon={<Inventory size={24} className="text-orange-600" />}
+          icon={<span style={{ fontSize: '24px' }}>📦</span>}
           color={summary?.low_stock_items && summary.low_stock_items > 0 ? 'danger' : 'success'}
           isLoading={isLoading}
         />
@@ -199,10 +194,9 @@ export default function DashboardPage() {
         />
 
         {/* Vehicle Fault Ranking */}
-        <div className="settings-section" style={{ padding: '1.5rem' }}>
+        <Tile className="p-4">
           <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Vehicle size={20} />
-            故障排行（近 90 天）
+            🚃 故障排行（近 90 天）
           </h3>
           {isLoading ? (
             <p className="text-gray-500">載入中...</p>
@@ -236,10 +230,10 @@ export default function DashboardPage() {
               ))}
             </ul>
           )}
-        </div>
+        </Tile>
 
         {/* Recent Activity */}
-        <div className="settings-section" style={{ padding: '1.5rem' }}>
+        <Tile className="p-4">
           <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Activity size={20} />
             最近活動
@@ -287,11 +281,11 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-        </div>
+        </Tile>
       </div>
 
       {/* Quick Actions */}
-      <div className="settings-section" style={{ padding: '1.5rem' }}>
+      <Tile className="p-4">
         <h2 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem' }}>
           快速操作
         </h2>
@@ -313,7 +307,7 @@ export default function DashboardPage() {
             系統設定
           </a>
         </div>
-      </div>
+      </Tile>
     </div>
   );
 }

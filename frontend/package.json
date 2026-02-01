@@ -17,9 +17,9 @@
     "next-auth": "^4.24.13",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "recharts": "^2.15.4",
     "tailwind-merge": "^3.4.0",
-    "zustand": "^5.0.10",
-    "recharts": "^2.15.0"
+    "zustand": "^5.0.10"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
