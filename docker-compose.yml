@@ -1,56 +1,151 @@
 version: '3.8'
 
 services:
+  # ============================================
+  # 資料庫服務
+  # ============================================
+  
   postgres:
     image: postgres:16-alpine
-    container_name: ai-km-postgres
+    container_name: aikm-postgres
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     environment:
-      - POSTGRES_USER=aikmuser
-      - POSTGRES_PASSWORD=aikmpassword
-      - POSTGRES_DB=aikm_structured
+      POSTGRES_USER: aikm
+      POSTGRES_PASSWORD: aikm
+      POSTGRES_DB: aikm
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aikmuser -d aikm_structured"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD-SHELL", "pg_isready -U aikm -d aikm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aikm-network
 
   qdrant:
-    image: qdrant/qdrant:latest
-    container_name: ai-km-qdrant
+    image: qdrant/qdrant:v1.12.5
+    container_name: aikm-qdrant
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "6333:6333"   # HTTP API
+      - "6334:6334"   # gRPC
     volumes:
-      - ./data/qdrant:/qdrant/storage
+      - qdrant_data:/qdrant/storage
     environment:
-      - QDRANT__SERVICE__GRPC_PORT=6334
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__LOG_LEVEL: INFO
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aikm-network
 
   redis:
     image: redis:7-alpine
-    container_name: ai-km-redis
+    container_name: aikm-redis
     ports:
       - "6379:6379"
     volumes:
-      - ./data/redis:/data
-    command: redis-server --appendonly yes
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aikm-network
+
+  # ============================================
+  # 應用服務
+  # ============================================
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aikm-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/storage:/app/storage
+      - ./backend/backups:/app/backups
+    environment:
+      # Database
+      DATABASE_URL: postgresql+asyncpg://aikm:aikm@postgres:5432/aikm
+      # Vector Store
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ""
+      # Cache
+      REDIS_URL: redis://redis:6379
+      CACHE_TTL: 3600
+      # Embedding Models
+      TEXT_EMBEDDING_MODEL: all-MiniLM-L6-v2
+      CLIP_MODEL: openai/clip-vit-base-patch32
+      # Reranking
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
+      COHERE_MODEL: rerank-v3.5
+      RERANK_TOP_N: 10
+      # LLM (optional)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      JINA_API_KEY: ${JINA_API_KEY:-}
+      # Server
+      HOST: 0.0.0.0
+      PORT: 8000
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - aikm-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aikm-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NODE_ENV: production
+    depends_on:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - aikm-network
+
+# ============================================
+# Networks & Volumes
+# ============================================
+
+networks:
+  aikm-network:
+    driver: bridge
 
 volumes:
+  postgres_data:
   qdrant_data:
   redis_data:
