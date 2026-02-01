@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import kb, chat, upload_ws, structured, query
+from app.routers import kb, chat, upload_ws, structured, query, export, dashboard
 from app.config import get_settings
 
 
@@ -61,6 +61,8 @@ app.include_router(chat.router)
 app.include_router(upload_ws.router)
 app.include_router(structured.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
+app.include_router(export.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
 
 
 @app.get("/")
