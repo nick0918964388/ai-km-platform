@@ -40,3 +40,8 @@ redis>=5.0.0
 ragas>=0.2.0
 datasets>=2.14.0
 langchain-openai>=0.1.0
+
+# PostgreSQL / Database
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.29.0
+alembic>=1.13.0

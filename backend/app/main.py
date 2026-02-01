@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import kb, chat, upload_ws
+from app.routers import kb, chat, upload_ws, structured, query
 from app.config import get_settings
 
 
@@ -18,10 +18,23 @@ async def lifespan(app: FastAPI):
         print(f"✅ Vector store connected to Qdrant: {settings.qdrant_url}")
     else:
         print("✅ Vector store initialized (in-memory mode)")
+    
+    # Startup: Initialize database (structured data)
+    try:
+        from app.db.session import init_db
+        await init_db()
+        print("✅ PostgreSQL database initialized")
+    except Exception as e:
+        print(f"⚠️ PostgreSQL not available: {e}")
 
     yield
 
     # Shutdown
+    try:
+        from app.db.session import close_db
+        await close_db()
+    except Exception:
+        pass
     print("👋 Shutting down...")
 
 
@@ -46,6 +59,8 @@ app.add_middleware(
 app.include_router(kb.router)
 app.include_router(chat.router)
 app.include_router(upload_ws.router)
+app.include_router(structured.router, prefix="/api")
+app.include_router(query.router, prefix="/api")
 
 
 @app.get("/")

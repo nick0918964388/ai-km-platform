@@ -5,6 +5,7 @@ Auto-generated from all feature plans. Last updated: 2026-02-01
 ## Active Technologies
 - Python 3.10+ (Backend), TypeScript strict mode (Frontend) + FastAPI, Qdrant, Redis, Cohere SDK (Backend) / Next.js 14, React 18, IBM Carbon (Frontend) (002-document-preview)
 - 本地檔案系統 `./storage/documents/`，Qdrant 向量資料庫 (002-document-preview)
+- PostgreSQL (新增，結構化資料), Qdrant (現有，向量儲存) (003-structured-data-query)
 
 - Python 3.10+ (Backend), TypeScript strict mode (Frontend) + FastAPI, Qdrant, Redis, Cohere SDK, Next.js (001-rag-optimization)
 
@@ -24,6 +25,7 @@ cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLO
 Python 3.10+ (Backend), TypeScript strict mode (Frontend): Follow standard conventions
 
 ## Recent Changes
+- 003-structured-data-query: Added Python 3.10+ (Backend), TypeScript strict mode (Frontend)
 - 002-document-preview: Added Python 3.10+ (Backend), TypeScript strict mode (Frontend) + FastAPI, Qdrant, Redis, Cohere SDK (Backend) / Next.js 14, React 18, IBM Carbon (Frontend)
 
 - 001-rag-optimization: Added Python 3.10+ (Backend), TypeScript strict mode (Frontend) + FastAPI, Qdrant, Redis, Cohere SDK, Next.js
