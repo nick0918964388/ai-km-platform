@@ -164,13 +164,13 @@ class DashboardService:
             result = await session.execute(text(sql))
             rows = result.fetchall()
             
-            total = sum(row[1] for row in rows) or 1  # Avoid division by zero
+            total = float(sum(row[1] for row in rows) or 1)  # Avoid division by zero
             
             return [
                 {
                     "cost_type": row[0],
-                    "amount": float(row[1]),
-                    "percentage": round(float(row[1]) / total * 100, 1),
+                    "amount": float(row[1]) if row[1] else 0.0,
+                    "percentage": round(float(row[1]) / total * 100, 1) if row[1] else 0.0,
                 }
                 for row in rows
             ]
