@@ -35,3 +35,8 @@ cohere>=5.0.0
 
 # Cache
 redis>=5.0.0
+
+# Evaluation
+ragas>=0.2.0
+datasets>=2.14.0
+langchain-openai>=0.1.0

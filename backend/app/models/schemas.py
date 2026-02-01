@@ -204,3 +204,62 @@ class CacheClearResponse(BaseModel):
     """Cache clear response."""
     deleted_count: int
     message: str
+
+
+# Evaluation schemas
+class EvaluationTestCase(BaseModel):
+    """Single test case for evaluation."""
+    user_input: str = Field(..., min_length=1, description="User query to evaluate")
+    reference: str = Field("", description="Reference/ground truth answer")
+
+
+class EvaluationRequest(BaseModel):
+    """Evaluation request schema."""
+    test_data: Optional[list[EvaluationTestCase]] = Field(
+        None,
+        description="Custom test dataset. If not provided, uses built-in sample data."
+    )
+    top_k: int = Field(5, ge=1, le=20, description="Number of documents to retrieve")
+    metrics: Optional[list[str]] = Field(
+        None,
+        description="Metrics to evaluate: context_recall, faithfulness, factual_correctness"
+    )
+
+
+class EvaluationMetricInfo(BaseModel):
+    """Information about an evaluation metric."""
+    name: str
+    display_name: str
+    description: str
+
+
+class EvaluationDetail(BaseModel):
+    """Detailed result for a single evaluation sample."""
+    user_input: str
+    response: str
+    reference: str
+    retrieved_contexts: list[str]
+    context_recall: Optional[float] = None
+    faithfulness: Optional[float] = None
+    factual_correctness: Optional[float] = None
+
+
+class EvaluationMetadata(BaseModel):
+    """Evaluation metadata."""
+    timestamp: str
+    sample_count: int
+    metrics_evaluated: list[str]
+    top_k: int
+    model: str
+
+
+class EvaluationResponse(BaseModel):
+    """Evaluation response schema."""
+    scores: dict[str, float] = Field(..., description="Overall scores for each metric")
+    details: list[EvaluationDetail] = Field(..., description="Per-sample detailed results")
+    metadata: EvaluationMetadata
+
+
+class EvaluationMetricsResponse(BaseModel):
+    """Available metrics response."""
+    metrics: list[EvaluationMetricInfo]

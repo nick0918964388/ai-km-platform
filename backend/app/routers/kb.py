@@ -16,11 +16,16 @@ from app.models.schemas import (
     CacheStats,
     CacheClearRequest,
     CacheClearResponse,
+    EvaluationRequest,
+    EvaluationResponse,
+    EvaluationMetricsResponse,
+    EvaluationMetricInfo,
 )
 from app.services import document_processor, vector_store
 from app.services import backup as backup_service
 from app.services import cache as cache_service
 from app.services import file_storage
+from app.services import evaluation as evaluation_service
 
 router = APIRouter(prefix="/api/kb", tags=["knowledge-base"])
 
@@ -276,3 +281,59 @@ async def clear_cache(request: CacheClearRequest = None):
         deleted_count=deleted,
         message=f"已清除 {deleted} 筆快取",
     )
+
+
+# ============================================================================
+# Evaluation Endpoints
+# ============================================================================
+
+@router.get("/evaluate/metrics", response_model=EvaluationMetricsResponse)
+async def get_evaluation_metrics():
+    """Get available evaluation metrics and their descriptions."""
+    metrics = evaluation_service.get_available_metrics()
+    return EvaluationMetricsResponse(
+        metrics=[EvaluationMetricInfo(**m) for m in metrics]
+    )
+
+
+@router.post("/evaluate", response_model=EvaluationResponse)
+async def run_evaluation(request: EvaluationRequest = None):
+    """
+    Run RAGAS evaluation on the RAG system.
+
+    This endpoint evaluates the quality of the RAG system using RAGAS metrics:
+    - **Context Recall**: Measures if retrieved context contains all relevant information
+    - **Faithfulness**: Measures if the response is faithful to the retrieved context
+    - **Factual Correctness**: Measures factual accuracy compared to reference
+
+    If no test_data is provided, uses built-in sample data for EMU800 maintenance domain.
+
+    Note: This operation can take several minutes depending on the number of test cases.
+    """
+    if request is None:
+        request = EvaluationRequest()
+
+    # Convert test data to dict format if provided
+    test_data = None
+    if request.test_data:
+        test_data = [
+            {"user_input": tc.user_input, "reference": tc.reference}
+            for tc in request.test_data
+        ]
+
+    try:
+        result = evaluation_service.run_evaluation(
+            test_data=test_data,
+            top_k=request.top_k,
+            metrics=request.metrics,
+        )
+        return EvaluationResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"評測執行失敗: {str(e)}",
+        )
