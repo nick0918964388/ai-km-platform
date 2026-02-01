@@ -1,0 +1,210 @@
+asyncapi: 2.6.0
+info:
+  title: Upload Progress WebSocket API
+  version: 1.0.0
+  description: 文件上傳處理進度即時通知 WebSocket API
+
+servers:
+  development:
+    url: ws://localhost:8000
+    protocol: ws
+    description: 開發環境
+
+channels:
+  /api/ws/upload/{task_id}:
+    description: 文件處理進度頻道
+    parameters:
+      task_id:
+        description: 處理任務 ID
+        schema:
+          type: string
+          format: uuid
+    subscribe:
+      summary: 接收處理進度更新
+      operationId: receiveProgress
+      message:
+        $ref: '#/components/messages/ProgressMessage'
+    publish:
+      summary: 發送控制指令（可選）
+      operationId: sendControl
+      message:
+        $ref: '#/components/messages/ControlMessage'
+
+  /api/ws/tasks:
+    description: 所有活躍任務狀態頻道
+    subscribe:
+      summary: 接收所有任務狀態更新
+      operationId: receiveAllTasksStatus
+      message:
+        $ref: '#/components/messages/TaskListMessage'
+
+components:
+  messages:
+    ProgressMessage:
+      name: ProgressMessage
+      title: 處理進度訊息
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - task_id
+          - status
+          - step
+          - progress
+          - message
+        properties:
+          task_id:
+            type: string
+            format: uuid
+            description: 任務唯一識別碼
+          status:
+            type: string
+            enum:
+              - pending
+              - processing
+              - completed
+              - failed
+              - cancelled
+            description: 任務狀態
+          step:
+            type: string
+            enum:
+              - uploading
+              - parsing
+              - chunking
+              - embedding
+              - indexing
+              - done
+            description: 目前處理步驟
+          progress:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: 完成百分比
+          message:
+            type: string
+            description: 狀態訊息（繁體中文）
+            examples:
+              - 正在解析 PDF 文件...
+              - 文件分塊中 (15/30)
+              - 向量化中 (50%)
+              - 處理完成！
+          chunk_count:
+            type: integer
+            description: 目前處理的區塊數
+          error:
+            type: string
+            nullable: true
+            description: 錯誤訊息
+
+    ControlMessage:
+      name: ControlMessage
+      title: 控制指令
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - action
+        properties:
+          action:
+            type: string
+            enum:
+              - cancel
+              - pause
+              - resume
+            description: 控制動作
+
+    TaskListMessage:
+      name: TaskListMessage
+      title: 任務列表訊息
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          tasks:
+            type: array
+            items:
+              $ref: '#/components/schemas/TaskSummary'
+          active_count:
+            type: integer
+            description: 活躍任務數量
+
+  schemas:
+    TaskSummary:
+      type: object
+      properties:
+        task_id:
+          type: string
+        filename:
+          type: string
+        status:
+          type: string
+        progress:
+          type: integer
+        step:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+
+# 使用範例
+x-examples:
+  connection:
+    description: 連線範例
+    javascript: |
+      // 前端連線範例
+      const taskId = 'abc-123-def';
+      const ws = new WebSocket(`ws://localhost:8000/api/ws/upload/${taskId}`);
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log(`進度: ${data.progress}% - ${data.message}`);
+
+        if (data.status === 'completed') {
+          console.log('處理完成！');
+          ws.close();
+        }
+
+        if (data.status === 'failed') {
+          console.error('處理失敗:', data.error);
+          ws.close();
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket 錯誤:', error);
+      };
+
+      ws.onclose = () => {
+        console.log('連線已關閉');
+      };
+
+  progress_sequence:
+    description: 典型進度更新序列
+    messages:
+      - task_id: "abc-123"
+        status: "processing"
+        step: "parsing"
+        progress: 10
+        message: "正在解析 PDF 文件..."
+      - task_id: "abc-123"
+        status: "processing"
+        step: "chunking"
+        progress: 35
+        message: "文件分塊中 (10/30)"
+      - task_id: "abc-123"
+        status: "processing"
+        step: "embedding"
+        progress: 60
+        message: "向量化中..."
+      - task_id: "abc-123"
+        status: "processing"
+        step: "indexing"
+        progress: 95
+        message: "建立索引中..."
+      - task_id: "abc-123"
+        status: "completed"
+        step: "done"
+        progress: 100
+        message: "處理完成！共建立 30 個區塊。"
+        chunk_count: 30

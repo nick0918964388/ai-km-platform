@@ -1,0 +1,37 @@
+# FastAPI and Server
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+
+# Vector Database
+qdrant-client>=1.7.0
+
+# Embeddings
+sentence-transformers>=2.3.0
+transformers>=4.37.0
+torch>=2.9.0
+
+# OpenAI
+openai>=1.12.0
+
+# Document Processing
+PyMuPDF>=1.23.0
+pdfplumber>=0.10.0
+Pillow>=10.2.0
+python-docx>=1.1.0
+openpyxl>=3.1.0
+xlrd>=2.0.0
+
+# HTTP Client (for Jina API)
+requests>=2.31.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.6.0
+pydantic-settings>=2.1.0
+
+# Reranker
+cohere>=5.0.0
+
+# Cache
+redis>=5.0.0

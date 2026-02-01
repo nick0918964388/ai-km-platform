@@ -1,0 +1,195 @@
+openapi: 3.0.3
+info:
+  title: Backup & Recovery API
+  description: 向量資料庫備份與恢復 API
+  version: 1.0.0
+
+paths:
+  /api/kb/backups:
+    get:
+      summary: 列出所有備份
+      operationId: listBackups
+      tags:
+        - Backup
+      responses:
+        '200':
+          description: 備份列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backups:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BackupRecord'
+                  total:
+                    type: integer
+
+    post:
+      summary: 建立新備份
+      operationId: createBackup
+      tags:
+        - Backup
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                collection_name:
+                  type: string
+                  default: text_chunks
+                  description: 要備份的 collection 名稱
+      responses:
+        '202':
+          description: 備份任務已建立
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupRecord'
+        '409':
+          description: 備份正在進行中
+
+  /api/kb/backups/{backup_id}:
+    get:
+      summary: 取得備份詳情
+      operationId: getBackup
+      tags:
+        - Backup
+      parameters:
+        - name: backup_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 備份詳情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupRecord'
+        '404':
+          description: 備份不存在
+
+    delete:
+      summary: 刪除備份
+      operationId: deleteBackup
+      tags:
+        - Backup
+      parameters:
+        - name: backup_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 備份已刪除
+        '404':
+          description: 備份不存在
+
+  /api/kb/backups/{backup_id}/restore:
+    post:
+      summary: 從備份恢復資料
+      operationId: restoreBackup
+      tags:
+        - Backup
+      parameters:
+        - name: backup_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: 恢復任務已開始
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  backup_id:
+                    type: string
+        '404':
+          description: 備份不存在
+        '409':
+          description: 恢復正在進行中
+
+  /api/kb/backups/{backup_id}/download:
+    get:
+      summary: 下載備份檔案
+      operationId: downloadBackup
+      tags:
+        - Backup
+      parameters:
+        - name: backup_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 備份檔案
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: 備份不存在
+
+components:
+  schemas:
+    BackupRecord:
+      type: object
+      required:
+        - id
+        - collection_name
+        - snapshot_name
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 備份唯一識別碼
+        collection_name:
+          type: string
+          description: 被備份的 collection 名稱
+        snapshot_name:
+          type: string
+          description: Qdrant snapshot 名稱
+        file_path:
+          type: string
+          description: 備份檔案路徑
+        file_size:
+          type: integer
+          description: 檔案大小（bytes）
+        vector_count:
+          type: integer
+          description: 向量數量
+        status:
+          type: string
+          enum:
+            - pending
+            - in_progress
+            - completed
+            - failed
+          description: 備份狀態
+        created_at:
+          type: string
+          format: date-time
+          description: 建立時間
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 完成時間
+        error_message:
+          type: string
+          nullable: true
+          description: 錯誤訊息

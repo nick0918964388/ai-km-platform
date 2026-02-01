@@ -1,0 +1,130 @@
+openapi: 3.0.3
+info:
+  title: AIKM Document Preview API
+  description: API endpoints for document preview feature
+  version: 1.0.0
+
+paths:
+  /api/documents/{document_id}/file:
+    get:
+      summary: 取得原始文件
+      description: |
+        下載或預覽指定文件的原始檔案。
+        - PDF 檔案：瀏覽器內嵌顯示 (Content-Disposition: inline)
+        - Word/圖片：觸發下載 (Content-Disposition: attachment)
+      operationId: getDocumentFile
+      tags:
+        - documents
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          description: 文件唯一識別碼
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        "200":
+          description: 成功取得文件
+          headers:
+            Content-Disposition:
+              description: |
+                - PDF: inline; filename="document.pdf"
+                - 其他: attachment; filename="document.docx"
+              schema:
+                type: string
+            Content-Type:
+              description: 文件 MIME type
+              schema:
+                type: string
+                enum:
+                  - application/pdf
+                  - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+                  - image/png
+                  - image/jpeg
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: 文件不存在或原始檔案遺失
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                detail: "找不到文件或原始檔案不存在"
+        "500":
+          description: 伺服器錯誤
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                detail: "讀取檔案時發生錯誤"
+
+components:
+  schemas:
+    SearchResult:
+      type: object
+      description: 搜尋結果項目（新增 file_url 欄位）
+      required:
+        - id
+        - content
+        - doc_type
+        - document_id
+        - document_name
+        - score
+      properties:
+        id:
+          type: string
+          description: Chunk ID
+        content:
+          type: string
+          description: Chunk 文字內容
+        doc_type:
+          type: string
+          enum: [text, image]
+          description: Chunk 類型
+        document_id:
+          type: string
+          description: 來源文件 ID
+        document_name:
+          type: string
+          description: 來源文件名稱
+        score:
+          type: number
+          format: float
+          description: 相似度分數
+        image_base64:
+          type: string
+          nullable: true
+          description: 圖片 Base64 編碼（僅 image 類型）
+        file_url:
+          type: string
+          nullable: true
+          description: 原始文件下載 URL
+          example: "/api/documents/550e8400-e29b-41d4-a716-446655440000/file"
+
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: 錯誤訊息
