@@ -1,313 +1,317 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
 import {
-  Dashboard,
-  Document,
   Chat,
-  User,
-  Activity,
-  CheckmarkFilled,
-  WarningFilled,
+  Search,
   Upload,
-  Settings,
+  Document,
+  ArrowUp,
+  Notification,
+  Bot,
+  DataBase,
+  CheckmarkFilled,
   Time,
-  Renew,
 } from '@carbon/icons-react';
-import { Button, Tile } from '@carbon/react';
 
-import { StatCard, TrendChart, CostDistributionChart, InventoryAlert } from '@/components/dashboard';
-import { useDashboard } from '@/hooks/useDashboard';
+interface StatCardProps {
+  title: string;
+  value: string | number;
+  change?: string;
+  changeType?: 'positive' | 'negative' | 'neutral';
+  icon: React.ReactNode;
+  iconBg: string;
+}
 
-interface RecentActivity {
-  id: string;
-  type: 'upload' | 'chat' | 'user' | 'setting';
-  message: string;
+function StatCard({ title, value, change, changeType = 'neutral', icon, iconBg }: StatCardProps) {
+  return (
+    <div className="stat-card">
+      <div className="stat-card-header">
+        <span className="stat-card-title">{title}</span>
+        <div className="stat-card-icon" style={{ background: iconBg }}>
+          {icon}
+        </div>
+      </div>
+      <div className="stat-card-value">{value}</div>
+      {change && (
+        <div className={`stat-card-change ${changeType}`}>
+          {change}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface QueryItemProps {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
   time: string;
-  user: string;
+}
+
+function QueryItem({ icon, title, subtitle, time }: QueryItemProps) {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: '0.75rem',
+      padding: '0.75rem',
+      background: 'var(--bg-primary)',
+      borderRadius: 'var(--radius-md)',
+    }}>
+      <div style={{
+        width: 40,
+        height: 40,
+        borderRadius: 'var(--radius-md)',
+        background: 'var(--primary-light)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'var(--accent)',
+        flexShrink: 0,
+      }}>
+        {icon}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontWeight: 500,
+          color: 'var(--text-primary)',
+          fontSize: '0.875rem',
+          marginBottom: '0.125rem'
+        }}>
+          {title}
+        </div>
+        <div style={{
+          fontSize: '0.75rem',
+          color: 'var(--text-muted)',
+        }}>
+          {subtitle}
+        </div>
+      </div>
+      <div style={{
+        fontSize: '0.75rem',
+        color: 'var(--text-muted)',
+        flexShrink: 0,
+      }}>
+        {time}
+      </div>
+    </div>
+  );
+}
+
+interface QuickActionProps {
+  icon: React.ReactNode;
+  label: string;
+  href: string;
+  primary?: boolean;
+}
+
+function QuickAction({ icon, label, href, primary }: QuickActionProps) {
+  return (
+    <Link
+      href={href}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '0.75rem',
+        padding: '0.75rem 1rem',
+        background: primary ? 'var(--primary)' : 'var(--bg-primary)',
+        border: primary ? 'none' : '1px solid var(--border)',
+        borderRadius: primary ? '10px' : 'var(--radius-md)',
+        color: primary ? 'white' : 'var(--text-primary)',
+        textDecoration: 'none',
+        fontSize: '0.875rem',
+        fontWeight: 500,
+        height: primary ? 52 : 48,
+        transition: 'all var(--transition-fast)',
+      }}
+    >
+      {icon}
+      {label}
+    </Link>
+  );
 }
 
 export default function DashboardPage() {
-  const {
-    summary,
-    faultTrends,
-    costDistribution,
-    vehicleRanking,
-    inventoryAlerts,
-    isLoading,
-    error,
-    refresh,
-  } = useDashboard();
-
-  const [activities] = useState<RecentActivity[]>([
-    { id: '1', type: 'upload', message: '上傳了「引擎維修手冊.pdf」', time: '5 分鐘前', user: '管理員' },
-    { id: '2', type: 'chat', message: '發起了新對話「引擎異響問題」', time: '10 分鐘前', user: '技師 A' },
-    { id: '3', type: 'user', message: '新增了使用者「技師 C」', time: '1 小時前', user: '管理員' },
-    { id: '4', type: 'setting', message: '更新了系統設定', time: '2 小時前', user: '管理員' },
-  ]);
-
-  const getActivityIcon = (type: string) => {
-    switch (type) {
-      case 'upload': return <Upload size={16} />;
-      case 'chat': return <Chat size={16} />;
-      case 'user': return <User size={16} />;
-      case 'setting': return <Settings size={16} />;
-      default: return <Activity size={16} />;
-    }
-  };
-
-  // Fault type colors for trend chart
-  const faultTypeColors: Record<string, string> = {
-    '轉向架': '#0f62fe',
-    '煞車系統': '#fa4d56',
-    '電氣系統': '#8a3ffc',
-    '空調系統': '#42be65',
-    '門機系統': '#ff7eb6',
-    '推進系統': '#f1c21b',
-    '集電弓': '#00bab6',
-  };
-
-  const uniqueFaultTypes = [...new Set(faultTrends.map(t => t.fault_type))];
-  const trendLines = uniqueFaultTypes.map(type => ({
-    key: type,
-    name: type,
-    color: faultTypeColors[type] || '#6f6f6f',
-  }));
+  const recentQueries = [
+    {
+      icon: <Chat size={18} />,
+      title: 'EMU900 引擎維修手冊查詢',
+      subtitle: '找到 3 份相關文件',
+      time: '5 分鐘前'
+    },
+    {
+      icon: <Document size={18} />,
+      title: '柴電機車 R100 保養紀錄查詢',
+      subtitle: '已匯出 PDF 報表',
+      time: '1 小時前'
+    },
+    {
+      icon: <Search size={18} />,
+      title: '普悠瑪號轉向架維修作業流程',
+      subtitle: '檢視完整作業程序',
+      time: '2 小時前'
+    },
+  ];
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-        <h1 style={{ 
-          fontSize: '1.75rem', 
-          fontWeight: 600, 
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem'
-        }}>
-          <Dashboard size={28} />
-          營運儀表板
-        </h1>
-        <Button
-          kind="ghost"
-          renderIcon={Renew}
-          onClick={refresh}
-          disabled={isLoading}
-        >
-          重新整理
-        </Button>
-      </div>
-
-      {error && (
-        <div className="p-4 mb-4 bg-red-50 text-red-700 rounded-lg">
-          載入失敗：{error}
+    <div style={{
+      padding: '2rem',
+      height: '100%',
+      overflow: 'auto',
+      background: 'var(--bg-primary)'
+    }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: '1.5rem'
+      }}>
+        <div>
+          <h1 style={{
+            fontSize: '1.75rem',
+            fontWeight: 700,
+            color: 'var(--text-primary)',
+            marginBottom: '0.25rem'
+          }}>
+            儀表板
+          </h1>
+          <p style={{
+            fontSize: '0.875rem',
+            color: 'var(--accent)'
+          }}>
+            歡迎回來，王小明
+          </p>
         </div>
-      )}
+        <button className="btn-icon">
+          <Notification size={20} />
+        </button>
+      </div>
 
-      {/* Key Metrics */}
-      <div style={{
+      {/* Stats Grid */}
+      <div className="dashboard-grid" style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '1rem',
-        marginBottom: '2rem'
+        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+        gap: '1.25rem',
+        marginBottom: '1.5rem'
       }}>
         <StatCard
-          title="營運車輛"
-          value={summary?.active_vehicles || 0}
-          unit={`/ ${summary?.total_vehicles || 0}`}
-          icon={<span style={{ fontSize: '24px' }}>🚃</span>}
-          color="default"
-          isLoading={isLoading}
+          title="今日查詢次數"
+          value="128"
+          change="↑ 12% 較昨日"
+          changeType="positive"
+          icon={<Chat size={20} style={{ color: 'var(--accent)' }} />}
+          iconBg="var(--primary-light)"
         />
         <StatCard
-          title="待處理故障"
-          value={summary?.open_faults || 0}
-          icon={<WarningFilled size={24} className="text-red-600" />}
-          color={summary?.critical_faults && summary.critical_faults > 0 ? 'danger' : 'warning'}
-          isLoading={isLoading}
+          title="回覆滿意度"
+          value="1,456"
+          change="本月累計"
+          changeType="neutral"
+          icon={<CheckmarkFilled size={20} style={{ color: 'var(--success)' }} />}
+          iconBg="var(--success-light)"
         />
         <StatCard
-          title="待排程檢修"
-          value={summary?.pending_maintenance || 0}
-          icon={<Settings size={24} className="text-yellow-600" />}
-          color="warning"
-          isLoading={isLoading}
+          title="知識庫文件"
+          value="3,892"
+          change="↑ 23 本週新增"
+          changeType="positive"
+          icon={<DataBase size={20} style={{ color: 'var(--accent)' }} />}
+          iconBg="var(--primary-light)"
         />
         <StatCard
-          title="本月成本"
-          value={summary ? `${Math.round(summary.total_cost_this_month / 10000)}萬` : 0}
-          icon={<span style={{ fontSize: '24px' }}>💰</span>}
-          color="success"
-          isLoading={isLoading}
-        />
-        <StatCard
-          title="故障解決率"
-          value={`${summary?.fault_resolution_rate || 0}%`}
-          icon={<CheckmarkFilled size={24} className="text-green-600" />}
-          color="success"
-          isLoading={isLoading}
-        />
-        <StatCard
-          title="低庫存警示"
-          value={summary?.low_stock_items || 0}
-          unit="項"
-          icon={<span style={{ fontSize: '24px' }}>📦</span>}
-          color={summary?.low_stock_items && summary.low_stock_items > 0 ? 'danger' : 'success'}
-          isLoading={isLoading}
+          title="系統準確率"
+          value="96.8%"
+          change="優於目標 95%"
+          changeType="positive"
+          icon={<Bot size={20} style={{ color: 'var(--accent)' }} />}
+          iconBg="var(--primary-light)"
         />
       </div>
 
-      {/* Charts Row */}
+      {/* Content Row */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
-        gap: '1.5rem',
-        marginBottom: '2rem'
+        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+        gap: '1.25rem',
+        minHeight: '400px'
       }}>
-        <TrendChart
-          title="故障趨勢（近 30 天）"
-          data={faultTrends}
-          lines={trendLines}
-          isLoading={isLoading}
-          height={280}
-        />
-        <CostDistributionChart
-          title="成本分布（近 3 個月）"
-          data={costDistribution}
-          isLoading={isLoading}
-          height={280}
-        />
-      </div>
-
-      {/* Bottom Row */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
-        gap: '1.5rem',
-        marginBottom: '2rem'
-      }}>
-        {/* Inventory Alerts */}
-        <InventoryAlert
-          title="庫存警示"
-          alerts={inventoryAlerts}
-          isLoading={isLoading}
-          maxItems={5}
-        />
-
-        {/* Vehicle Fault Ranking */}
-        <Tile className="p-4">
-          <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            🚃 故障排行（近 90 天）
-          </h3>
-          {isLoading ? (
-            <p className="text-gray-500">載入中...</p>
-          ) : vehicleRanking.length === 0 ? (
-            <p className="text-gray-500 text-center py-4">暫無資料</p>
-          ) : (
-            <ul className="space-y-2">
-              {vehicleRanking.slice(0, 5).map((v, i) => (
-                <li key={v.vehicle_code} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                  <div className="flex items-center gap-3">
-                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                      i === 0 ? 'bg-red-100 text-red-700' :
-                      i === 1 ? 'bg-orange-100 text-orange-700' :
-                      i === 2 ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-gray-100 text-gray-600'
-                    }`}>
-                      {i + 1}
-                    </span>
-                    <div>
-                      <p className="font-medium text-sm">{v.vehicle_code}</p>
-                      <p className="text-xs text-gray-500">{v.vehicle_type}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold">{v.fault_count} 次</p>
-                    {v.open_faults > 0 && (
-                      <p className="text-xs text-red-500">{v.open_faults} 待處理</p>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Tile>
-
-        {/* Recent Activity */}
-        <Tile className="p-4">
-          <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Activity size={20} />
-            最近活動
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {activities.map(activity => (
-              <div 
-                key={activity.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '1rem',
-                  padding: '0.75rem',
-                  background: 'var(--bg-secondary)',
-                  borderRadius: '8px'
-                }}
-              >
-                <div style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  background: 'var(--bg-primary)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--text-secondary)'
-                }}>
-                  {getActivityIcon(activity.type)}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '0.875rem' }}>
-                    <strong>{activity.user}</strong> {activity.message}
-                  </div>
-                </div>
-                <div style={{ 
-                  fontSize: '0.75rem', 
-                  color: 'var(--text-secondary)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.25rem'
-                }}>
-                  <Time size={12} />
-                  {activity.time}
-                </div>
-              </div>
+        {/* Recent Queries */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '1rem'
+          }}>
+            <h2 style={{
+              fontSize: '1.125rem',
+              fontWeight: 600,
+              color: 'var(--text-primary)'
+            }}>
+              最近查詢
+            </h2>
+            <Link href="/history" style={{
+              fontSize: '0.875rem',
+              color: 'var(--accent)',
+              textDecoration: 'none'
+            }}>
+              查看全部
+            </Link>
+          </div>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.75rem',
+            flex: 1,
+          }}>
+            {recentQueries.map((query, index) => (
+              <QueryItem key={index} {...query} />
             ))}
           </div>
-        </Tile>
-      </div>
-
-      {/* Quick Actions */}
-      <Tile className="p-4">
-        <h2 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem' }}>
-          快速操作
-        </h2>
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-          <a href="/admin/knowledge-base" className="btn btn-primary" style={{ textDecoration: 'none' }}>
-            <Upload size={16} />
-            上傳文件
-          </a>
-          <a href="/chat" className="btn btn-secondary" style={{ textDecoration: 'none' }}>
-            <Chat size={16} />
-            開始對話
-          </a>
-          <a href="/admin/users" className="btn btn-secondary" style={{ textDecoration: 'none' }}>
-            <User size={16} />
-            管理使用者
-          </a>
-          <a href="/settings" className="btn btn-secondary" style={{ textDecoration: 'none' }}>
-            <Settings size={16} />
-            系統設定
-          </a>
         </div>
-      </Tile>
+
+        {/* Quick Actions */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+          <h2 style={{
+            fontSize: '1.125rem',
+            fontWeight: 600,
+            color: 'var(--text-primary)',
+            marginBottom: '1rem'
+          }}>
+            快速操作
+          </h2>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.75rem'
+          }}>
+            <QuickAction
+              icon={<Bot size={20} />}
+              label="開始 AI 問答"
+              href="/chat"
+              primary
+            />
+            <QuickAction
+              icon={<Search size={18} />}
+              label="搜尋知識庫"
+              href="/admin/knowledge-base"
+            />
+            <QuickAction
+              icon={<Upload size={18} />}
+              label="上傳技術文件"
+              href="/admin/knowledge-base"
+            />
+            <QuickAction
+              icon={<Document size={18} />}
+              label="匯出報表"
+              href="/history"
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

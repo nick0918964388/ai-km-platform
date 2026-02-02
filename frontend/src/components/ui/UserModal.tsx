@@ -99,11 +99,11 @@ export default function UserModal({ isOpen, onClose, onSave, user }: UserModalPr
   if (!isOpen) return null;
 
   return (
-    <div 
+    <div
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0, 0, 0, 0.5)',
+        background: 'rgba(15, 23, 42, 0.3)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -111,14 +111,16 @@ export default function UserModal({ isOpen, onClose, onSave, user }: UserModalPr
       }}
       onClick={onClose}
     >
-      <div 
+      <div
         style={{
-          background: 'white',
-          borderRadius: 12,
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-lg)',
           width: '100%',
           maxWidth: 480,
           maxHeight: '90vh',
           overflow: 'auto',
+          boxShadow: 'var(--shadow-md)',
         }}
         onClick={(e) => e.stopPropagation()}
       >

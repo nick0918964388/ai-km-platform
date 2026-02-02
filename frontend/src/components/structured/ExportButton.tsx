@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Button, Loading } from '@carbon/react';
 import { Download, DocumentExport } from '@carbon/icons-react';
+import { API_URL, API_KEY, TIMEOUTS, fetchWithTimeout, getErrorMessage } from '@/lib/api';
 
 interface ExportButtonProps {
   exportUrl: string;
@@ -13,7 +14,7 @@ interface ExportButtonProps {
   disabled?: boolean;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = API_URL;
 
 export default function ExportButton({
   exportUrl,
@@ -29,7 +30,10 @@ export default function ExportButton({
     setIsExporting(true);
     
     try {
-      const response = await fetch(`${API_BASE}${exportUrl}`);
+      const response = await fetchWithTimeout(`${API_BASE}${exportUrl}`, {
+        headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
+        timeout: TIMEOUTS.EXPORT,
+      });
       
       if (!response.ok) {
         throw new Error('Export failed');
@@ -59,7 +63,7 @@ export default function ExportButton({
       
     } catch (error) {
       console.error('Export error:', error);
-      alert('匯出失敗，請稍後再試');
+      alert(getErrorMessage(error));
     } finally {
       setIsExporting(false);
     }

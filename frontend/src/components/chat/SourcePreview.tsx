@@ -1,23 +1,27 @@
 'use client';
 
 import { Document } from '@carbon/icons-react';
+import { API_URL } from '@/lib/api';
 
 interface SourcePreviewProps {
-  fileUrl: string | null | undefined;
+  documentId: string | null | undefined;
   documentName: string;
 }
 
-export default function SourcePreview({ fileUrl, documentName }: SourcePreviewProps) {
-  if (!fileUrl) {
-    return null;
-  }
-
+export default function SourcePreview({ documentId, documentName }: SourcePreviewProps) {
   const handlePreview = () => {
-    // Get the API base URL from environment or use default
-    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    const fullUrl = `${apiBaseUrl}${fileUrl}`;
+    if (!documentId) {
+      alert('無法預覽：缺少文件識別碼');
+      return;
+    }
+
+    const fullUrl = `${API_URL}/api/kb/documents/${documentId}/file`;
     window.open(fullUrl, '_blank');
   };
+
+  if (!documentId) {
+    return null;
+  }
 
   return (
     <button

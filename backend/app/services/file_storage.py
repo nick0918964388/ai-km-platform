@@ -32,6 +32,13 @@ def get_storage_dir() -> Path:
     """Get the storage directory path."""
     settings = get_settings()
     storage_path = Path(settings.storage_dir)
+    
+    # If relative path, resolve relative to the backend directory
+    if not storage_path.is_absolute():
+        # Get the backend directory (parent of app directory)
+        backend_dir = Path(__file__).resolve().parent.parent.parent
+        storage_path = backend_dir / storage_path
+    
     storage_path.mkdir(parents=True, exist_ok=True)
     return storage_path
 

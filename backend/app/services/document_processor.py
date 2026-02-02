@@ -1,4 +1,5 @@
 """Document processing service for PDF, Word, Excel, and images."""
+import asyncio
 import base64
 import io
 import logging
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[ProcessingStep, int, str, Optional[int]], None]
 
 
-def process_pdf(
+async def process_pdf(
     file_content: bytes,
     filename: str,
     use_smart_chunking: bool = True,
@@ -164,7 +165,7 @@ def process_pdf(
     emit_progress(ProcessingStep.INDEXING, 90, "建立索引中...")
 
     # Store document metadata
-    vector_store.add_document(
+    await vector_store.add_document(
         document_id=document_id,
         filename=filename,
         doc_type="pdf",
@@ -177,7 +178,7 @@ def process_pdf(
     return document_id, chunk_count
 
 
-def process_word(
+async def process_word(
     file_content: bytes,
     filename: str,
     use_smart_chunking: bool = True,
@@ -320,7 +321,7 @@ def process_word(
     emit_progress(ProcessingStep.INDEXING, 90, "建立索引中...")
 
     # Store document metadata
-    vector_store.add_document(
+    await vector_store.add_document(
         document_id=document_id,
         filename=filename,
         doc_type="word",
@@ -333,7 +334,7 @@ def process_word(
     return document_id, chunk_count
 
 
-def process_image(
+async def process_image(
     file_content: bytes,
     filename: str,
     progress_callback: Optional[ProgressCallback] = None,
@@ -397,7 +398,7 @@ def process_image(
     emit_progress(ProcessingStep.INDEXING, 90, "建立索引中...")
 
     # Store document metadata
-    vector_store.add_document(
+    await vector_store.add_document(
         document_id=document_id,
         filename=filename,
         doc_type="image",
@@ -410,7 +411,7 @@ def process_image(
     return document_id, 1
 
 
-def process_excel(
+async def process_excel(
     file_content: bytes,
     filename: str,
     use_smart_chunking: bool = True,
@@ -586,7 +587,7 @@ def process_excel(
     emit_progress(ProcessingStep.INDEXING, 90, "建立索引中...")
 
     # Store document metadata
-    vector_store.add_document(
+    await vector_store.add_document(
         document_id=document_id,
         filename=filename,
         doc_type="excel",

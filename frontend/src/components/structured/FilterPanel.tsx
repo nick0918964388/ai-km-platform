@@ -27,7 +27,7 @@ interface FilterConfig {
   severity?: FilterOption[];
 }
 
-interface FilterValues {
+export interface FilterValues {
   depot?: string;
   vehicleType?: string;
   status?: string;
@@ -37,6 +37,8 @@ interface FilterValues {
   severity?: string;
   startDate?: string;
   endDate?: string;
+  category?: string;
+  lowStockOnly?: string;
 }
 
 interface FilterPanelProps {

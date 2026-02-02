@@ -10,10 +10,15 @@ import {
   CloudUpload,
   CheckmarkFilled,
   ErrorFilled,
-  InProgress
+  InProgress,
+  DataBase,
+  ChevronLeft,
+  ChevronRight,
+  Notification,
 } from '@carbon/icons-react';
 import { UploadProgress } from '@/components/upload/UploadProgress';
 import type { ProgressMessage } from '@/hooks/useUploadProgress';
+import { API_URL, API_KEY, TIMEOUTS, fetchWithTimeout, getErrorMessage } from '@/lib/api';
 
 interface KBDocument {
   id: string;
@@ -26,7 +31,7 @@ interface KBDocument {
   taskId?: string;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = API_URL;
 
 export default function KnowledgeBasePage() {
   const [documents, setDocuments] = useState<KBDocument[]>([]);
@@ -40,7 +45,10 @@ export default function KnowledgeBasePage() {
   // Fetch documents from API on mount
   const fetchDocuments = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/kb/documents`);
+      const res = await fetchWithTimeout(`${API_BASE}/api/kb/documents`, {
+        headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
+        timeout: TIMEOUTS.DEFAULT,
+      });
       if (res.ok) {
         const data = await res.json();
         setDocuments(
@@ -56,7 +64,7 @@ export default function KnowledgeBasePage() {
         );
       }
     } catch (error) {
-      console.error('Failed to fetch documents:', error);
+      console.error('Failed to fetch documents:', getErrorMessage(error));
     } finally {
       setLoadingDocs(false);
     }
@@ -107,9 +115,11 @@ export default function KnowledgeBasePage() {
       formData.append('file', file);
 
       try {
-        const res = await fetch(`${API_BASE}/api/kb/upload`, {
+        const res = await fetchWithTimeout(`${API_BASE}/api/kb/upload`, {
           method: 'POST',
+          headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
           body: formData,
+          timeout: TIMEOUTS.UPLOAD,
         });
 
         if (!res.ok) {
@@ -157,8 +167,10 @@ export default function KnowledgeBasePage() {
   const handleDelete = async (id: string) => {
     if (confirm('確定要刪除此文件？相關的知識庫內容也會被移除。')) {
       try {
-        const res = await fetch(`${API_BASE}/api/kb/documents/${id}`, {
+        const res = await fetchWithTimeout(`${API_BASE}/api/kb/documents/${id}`, {
           method: 'DELETE',
+          headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
+          timeout: TIMEOUTS.DEFAULT,
         });
         if (res.ok) {
           setDocuments(documents.filter(doc => doc.id !== id));
@@ -168,7 +180,7 @@ export default function KnowledgeBasePage() {
         }
       } catch (error) {
         console.error('Delete error:', error);
-        alert('刪除失敗，請稍後再試');
+        alert(getErrorMessage(error));
       }
     }
   };
@@ -198,36 +210,148 @@ export default function KnowledgeBasePage() {
   const totalChunks = documents.filter(d => d.status === 'ready').reduce((acc, d) => acc + (d.chunks || 0), 0);
   const totalSize = documents.reduce((acc, d) => acc + d.size, 0);
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(filteredDocuments.length / itemsPerPage);
+  const paginatedDocuments = filteredDocuments.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
   return (
-    <div className="settings-container" style={{ maxWidth: 1000 }}>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
+    <div style={{
+      padding: '2rem',
+      height: '100%',
+      overflow: 'auto',
+      background: 'var(--bg-primary)'
+    }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
         marginBottom: '1.5rem'
       }}>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 600 }}>
-          知識庫管理
-        </h1>
+        <div>
+          <h1 style={{
+            fontSize: '1.75rem',
+            fontWeight: 700,
+            color: 'var(--text-primary)',
+            marginBottom: '0.25rem'
+          }}>
+            知識庫管理
+          </h1>
+          <p style={{
+            fontSize: '0.875rem',
+            color: 'var(--text-muted)'
+          }}>
+            管理維修手冊、技術文件及知識庫內容
+          </p>
+        </div>
+        <button className="btn-icon">
+          <Notification size={20} />
+        </button>
       </div>
 
-      {/* Upload Area */}
-      <div
-        className={`settings-section ${dragOver ? 'drag-over' : ''}`}
-        style={{
-          border: dragOver ? '2px dashed var(--primary)' : '2px dashed var(--border)',
-          background: dragOver ? 'var(--primary-subtle)' : 'var(--bg-primary)',
-          textAlign: 'center',
-          padding: '2rem',
-          cursor: uploading ? 'default' : 'pointer',
-          transition: 'all 0.2s',
-          opacity: uploading ? 0.7 : 1,
-        }}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onClick={() => !uploading && fileInputRef.current?.click()}
-      >
+      {/* Stats Grid */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        gap: '1.25rem',
+        marginBottom: '1.5rem'
+      }}>
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <span className="stat-card-title">文件數量</span>
+            <div className="stat-card-icon" style={{ background: 'var(--primary-light)' }}>
+              <Document size={20} style={{ color: 'var(--accent)' }} />
+            </div>
+          </div>
+          <div className="stat-card-value">{documents.length}</div>
+          <div className="stat-card-change neutral">總計上傳文件</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <span className="stat-card-title">知識片段</span>
+            <div className="stat-card-icon" style={{ background: 'var(--primary-light)' }}>
+              <DataBase size={20} style={{ color: 'var(--accent)' }} />
+            </div>
+          </div>
+          <div className="stat-card-value">{totalChunks.toLocaleString()}</div>
+          <div className="stat-card-change neutral">已建立索引</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <span className="stat-card-title">儲存空間</span>
+            <div className="stat-card-icon" style={{ background: 'var(--primary-light)' }}>
+              <CloudUpload size={20} style={{ color: 'var(--accent)' }} />
+            </div>
+          </div>
+          <div className="stat-card-value">{formatSize(totalSize)}</div>
+          <div className="stat-card-change neutral">已使用空間</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <span className="stat-card-title">處理中</span>
+            <div className="stat-card-icon" style={{ background: 'var(--warning-light)' }}>
+              <InProgress size={20} style={{ color: 'var(--warning)' }} />
+            </div>
+          </div>
+          <div className="stat-card-value">{documents.filter(d => d.status === 'processing').length}</div>
+          <div className="stat-card-change neutral">等待完成</div>
+        </div>
+      </div>
+
+      {/* Search and Upload Row */}
+      <div style={{
+        display: 'flex',
+        gap: '1rem',
+        marginBottom: '1.5rem'
+      }}>
+        <div style={{ flex: 1, position: 'relative' }}>
+          <Search
+            size={18}
+            style={{
+              position: 'absolute',
+              left: 16,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: 'var(--text-muted)'
+            }}
+          />
+          <input
+            type="text"
+            className="form-input"
+            placeholder="搜尋文件名稱..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              paddingLeft: 48,
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border)',
+              height: 48
+            }}
+          />
+        </div>
+        <button
+          className="btn-primary"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0 1.5rem',
+            height: 48
+          }}
+        >
+          <Upload size={18} />
+          上傳文件
+        </button>
         <input
           type="file"
           ref={fileInputRef}
@@ -237,26 +361,34 @@ export default function KnowledgeBasePage() {
           style={{ display: 'none' }}
           disabled={uploading}
         />
-        <CloudUpload size={48} style={{ color: 'var(--primary)', marginBottom: '1rem' }} />
-        <div style={{ fontSize: '1.125rem', fontWeight: 500, marginBottom: '0.5rem' }}>
-          {uploading ? '上傳中...' : '拖放文件到這裡上傳'}
-        </div>
-        <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-          支援 PDF、Word (.docx)、PNG、JPG、WEBP 格式
-        </div>
-        <button
-          className="btn btn-primary"
-          style={{ marginTop: '1rem' }}
-          onClick={(e) => {
-            e.stopPropagation();
-            fileInputRef.current?.click();
-          }}
-          disabled={uploading}
-        >
-          <Upload size={16} />
-          {uploading ? '處理中...' : '選擇檔案'}
-        </button>
       </div>
+
+      {/* Upload Drop Zone (shown when dragging) */}
+      {dragOver && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 51, 102, 0.9)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <CloudUpload size={64} style={{ color: 'var(--accent)', marginBottom: '1rem' }} />
+          <div style={{ fontSize: '1.5rem', fontWeight: 600, color: 'white', marginBottom: '0.5rem' }}>
+            放開以上傳文件
+          </div>
+          <div style={{ color: 'var(--text-muted)' }}>
+            支援 PDF、Word、PNG、JPG、WEBP 格式
+          </div>
+        </div>
+      )}
 
       {/* Upload Progress (WebSocket) */}
       {activeTaskId && (
@@ -268,56 +400,8 @@ export default function KnowledgeBasePage() {
         />
       )}
 
-      {/* Stats */}
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(4, 1fr)', 
-        gap: '1rem',
-        marginBottom: '1.5rem'
-      }}>
-        {[
-          { label: '文件數量', value: documents.length, unit: '份' },
-          { label: '知識片段', value: totalChunks, unit: '個' },
-          { label: '總大小', value: formatSize(totalSize), unit: '' },
-          { label: '處理中', value: documents.filter(d => d.status === 'processing').length, unit: '份' },
-        ].map((stat) => (
-          <div key={stat.label} className="settings-section" style={{ textAlign: 'center', padding: '1rem' }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 600, color: 'var(--primary)' }}>
-              {stat.value}{stat.unit}
-            </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-              {stat.label}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Search */}
-      <div className="settings-section" style={{ padding: '1rem' }}>
-        <div style={{ position: 'relative' }}>
-          <Search 
-            size={18} 
-            style={{ 
-              position: 'absolute', 
-              left: 12, 
-              top: '50%', 
-              transform: 'translateY(-50%)',
-              color: 'var(--text-secondary)'
-            }} 
-          />
-          <input
-            type="text"
-            className="form-input"
-            placeholder="搜尋文件..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ paddingLeft: 40 }}
-          />
-        </div>
-      </div>
-
-      {/* Document List */}
-      <div className="settings-section" style={{ padding: 0, overflow: 'hidden' }}>
+      {/* Document Table */}
+      <div className="table-container">
         <table className="data-table">
           <thead>
             <tr>
@@ -327,24 +411,37 @@ export default function KnowledgeBasePage() {
               <th>知識片段</th>
               <th>狀態</th>
               <th>上傳時間</th>
-              <th style={{ width: 80 }}>操作</th>
+              <th style={{ width: 80, textAlign: 'center' }}>操作</th>
             </tr>
           </thead>
           <tbody>
-            {filteredDocuments.map((doc) => (
+            {paginatedDocuments.map((doc) => (
               <tr key={doc.id}>
                 <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    {doc.type === 'pdf' ? (
-                      <Document size={20} style={{ color: '#da1e28' }} />
-                    ) : (
-                      <ImageIcon size={20} style={{ color: '#0043ce' }} />
-                    )}
-                    <span style={{ 
-                      overflow: 'hidden', 
-                      textOverflow: 'ellipsis', 
+                    <div style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 'var(--radius-md)',
+                      background: doc.type === 'pdf' ? 'rgba(218, 30, 40, 0.15)' : 'rgba(80, 144, 211, 0.15)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      {doc.type === 'pdf' ? (
+                        <Document size={18} style={{ color: '#ff6b6b' }} />
+                      ) : (
+                        <ImageIcon size={18} style={{ color: 'var(--accent)' }} />
+                      )}
+                    </div>
+                    <span style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
-                      maxWidth: 200
+                      maxWidth: 240,
+                      color: 'var(--text-primary)',
+                      fontWeight: 500
                     }}>
                       {doc.name}
                     </span>
@@ -355,37 +452,39 @@ export default function KnowledgeBasePage() {
                     {doc.type.toUpperCase()}
                   </span>
                 </td>
-                <td>{formatSize(doc.size)}</td>
-                <td>{doc.chunks || '-'}</td>
+                <td style={{ color: 'var(--text-muted)' }}>{formatSize(doc.size)}</td>
+                <td style={{ color: 'var(--text-muted)' }}>{doc.chunks || '-'}</td>
                 <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     {doc.status === 'ready' && (
                       <>
-                        <CheckmarkFilled size={16} style={{ color: '#198038' }} />
-                        <span style={{ color: '#198038' }}>就緒</span>
+                        <CheckmarkFilled size={16} style={{ color: 'var(--success)' }} />
+                        <span style={{ color: 'var(--success)', fontSize: '0.8125rem' }}>就緒</span>
                       </>
                     )}
                     {doc.status === 'processing' && (
                       <>
-                        <InProgress size={16} style={{ color: '#0043ce' }} className="spinner" />
-                        <span style={{ color: '#0043ce' }}>處理中</span>
+                        <InProgress size={16} style={{ color: 'var(--accent)' }} className="spinner" />
+                        <span style={{ color: 'var(--accent)', fontSize: '0.8125rem' }}>處理中</span>
                       </>
                     )}
                     {doc.status === 'error' && (
                       <>
-                        <ErrorFilled size={16} style={{ color: '#da1e28' }} />
-                        <span style={{ color: '#da1e28' }}>錯誤</span>
+                        <ErrorFilled size={16} style={{ color: 'var(--error)' }} />
+                        <span style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>錯誤</span>
                       </>
                     )}
                   </div>
                 </td>
-                <td>{doc.uploadedAt.toLocaleDateString('zh-TW')}</td>
-                <td>
-                  <button 
-                    className="input-btn" 
+                <td style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                  {doc.uploadedAt.toLocaleDateString('zh-TW')}
+                </td>
+                <td style={{ textAlign: 'center' }}>
+                  <button
+                    className="btn-icon"
                     title="刪除"
                     onClick={() => handleDelete(doc.id)}
-                    style={{ color: '#da1e28' }}
+                    style={{ color: 'var(--error)' }}
                     disabled={doc.status === 'processing'}
                   >
                     <TrashCan size={16} />
@@ -398,34 +497,116 @@ export default function KnowledgeBasePage() {
 
         {loadingDocs ? (
           <div style={{
-            padding: '3rem',
+            padding: '4rem',
             textAlign: 'center',
-            color: 'var(--text-secondary)'
+            color: 'var(--text-muted)'
           }}>
-            <InProgress size={24} className="spinner" style={{ marginBottom: '0.5rem' }} />
-            <div>載入中...</div>
+            <InProgress size={32} className="spinner" style={{ marginBottom: '1rem', color: 'var(--accent)' }} />
+            <div>載入文件列表中...</div>
           </div>
         ) : filteredDocuments.length === 0 ? (
           <div style={{
-            padding: '3rem',
+            padding: '4rem',
             textAlign: 'center',
-            color: 'var(--text-secondary)'
+            color: 'var(--text-muted)'
           }}>
-            {documents.length === 0 ? '尚無上傳文件，請上傳文件開始建立知識庫' : '找不到符合的文件'}
+            <DataBase size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
+            <div style={{ marginBottom: '0.5rem', fontWeight: 500 }}>
+              {documents.length === 0 ? '尚無上傳文件' : '找不到符合的文件'}
+            </div>
+            <div style={{ fontSize: '0.875rem' }}>
+              {documents.length === 0 ? '點擊上方「上傳文件」按鈕開始建立知識庫' : '請嘗試其他搜尋關鍵字'}
+            </div>
           </div>
         ) : null}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '1rem 1.5rem',
+            borderTop: '1px solid var(--border)',
+            background: 'var(--bg-secondary)'
+          }}>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+              顯示 {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredDocuments.length)} 筆，共 {filteredDocuments.length} 筆
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <button
+                className="btn-icon"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                style={{ opacity: currentPage === 1 ? 0.5 : 1 }}
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.25rem'
+              }}>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 'var(--radius-md)',
+                      border: 'none',
+                      background: page === currentPage ? 'var(--accent)' : 'transparent',
+                      color: page === currentPage ? 'white' : 'var(--text-muted)',
+                      fontWeight: page === currentPage ? 600 : 400,
+                      cursor: 'pointer',
+                      transition: 'all var(--transition-fast)'
+                    }}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="btn-icon"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                style={{ opacity: currentPage === totalPages ? 0.5 : 1 }}
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Info */}
-      <div style={{ 
+      {/* Info Banner */}
+      <div style={{
         marginTop: '1.5rem',
-        padding: '1rem',
-        background: '#edf5ff',
-        borderRadius: 8,
-        fontSize: '0.875rem',
-        color: '#0043ce',
+        padding: '1rem 1.25rem',
+        background: 'var(--primary-light)',
+        borderRadius: 'var(--radius-lg)',
+        border: '1px solid var(--border)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.75rem'
       }}>
-        <strong>💡 提示：</strong>上傳 PDF 文件會自動提取文字和圖片，建立多模態知識庫索引。圖片會使用 CLIP 模型進行視覺嵌入。
+        <div style={{
+          width: 32,
+          height: 32,
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--accent)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0
+        }}>
+          <DataBase size={16} style={{ color: 'white' }} />
+        </div>
+        <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+          <strong style={{ color: 'var(--text-primary)' }}>提示：</strong>
+          上傳 PDF 文件會自動提取文字和圖片，建立多模態知識庫索引。圖片會使用 CLIP 模型進行視覺嵌入。
+        </div>
       </div>
     </div>
   );

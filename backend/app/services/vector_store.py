@@ -12,12 +12,16 @@ from qdrant_client.models import (
     FieldCondition,
     MatchValue,
 )
+from sqlalchemy import select, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.services.embedding import (
     get_text_embedding_dimension,
     get_image_embedding_dimension,
 )
+from app.models.document import Document
+from app.db.session import get_db_context
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +31,6 @@ _client: Optional[QdrantClient] = None
 # Collection names
 TEXT_COLLECTION = "text_chunks"
 IMAGE_COLLECTION = "image_chunks"
-
-# In-memory document storage (TODO: migrate to persistent storage)
-_documents: dict[str, dict] = {}
 
 
 def get_client() -> QdrantClient:
@@ -111,69 +112,98 @@ def _initialize_collections():
     )
 
 
-def add_document(
+async def add_document(
     document_id: str,
     filename: str,
     doc_type: str,
     file_size: int,
     chunk_count: int,
 ) -> None:
-    """Add document metadata."""
-    _documents[document_id] = {
-        "id": document_id,
-        "filename": filename,
-        "doc_type": doc_type,
-        "file_size": file_size,
-        "chunk_count": chunk_count,
-        "uploaded_at": datetime.utcnow().isoformat(),
-    }
+    """Add document metadata to PostgreSQL."""
+    async with get_db_context() as db:
+        doc = Document(
+            id=document_id,
+            filename=filename,
+            doc_type=doc_type,
+            file_size=file_size,
+            chunk_count=chunk_count,
+            uploaded_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(doc)
+        await db.commit()
+        logger.info(f"Document {document_id} ({filename}) saved to database")
 
 
-def get_document(document_id: str) -> Optional[dict]:
-    """Get document by ID."""
-    return _documents.get(document_id)
+async def get_document(document_id: str) -> Optional[dict]:
+    """Get document by ID from PostgreSQL."""
+    async with get_db_context() as db:
+        result = await db.execute(
+            select(Document).where(Document.id == document_id)
+        )
+        doc = result.scalar_one_or_none()
+        return doc.to_dict() if doc else None
 
 
-def list_documents() -> list[dict]:
-    """List all documents."""
-    return list(_documents.values())
+async def list_documents() -> list[dict]:
+    """List all documents from PostgreSQL."""
+    async with get_db_context() as db:
+        result = await db.execute(
+            select(Document).order_by(Document.uploaded_at.desc())
+        )
+        docs = result.scalars().all()
+        return [doc.to_dict() for doc in docs]
 
 
-def delete_document(document_id: str) -> bool:
+async def delete_document(document_id: str) -> bool:
     """Delete document and its chunks."""
-    if document_id not in _documents:
-        return False
+    async with get_db_context() as db:
+        # Check if document exists
+        result = await db.execute(
+            select(Document).where(Document.id == document_id)
+        )
+        doc = result.scalar_one_or_none()
+        
+        if not doc:
+            return False
 
-    client = get_client()
+        # Delete from Qdrant
+        client = get_client()
 
-    # Delete text chunks
-    client.delete(
-        collection_name=TEXT_COLLECTION,
-        points_selector=Filter(
-            must=[
-                FieldCondition(
-                    key="document_id",
-                    match=MatchValue(value=document_id),
-                )
-            ]
-        ),
-    )
+        # Delete text chunks
+        client.delete(
+            collection_name=TEXT_COLLECTION,
+            points_selector=Filter(
+                must=[
+                    FieldCondition(
+                        key="document_id",
+                        match=MatchValue(value=document_id),
+                    )
+                ]
+            ),
+        )
 
-    # Delete image chunks
-    client.delete(
-        collection_name=IMAGE_COLLECTION,
-        points_selector=Filter(
-            must=[
-                FieldCondition(
-                    key="document_id",
-                    match=MatchValue(value=document_id),
-                )
-            ]
-        ),
-    )
+        # Delete image chunks
+        client.delete(
+            collection_name=IMAGE_COLLECTION,
+            points_selector=Filter(
+                must=[
+                    FieldCondition(
+                        key="document_id",
+                        match=MatchValue(value=document_id),
+                    )
+                ]
+            ),
+        )
 
-    del _documents[document_id]
-    return True
+        # Delete from PostgreSQL
+        await db.execute(
+            delete(Document).where(Document.id == document_id)
+        )
+        await db.commit()
+        
+        logger.info(f"Document {document_id} deleted from database and Qdrant")
+        return True
 
 
 def add_text_chunk(
@@ -291,14 +321,14 @@ def search_images(
     ]
 
 
-def get_stats() -> dict:
+async def get_stats() -> dict:
     """Get knowledge base statistics."""
     client = get_client()
 
     text_info = client.get_collection(TEXT_COLLECTION)
     image_info = client.get_collection(IMAGE_COLLECTION)
 
-    doc_list = list_documents()
+    doc_list = await list_documents()
     pdf_count = sum(1 for d in doc_list if d["doc_type"] == "pdf")
     word_count = sum(1 for d in doc_list if d["doc_type"] == "word")
     excel_count = sum(1 for d in doc_list if d["doc_type"] == "excel")

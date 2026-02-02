@@ -6,6 +6,10 @@ Uses asyncpg for PostgreSQL connections.
 import os
 from typing import AsyncGenerator
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -16,7 +20,7 @@ from sqlalchemy.ext.asyncio import (
 # Get database URL from environment
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+asyncpg://aikm:aikm@localhost:5433/aikm"
+    "postgresql+asyncpg://aikm:aikm@localhost:5432/aikm"
 )
 
 # Create async engine

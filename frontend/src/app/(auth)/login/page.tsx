@@ -3,6 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
+import {
+  Bot,
+  Document,
+  Search,
+  Analytics,
+} from '@carbon/icons-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,6 +17,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,91 +53,138 @@ export default function LoginPage() {
 
   return (
     <div className="login-container">
-      <div className="login-card">
-        <div style={{ 
-          textAlign: 'center', 
-          marginBottom: '2rem' 
-        }}>
+      {/* Left Panel - Train Image with Branding */}
+      <div className="login-image-panel" style={{
+        backgroundImage: 'url(https://images.unsplash.com/photo-1474487548417-781cb71495f3?w=1200)',
+        flex: 1,
+        minWidth: 0,
+      }}>
+        <div className="login-image-overlay" />
+        <div className="login-image-content" style={{ gap: '1rem', display: 'flex', flexDirection: 'column' }}>
+          <h1 className="login-branding-text">AIKM 台鐵問答 AI</h1>
+          <p className="login-branding-desc">
+            AI 驅動的車輛維修知識管理平台，快速查詢維修知識與技術文件
+          </p>
+
+          {/* Feature Cards */}
           <div style={{
-            width: 64,
-            height: 64,
-            background: 'var(--primary)',
-            borderRadius: 12,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            fontSize: '1.5rem',
-            fontWeight: 700,
-            margin: '0 auto 1rem'
+            gap: '1.5rem',
+            marginTop: '1.5rem',
+            flexWrap: 'wrap',
           }}>
-            KM
-          </div>
-          <h1 className="login-title">車輛維修知識庫</h1>
-          <p className="login-subtitle">AI 智慧助理平台</p>
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          {error && (
-            <div style={{
-              padding: '0.75rem 1rem',
-              background: '#ffd7d9',
-              color: '#a2191f',
-              borderRadius: 8,
-              marginBottom: '1rem',
-              fontSize: '0.875rem'
-            }}>
-              {error}
+            <div className="feature-card" style={{ flex: 1, minWidth: 180 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <Bot size={20} style={{ color: 'var(--accent)' }} />
+                <span className="feature-card-title">智慧問答</span>
+              </div>
+              <p className="feature-card-desc">AI 驅動的維修知識查詢</p>
             </div>
-          )}
+            <div className="feature-card" style={{ flex: 1, minWidth: 180 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <Document size={20} style={{ color: 'var(--accent)' }} />
+                <span className="feature-card-title">技術文件</span>
+              </div>
+              <p className="feature-card-desc">完整維修手冊與規範</p>
+            </div>
+            <div className="feature-card" style={{ flex: 1, minWidth: 180 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <Search size={20} style={{ color: 'var(--accent)' }} />
+                <span className="feature-card-title">知識搜尋</span>
+              </div>
+              <p className="feature-card-desc">快速精準定位資訊</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
-          <div className="form-group">
-            <label className="form-label">電子郵件</label>
-            <input
-              type="email"
-              className="form-input"
-              placeholder="your@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
+      {/* Right Panel - Login Form */}
+      <div className="login-panel">
+        <div className="login-card">
+          {/* Logo Section */}
+          <div className="login-logo-section">
+            <div className="login-logo-icon">
+              <Bot size={32} />
+            </div>
+            <h1 className="login-title">AIKM</h1>
+            <p className="login-subtitle">台鐵問答 AI 系統</p>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">密碼</label>
-            <input
-              type="password"
-              className="form-input"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+          {/* Welcome Section */}
+          <div className="login-welcome">
+            <h2 className="login-welcome-title">歡迎登入</h2>
+            <p className="login-welcome-subtitle">請輸入您的帳號密碼以存取系統</p>
           </div>
 
-          <button
-            type="submit"
-            className="btn btn-primary"
-            style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem', gap: '0.5rem' }}
-            disabled={loading}
-          >
-            {loading && <span className="spinner" style={{ width: 16, height: 16, borderWidth: '2px' }} />}
-            {loading ? '登入中...' : '登入'}
-          </button>
-        </form>
+          <form onSubmit={handleSubmit} className="login-form">
+            {error && (
+              <div style={{
+                padding: '0.75rem 1rem',
+                background: 'var(--error-light)',
+                border: '1px solid var(--error)',
+                color: 'var(--error)',
+                borderRadius: 8,
+                marginBottom: '1rem',
+                fontSize: '0.875rem'
+              }}>
+                {error}
+              </div>
+            )}
 
-        <div style={{
-          marginTop: '1.5rem',
-          padding: '1rem',
-          background: 'var(--bg-secondary)',
-          borderRadius: 8,
-          fontSize: '0.75rem',
-          color: 'var(--text-secondary)',
-          lineHeight: 1.6
-        }}>
-          <strong>Demo 帳號：</strong>
-          <div style={{ marginTop: '0.25rem' }}>管理員：admin@example.com / admin</div>
-          <div>一般使用者：任意 email / 任意密碼</div>
+            <div className="form-group">
+              <label className="form-label">電子郵件</label>
+              <input
+                type="email"
+                className="form-input"
+                placeholder="請輸入您的電子郵件"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">密碼</label>
+              <input
+                type="password"
+                className="form-input"
+                placeholder="請輸入密碼"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="login-options">
+              <label className="login-remember">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  style={{
+                    width: 16,
+                    height: 16,
+                    accentColor: 'var(--accent)',
+                  }}
+                />
+                記住我
+              </label>
+              <a href="#" className="login-forgot">忘記密碼？</a>
+            </div>
+
+            <button
+              type="submit"
+              className="btn btn-primary login-btn"
+              disabled={loading}
+            >
+              {loading && <span className="spinner" style={{ width: 16, height: 16, borderWidth: '2px' }} />}
+              {loading ? '登入中...' : '登入'}
+            </button>
+          </form>
+
+          <div className="login-signup">
+            還沒有帳號？ <a href="#" className="login-signup-link">立即註冊</a>
+          </div>
         </div>
       </div>
     </div>

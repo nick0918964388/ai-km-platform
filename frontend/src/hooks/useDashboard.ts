@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import { API_URL, API_KEY, TIMEOUTS, fetchWithTimeout, getErrorMessage } from '@/lib/api';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = API_URL;
+const API_HEADERS: Record<string, string> = API_KEY ? { 'X-API-Key': API_KEY } : {};
 
 interface DashboardSummary {
   total_vehicles: number;
@@ -58,11 +60,11 @@ export function useDashboard() {
 
     try {
       const [summaryRes, trendsRes, costRes, rankRes, alertsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/dashboard/summary`),
-        fetch(`${API_BASE}/api/dashboard/fault-trends?days=30`),
-        fetch(`${API_BASE}/api/dashboard/cost-distribution?months=3`),
-        fetch(`${API_BASE}/api/dashboard/vehicle-fault-ranking?limit=10`),
-        fetch(`${API_BASE}/api/dashboard/inventory-alerts`),
+        fetchWithTimeout(`${API_BASE}/api/dashboard/summary`, { headers: API_HEADERS, timeout: TIMEOUTS.DEFAULT }),
+        fetchWithTimeout(`${API_BASE}/api/dashboard/fault-trends?days=30`, { headers: API_HEADERS, timeout: TIMEOUTS.DEFAULT }),
+        fetchWithTimeout(`${API_BASE}/api/dashboard/cost-distribution?months=3`, { headers: API_HEADERS, timeout: TIMEOUTS.DEFAULT }),
+        fetchWithTimeout(`${API_BASE}/api/dashboard/vehicle-fault-ranking?limit=10`, { headers: API_HEADERS, timeout: TIMEOUTS.DEFAULT }),
+        fetchWithTimeout(`${API_BASE}/api/dashboard/inventory-alerts`, { headers: API_HEADERS, timeout: TIMEOUTS.DEFAULT }),
       ]);
 
       if (!summaryRes.ok || !trendsRes.ok || !costRes.ok || !rankRes.ok || !alertsRes.ok) {
@@ -115,20 +117,23 @@ export function useDashboardSummary() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
+  const fetchSummary = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await window.fetch(`${API_BASE}/api/dashboard/summary`);
+      const res = await fetchWithTimeout(`${API_BASE}/api/dashboard/summary`, {
+        headers: API_HEADERS,
+        timeout: TIMEOUTS.DEFAULT,
+      });
       if (!res.ok) throw new Error('Failed to fetch');
       setData(await res.json());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error');
+      setError(getErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetch(); }, [fetch]);
+  useEffect(() => { fetchSummary(); }, [fetchSummary]);
 
-  return { data, isLoading, error, refresh: fetch };
+  return { data, isLoading, error, refresh: fetchSummary };
 }

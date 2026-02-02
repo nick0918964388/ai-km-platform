@@ -198,7 +198,7 @@ export default function DataTable({
   }
   
   return (
-    <div className="data-table-container">
+    <div className="table-container data-table-container">
       <CarbonDataTable rows={rows} headers={headers}>
         {({
           rows: tableRows,

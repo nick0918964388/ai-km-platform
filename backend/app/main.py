@@ -1,10 +1,45 @@
 """AI KM Platform - Multimodal RAG Backend."""
+import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.routers import kb, chat, upload_ws, structured, query, export, dashboard
 from app.config import get_settings
+
+# API Key for authentication
+API_KEY = os.getenv("AIKM_API_KEY", "")
+
+# Allowed origins for CORS
+ALLOWED_ORIGINS = [
+    "https://aikm.nickai.cc",
+    "http://localhost:3000",
+    "http://localhost:3001",
+]
+
+
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    """Middleware to verify API key for protected endpoints."""
+    
+    # Endpoints that don't require API key
+    PUBLIC_PATHS = ["/", "/health", "/docs", "/openapi.json", "/redoc"]
+    
+    async def dispatch(self, request: Request, call_next):
+        # Skip API key check for public paths
+        if request.url.path in self.PUBLIC_PATHS:
+            return await call_next(request)
+        
+        # Skip if no API key is configured (development mode)
+        if not API_KEY:
+            return await call_next(request)
+        
+        # Check API key in header
+        request_api_key = request.headers.get("X-API-Key")
+        if request_api_key != API_KEY:
+            raise HTTPException(status_code=401, detail="Invalid or missing API key")
+        
+        return await call_next(request)
 
 
 @asynccontextmanager
@@ -46,13 +81,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration - allow all origins in development
+# API Key middleware (must be added before CORS)
+app.add_middleware(APIKeyMiddleware)
+
+# CORS configuration - restrict to allowed origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "X-API-Key"],  # Allow API key header
 )
 
 # Include routers

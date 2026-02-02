@@ -1,6 +1,7 @@
 """Knowledge base router for upload and document management."""
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 
@@ -57,16 +58,16 @@ async def upload_document(file: UploadFile = File(...)):
 
     try:
         if file_type == "pdf":
-            doc_id, chunk_count = document_processor.process_pdf(content, file.filename)
+            doc_id, chunk_count = await document_processor.process_pdf(content, file.filename)
             doc_type = DocumentType.PDF
         elif file_type == "word":
-            doc_id, chunk_count = document_processor.process_word(content, file.filename)
+            doc_id, chunk_count = await document_processor.process_word(content, file.filename)
             doc_type = DocumentType.WORD
         elif file_type == "excel":
-            doc_id, chunk_count = document_processor.process_excel(content, file.filename)
+            doc_id, chunk_count = await document_processor.process_excel(content, file.filename)
             doc_type = DocumentType.EXCEL
         else:
-            doc_id, chunk_count = document_processor.process_image(content, file.filename)
+            doc_id, chunk_count = await document_processor.process_image(content, file.filename)
             doc_type = DocumentType.IMAGE
 
         return UploadResponse(
@@ -90,7 +91,7 @@ async def upload_document(file: UploadFile = File(...)):
 @router.get("/documents", response_model=DocumentListResponse)
 async def list_documents():
     """List all documents in the knowledge base."""
-    docs = vector_store.list_documents()
+    docs = await vector_store.list_documents()
 
     documents = [
         DocumentInfo(
@@ -113,7 +114,7 @@ async def list_documents():
 @router.delete("/documents/{document_id}", response_model=DeleteResponse)
 async def delete_document(document_id: str):
     """Delete a document and its chunks from the knowledge base."""
-    success = vector_store.delete_document(document_id)
+    success = await vector_store.delete_document(document_id)
 
     if not success:
         raise HTTPException(
@@ -133,7 +134,7 @@ async def delete_document(document_id: str):
 @router.get("/stats", response_model=StatsResponse)
 async def get_stats():
     """Get knowledge base statistics."""
-    stats = vector_store.get_stats()
+    stats = await vector_store.get_stats()
     return StatsResponse(**stats)
 
 
@@ -149,25 +150,45 @@ async def get_document_file(document_id: str):
     - PDF files: Displayed inline in browser (Content-Disposition: inline)
     - Word/Image files: Trigger download (Content-Disposition: attachment)
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     file_info = file_storage.get_file_info(document_id)
 
     if not file_info:
+        logger.error(f"File not found for document_id: {document_id}")
         raise HTTPException(
             status_code=404,
             detail="找不到原始檔案",
         )
 
+    # Verify file actually exists
+    file_path = Path(file_info["file_path"])
+    if not file_path.exists():
+        logger.error(f"File path does not exist: {file_path}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"檔案不存在: {file_info['filename']}",
+        )
+
     # Determine content disposition based on file type
+    # Use RFC 5987 encoding for non-ASCII filenames
+    filename = file_info["filename"]
+    # URL encode the filename for UTF-8 support in Content-Disposition header
+    encoded_filename = quote(filename, safe='')
+    
     if file_info["is_inline"]:
         # PDF - display inline in browser
-        content_disposition = f'inline; filename="{file_info["filename"]}"'
+        content_disposition = f"inline; filename*=UTF-8''{encoded_filename}"
     else:
         # Word, images - trigger download
-        content_disposition = f'attachment; filename="{file_info["filename"]}"'
+        content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
 
+    logger.info(f"Serving file: {file_path} as {file_info['content_type']}")
+    
     return FileResponse(
-        path=file_info["file_path"],
-        filename=file_info["filename"],
+        path=str(file_path),
+        filename=filename,
         media_type=file_info["content_type"],
         headers={"Content-Disposition": content_disposition},
     )

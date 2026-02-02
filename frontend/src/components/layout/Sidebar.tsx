@@ -11,33 +11,39 @@ import {
   Dashboard,
   RecentlyViewed,
   Locked,
-  DataBase
+  DataBase,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  Document,
+  Bot,
+  User
 } from '@carbon/icons-react';
 import { useStore } from '@/store/useStore';
 
 const navItems = [
-  { href: '/chat', label: '對話', icon: Chat },
-  { href: '/history', label: '對話歷史', icon: RecentlyViewed },
-  { href: '/settings', label: '設定', icon: Settings },
+  { href: '/admin/dashboard', label: '儀表板', icon: Dashboard },
+  { href: '/chat', label: 'AI 問答', icon: Chat },
+  { href: '/admin/knowledge-base', label: '知識庫管理', icon: DataBase },
+  { href: '/history', label: '查詢紀錄', icon: RecentlyViewed },
 ];
 
-const adminItems = [
-  { href: '/admin/knowledge-base', label: '知識庫管理', icon: DataBase },
-  { href: '/admin/users', label: '使用者管理', icon: UserMultiple },
-  { href: '/admin/permissions', label: '權限管理', icon: Locked },
-  { href: '/admin/dashboard', label: '儀表板', icon: Dashboard },
+const settingsItems = [
+  { href: '/admin/permissions', label: '權限設定', icon: Locked },
+  { href: '/settings', label: '系統設定', icon: Settings },
+  { href: '/profile', label: '個人資料', icon: User },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, setUser, conversations, addConversation, setActiveConversation, activeConversationId, toggleSidebar } = useStore();
+  const { user, setUser, conversations, addConversation, setActiveConversation, activeConversationId, sidebarOpen, toggleSidebar, sidebarCollapsed, toggleSidebarCollapsed } = useStore();
 
   const handleLogout = () => {
     setUser(null);
     router.push('/login');
   };
-  
+
   const handleNewChat = () => {
     const newConv = {
       id: Date.now().toString(),
@@ -48,82 +54,76 @@ export default function Sidebar() {
     };
     addConversation(newConv);
     router.push('/chat');
-    // Close sidebar on mobile after action
     if (window.innerWidth <= 768) {
       toggleSidebar();
     }
   };
 
   const handleNavClick = () => {
-    // Close sidebar on mobile after navigation
     if (window.innerWidth <= 768) {
       toggleSidebar();
     }
   };
 
   return (
-    <>
+    <aside className={`sidebar ${sidebarOpen ? 'open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}>
       {/* Header */}
       <div className="sidebar-header">
-        <div className="sidebar-logo">KM</div>
-        <div>
-          <div style={{ fontWeight: 600 }}>車輛維修知識庫</div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            AI 智慧助理
-          </div>
+        <div className="sidebar-logo">
+          <Bot size={22} />
         </div>
-      </div>
-
-      {/* New Chat Button */}
-      <div style={{ padding: '0.5rem' }}>
-        <button
-          onClick={handleNewChat}
-          className="btn btn-primary"
-          style={{ width: '100%', justifyContent: 'center' }}
-        >
-          <Add size={16} />
-          新對話
-        </button>
+        {!sidebarCollapsed && (
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
+              台鐵問答 AI
+            </div>
+            <div style={{ fontSize: '0.625rem', color: 'var(--accent)' }}>
+              車輛維修知識庫
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Navigation */}
       <nav className="sidebar-nav">
-        <div className="nav-section">主選單</div>
+        {!sidebarCollapsed && <div className="nav-section">主選單</div>}
         {navItems.map((item) => (
           <Link
             key={item.href}
             href={item.href}
-            className={`nav-item ${pathname === item.href ? 'active' : ''}`}
+            className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + '/') ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
             onClick={handleNavClick}
+            title={sidebarCollapsed ? item.label : undefined}
           >
             <item.icon size={20} />
-            {item.label}
+            {!sidebarCollapsed && item.label}
           </Link>
         ))}
 
-        {/* Admin Section */}
+        {/* Settings Section */}
         {user?.role === 'admin' && (
           <>
-            <div className="nav-section">管理</div>
-            {adminItems.map((item) => (
+            {!sidebarCollapsed && <div className="nav-section">設定</div>}
+            {settingsItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`nav-item ${pathname === item.href ? 'active' : ''}`}
+                className={`nav-item ${pathname === item.href ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
                 onClick={handleNavClick}
+                title={sidebarCollapsed ? item.label : undefined}
               >
                 <item.icon size={20} />
-                {item.label}
+                {!sidebarCollapsed && item.label}
               </Link>
             ))}
           </>
         )}
 
-        {/* Recent Conversations */}
-        {conversations.length > 0 && (
+        {/* Recent Conversations - hide when collapsed */}
+        {!sidebarCollapsed && conversations.length > 0 && (
           <>
-            <div className="nav-section">最近對話</div>
-            {conversations.slice(0, 5).map((conv) => (
+            <div className="nav-section">對話紀錄</div>
+            {conversations.slice(0, 4).map((conv) => (
               <div
                 key={conv.id}
                 className={`nav-item ${conv.id === activeConversationId ? 'active' : ''}`}
@@ -132,67 +132,64 @@ export default function Sidebar() {
                   router.push('/chat');
                   handleNavClick();
                 }}
-                style={{ fontSize: '0.875rem', cursor: 'pointer' }}
+                style={{
+                  fontSize: '0.8125rem',
+                  cursor: 'pointer',
+                  height: '40px',
+                  padding: '0.5rem 0.75rem',
+                  background: conv.id === activeConversationId ? 'var(--bg-primary)' : 'transparent',
+                  borderRadius: 'var(--radius-md)'
+                }}
               >
                 <Chat size={16} />
-                <span style={{ 
-                  overflow: 'hidden', 
-                  textOverflow: 'ellipsis', 
-                  whiteSpace: 'nowrap' 
+                <span style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
                 }}>
                   {conv.title}
                 </span>
               </div>
             ))}
-            {conversations.length > 5 && (
-              <Link
-                href="/history"
-                className="nav-item"
-                style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}
-                onClick={handleNavClick}
-              >
-                查看全部 ({conversations.length})
-              </Link>
-            )}
           </>
         )}
       </nav>
 
+      {/* Collapse Toggle Button */}
+      <button
+        onClick={toggleSidebarCollapsed}
+        className="sidebar-collapse-btn-edge"
+        title={sidebarCollapsed ? '展開側邊欄' : '收合側邊欄'}
+      >
+        {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+      </button>
+
       {/* User Info */}
-      <div style={{ 
-        padding: '1rem', 
-        borderTop: '1px solid var(--border)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.75rem',
-        marginTop: 'auto'
-      }}>
-        <div style={{
-          width: 36,
-          height: 36,
-          borderRadius: '50%',
-          background: 'var(--primary)',
-          color: 'white',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '0.875rem',
-          fontWeight: 500
-        }}>
+      <div className={`sidebar-user ${sidebarCollapsed ? 'collapsed' : ''}`}>
+        <div className="sidebar-user-avatar">
           {user?.name?.charAt(0) || 'U'}
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>
-            {user?.name || '訪客'}
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            {user?.role === 'admin' ? '管理員' : user?.role === 'user' ? '使用者' : '訪客'}
-          </div>
-        </div>
-        <button className="input-btn" title="登出" onClick={handleLogout}>
-          <Logout size={18} />
-        </button>
+        {!sidebarCollapsed && (
+          <>
+            <div className="sidebar-user-info">
+              <div className="sidebar-user-name">
+                {user?.name || '訪客'}
+              </div>
+              <div className="sidebar-user-role">
+                {user?.role === 'admin' ? '系統管理員' : user?.role === 'user' ? '使用者' : '訪客'}
+              </div>
+            </div>
+            <button
+              className="input-btn"
+              title="登出"
+              onClick={handleLogout}
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <Logout size={18} />
+            </button>
+          </>
+        )}
       </div>
-    </>
+    </aside>
   );
 }

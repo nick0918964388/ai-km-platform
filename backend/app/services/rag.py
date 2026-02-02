@@ -361,3 +361,158 @@ def chat(
         answer = f"生成回答時發生錯誤: {str(e)}"
 
     return answer, sources
+
+
+def chat_stream(
+    query: str,
+    sources: list[SearchResult],
+    image_base64: Optional[str] = None,
+):
+    """
+    Streaming RAG chat: generate answer using GPT-4o with streaming.
+
+    Yields: text chunks as they are generated
+    """
+    if not sources:
+        yield "找不到相關的知識庫內容。請上傳相關文件後再試。"
+        return
+
+    # Build context from sources
+    context_parts = []
+    for i, source in enumerate(sources, 1):
+        if source.doc_type == ChunkType.TEXT:
+            context_parts.append(f"[來源 {i}] {source.document_name}:\n{source.content}")
+        else:
+            context_parts.append(f"[來源 {i}] {source.document_name}: [圖片]")
+
+    context = "\n\n".join(context_parts)
+
+    user_content = [
+        {"type": "text", "text": f"知識庫內容:\n{context}\n\n用戶問題: {query}"}
+    ]
+
+    # Add user's image if provided
+    if image_base64:
+        user_content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
+        })
+
+    # Add relevant images from sources
+    for source in sources[:3]:
+        if source.doc_type == ChunkType.IMAGE and source.image_base64:
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{source.image_base64}"}
+            })
+
+    # Call GPT-4o with streaming
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        yield "錯誤：未設定 OpenAI API Key。請在環境變數中設定 OPENAI_API_KEY。"
+        return
+
+    try:
+        client = OpenAI(api_key=api_key)
+        stream = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            max_tokens=1500,
+            temperature=0.5,
+            stream=True,
+        )
+
+        for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+
+    except Exception as e:
+        yield f"生成回答時發生錯誤: {str(e)}"
+
+
+def chat_stream_with_metadata(
+    query: str,
+    sources: list[SearchResult],
+    image_base64: Optional[str] = None,
+):
+    """
+    Streaming RAG chat with metadata: generate answer using GPT-4o with streaming.
+
+    Yields: dict with 'type' and 'data' keys
+    - type='content': text chunk
+    - type='usage': token usage info (at the end)
+    """
+    if not sources:
+        yield {"type": "content", "data": "找不到相關的知識庫內容。請上傳相關文件後再試。"}
+        return
+
+    # Build context from sources
+    context_parts = []
+    for i, source in enumerate(sources, 1):
+        if source.doc_type == ChunkType.TEXT:
+            context_parts.append(f"[來源 {i}] {source.document_name}:\n{source.content}")
+        else:
+            context_parts.append(f"[來源 {i}] {source.document_name}: [圖片]")
+
+    context = "\n\n".join(context_parts)
+
+    user_content = [
+        {"type": "text", "text": f"知識庫內容:\n{context}\n\n用戶問題: {query}"}
+    ]
+
+    # Add user's image if provided
+    if image_base64:
+        user_content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
+        })
+
+    # Add relevant images from sources
+    for source in sources[:3]:
+        if source.doc_type == ChunkType.IMAGE and source.image_base64:
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{source.image_base64}"}
+            })
+
+    # Call GPT-4o with streaming
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        yield {"type": "content", "data": "錯誤：未設定 OpenAI API Key。請在環境變數中設定 OPENAI_API_KEY。"}
+        return
+
+    try:
+        client = OpenAI(api_key=api_key)
+        stream = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            max_tokens=1500,
+            temperature=0.5,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+
+        usage_info = None
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield {"type": "content", "data": chunk.choices[0].delta.content}
+            # Capture usage from the final chunk
+            if chunk.usage:
+                usage_info = {
+                    "prompt_tokens": chunk.usage.prompt_tokens,
+                    "completion_tokens": chunk.usage.completion_tokens,
+                    "total_tokens": chunk.usage.total_tokens,
+                }
+
+        # Yield usage info at the end
+        if usage_info:
+            yield {"type": "usage", "data": usage_info}
+
+    except Exception as e:
+        yield {"type": "content", "data": f"生成回答時發生錯誤: {str(e)}"}

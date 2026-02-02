@@ -1,5 +1,8 @@
 """Chat and search router for RAG queries."""
-from fastapi import APIRouter
+import json
+import time
+from fastapi import APIRouter, Request
+from fastapi.responses import StreamingResponse
 
 from app.models.schemas import (
     ChatRequest,
@@ -29,6 +32,75 @@ async def chat(request: ChatRequest):
     return ChatResponse(
         answer=answer,
         sources=sources,
+    )
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """
+    Streaming chat with the knowledge base using RAG.
+
+    Returns Server-Sent Events (SSE) with streaming response.
+    Event types:
+    - sources: Retrieved document sources (sent first)
+    - content: Streaming text content
+    - metadata: Model info, duration, token usage (sent at end)
+    - done: Stream complete signal
+    - error: Error message
+    """
+    async def generate():
+        try:
+            # First, search for relevant documents and send sources
+            sources = rag.search(
+                query=request.query,
+                image_base64=request.image_base64,
+                top_k=request.top_k,
+            )
+
+            # Send sources first
+            sources_data = [s.model_dump() for s in sources]
+            yield f"data: {json.dumps({'type': 'sources', 'data': sources_data})}\n\n"
+
+            # Track timing and tokens
+            start_time = time.time()
+            total_tokens = None
+
+            # Then stream the answer
+            for result in rag.chat_stream_with_metadata(
+                query=request.query,
+                sources=sources,
+                image_base64=request.image_base64,
+            ):
+                if result.get("type") == "content":
+                    yield f"data: {json.dumps({'type': 'content', 'data': result['data']})}\n\n"
+                elif result.get("type") == "usage":
+                    total_tokens = result.get("data")
+
+            # Calculate duration
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            # Send metadata
+            metadata = {
+                "model": "gpt-4o",
+                "duration_ms": duration_ms,
+                "tokens": total_tokens,
+            }
+            yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
+
+            # Signal completion
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

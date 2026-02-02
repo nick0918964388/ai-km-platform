@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  SidePanel,
   Tabs,
   TabList,
   Tab,
@@ -12,19 +11,20 @@ import {
   Tag,
   SkeletonText,
 } from '@carbon/react';
+import { SidePanel } from '@carbon/ibm-products';
 import { 
   DataBase, 
-  Vehicle, 
+  Car, 
   Warning, 
-  Tool, 
+  Tools, 
   Money,
-  Inventory,
+  InventoryManagement,
   Close,
 } from '@carbon/icons-react';
 
 import DataCard from './DataCard';
 import DataTable from './DataTable';
-import FilterPanel, { DEFAULT_FILTER_OPTIONS } from './FilterPanel';
+import FilterPanel, { DEFAULT_FILTER_OPTIONS, FilterValues } from './FilterPanel';
 import ExportButton from './ExportButton';
 import { useVehicles, useInventory } from '@/hooks/useStructuredQuery';
 
@@ -35,7 +35,7 @@ interface DataBrowserPanelProps {
 
 export default function DataBrowserPanel({ isOpen, onClose }: DataBrowserPanelProps) {
   const [activeTab, setActiveTab] = useState(0);
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [filters, setFilters] = useState<FilterValues>({});
   
   // Fetch vehicles
   const { vehicles, isLoading: vehiclesLoading, fetchVehicles, meta: vehiclesMeta } = useVehicles();
@@ -89,15 +89,16 @@ export default function DataBrowserPanel({ isOpen, onClose }: DataBrowserPanelPr
       size="lg"
       includeOverlay={false}
       slideIn
+      selectorPageContent="#main-content"
     >
       <div className="p-4">
         <Tabs selectedIndex={activeTab} onChange={({ selectedIndex }) => setActiveTab(selectedIndex)}>
           <TabList aria-label="資料類別">
-            <Tab renderIcon={Vehicle}>車輛</Tab>
+            <Tab renderIcon={Car}>車輛</Tab>
             <Tab renderIcon={Warning}>故障</Tab>
-            <Tab renderIcon={Tool}>檢修</Tab>
+            <Tab renderIcon={Tools}>檢修</Tab>
             <Tab renderIcon={Money}>成本</Tab>
-            <Tab renderIcon={Inventory}>庫存</Tab>
+            <Tab renderIcon={InventoryManagement}>庫存</Tab>
           </TabList>
           
           <TabPanels>
@@ -119,7 +120,7 @@ export default function DataBrowserPanel({ isOpen, onClose }: DataBrowserPanelPr
                     共 {vehiclesMeta?.row_count || 0} 筆資料
                   </span>
                   <ExportButton
-                    exportUrl={`/api/export/vehicles?${new URLSearchParams(filters).toString()}`}
+                    exportUrl={`/api/export/vehicles?${new URLSearchParams(Object.entries(filters).filter(([_, v]) => v !== undefined) as [string, string][]).toString()}`}
                     label="匯出車輛清單"
                   />
                 </div>

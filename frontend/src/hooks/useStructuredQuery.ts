@@ -10,8 +10,9 @@ import type {
   CostQueryParams,
   InventoryQueryParams,
 } from '@/types/structured';
+import { API_URL, getApiHeaders, TIMEOUTS, fetchWithTimeout, getErrorMessage } from '@/lib/api';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = API_URL;
 
 interface UseStructuredQueryOptions {
   onSuccess?: (data: any) => void;
@@ -47,11 +48,10 @@ export function useStructuredQuery(options?: UseStructuredQueryOptions): UseStru
           ).toString()
         : '';
 
-      const response = await fetch(`${API_BASE}${url}${queryString}`, {
+      const response = await fetchWithTimeout(`${API_BASE}${url}${queryString}`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getApiHeaders(),
+        timeout: TIMEOUTS.DEFAULT,
       });
 
       if (!response.ok) {
@@ -95,16 +95,15 @@ export function useNaturalLanguageQuery(options?: UseStructuredQueryOptions) {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/api/query`, {
+      const response = await fetchWithTimeout(`${API_BASE}/api/query`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getApiHeaders(),
         body: JSON.stringify({
           query: queryText,
           context,
           include_sources: true,
         }),
+        timeout: TIMEOUTS.DEFAULT,
       });
 
       if (!response.ok) {

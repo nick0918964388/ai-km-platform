@@ -54,3 +54,15 @@ export interface SearchResult {
   image_base64?: string;
   file_url?: string;
 }
+
+export interface TokenUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface MessageMetadata {
+  model: string;
+  duration_ms: number;
+  tokens: TokenUsage | null;
+}
