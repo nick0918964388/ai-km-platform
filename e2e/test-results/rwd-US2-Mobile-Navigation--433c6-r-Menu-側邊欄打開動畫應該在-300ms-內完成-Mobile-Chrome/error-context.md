@@ -1,0 +1,87 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - alert [ref=e2]
+  - generic [ref=e3]:
+    - button "Toggle menu" [active] [ref=e4] [cursor=pointer]:
+      - img [ref=e5]
+    - generic [ref=e10]:
+      - generic [ref=e11]: KM
+      - text: 車輛維修知識庫
+    - button "New chat" [ref=e12] [cursor=pointer]:
+      - img [ref=e13]
+  - generic [ref=e15]:
+    - complementary [ref=e16]:
+      - generic [ref=e17]:
+        - img [ref=e19]
+        - generic [ref=e23]:
+          - generic [ref=e24]: 台鐵問答 AI
+          - generic [ref=e25]: 車輛維修知識庫
+      - navigation [ref=e26]:
+        - generic [ref=e27]: 主選單
+        - link "儀表板" [ref=e28] [cursor=pointer]:
+          - /url: /admin/dashboard
+          - img [ref=e29]
+          - text: 儀表板
+        - link "AI 問答" [ref=e34] [cursor=pointer]:
+          - /url: /chat
+          - img [ref=e35]
+          - text: AI 問答
+        - link "知識庫管理" [ref=e39] [cursor=pointer]:
+          - /url: /admin/knowledge-base
+          - img [ref=e40]
+          - text: 知識庫管理
+        - link "查詢紀錄" [ref=e45] [cursor=pointer]:
+          - /url: /history
+          - img [ref=e46]
+          - text: 查詢紀錄
+        - generic [ref=e49]: 設定
+        - link "權限設定" [ref=e50] [cursor=pointer]:
+          - /url: /admin/permissions
+          - img [ref=e51]
+          - text: 權限設定
+        - link "系統設定" [ref=e53] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e54]
+          - text: 系統設定
+        - link "個人資料" [ref=e57] [cursor=pointer]:
+          - /url: /profile
+          - img [ref=e58]
+          - text: 個人資料
+      - button "收合側邊欄" [ref=e61] [cursor=pointer]:
+        - img [ref=e62]
+      - generic [ref=e64]:
+        - generic [ref=e65]: 管
+        - generic [ref=e66]:
+          - generic [ref=e67]: 管理員
+          - generic [ref=e68]: 系統管理員
+        - button "登出" [ref=e69] [cursor=pointer]:
+          - img [ref=e70]
+    - main [ref=e73]:
+      - generic [ref=e75]:
+        - generic [ref=e76]:
+          - generic [ref=e77]:
+            - img [ref=e79]
+            - generic [ref=e83]:
+              - generic [ref=e84]: AI 維修顧問
+              - generic [ref=e85]: 隨時為您服務
+          - button "新對話" [ref=e86] [cursor=pointer]:
+            - img [ref=e87]
+            - text: 新對話
+        - generic [ref=e90]:
+          - img [ref=e92]
+          - heading "開始新對話" [level=2] [ref=e96]
+          - paragraph [ref=e97]: 詢問任何車輛維修相關問題
+          - generic [ref=e98]:
+            - button "EMU900 轉向架維修" [ref=e99] [cursor=pointer]
+            - button "煞車系統檢測" [ref=e100] [cursor=pointer]
+            - button "定期保養週期" [ref=e101] [cursor=pointer]
+        - generic [ref=e103]:
+          - img [ref=e104]
+          - textbox "輸入您的問題..." [ref=e108]
+          - button "語音輸入" [ref=e109] [cursor=pointer]:
+            - img [ref=e110]
+          - button "發送" [disabled] [ref=e113]:
+            - img [ref=e114]
+```

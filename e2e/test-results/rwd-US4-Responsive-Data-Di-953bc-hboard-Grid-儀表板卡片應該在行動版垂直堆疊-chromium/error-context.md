@@ -1,0 +1,52 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - alert [ref=e2]
+  - generic [ref=e3]:
+    - generic [ref=e6]:
+      - heading "AIKM 台鐵問答 AI" [level=1] [ref=e7]
+      - paragraph [ref=e8]: AI 驅動的車輛維修知識管理平台，快速查詢維修知識與技術文件
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - generic [ref=e11]:
+            - img [ref=e12]
+            - generic [ref=e16]: 智慧問答
+          - paragraph [ref=e17]: AI 驅動的維修知識查詢
+        - generic [ref=e18]:
+          - generic [ref=e19]:
+            - img [ref=e20]
+            - generic [ref=e24]: 技術文件
+          - paragraph [ref=e25]: 完整維修手冊與規範
+        - generic [ref=e26]:
+          - generic [ref=e27]:
+            - img [ref=e28]
+            - generic [ref=e30]: 知識搜尋
+          - paragraph [ref=e31]: 快速精準定位資訊
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - img [ref=e36]
+        - heading "AIKM" [level=1] [ref=e40]
+        - paragraph [ref=e41]: 台鐵問答 AI 系統
+      - generic [ref=e42]:
+        - heading "歡迎登入" [level=2] [ref=e43]
+        - paragraph [ref=e44]: 請輸入您的帳號密碼以存取系統
+      - generic [ref=e45]:
+        - generic [ref=e46]:
+          - generic [ref=e47]: 電子郵件
+          - textbox "請輸入您的電子郵件" [ref=e48]
+        - generic [ref=e49]:
+          - generic [ref=e50]: 密碼
+          - textbox "請輸入密碼" [ref=e51]
+        - generic [ref=e52]:
+          - generic [ref=e53]:
+            - checkbox "記住我" [ref=e54]
+            - text: 記住我
+          - link "忘記密碼？" [ref=e55] [cursor=pointer]:
+            - /url: "#"
+        - button "登入" [ref=e56] [cursor=pointer]
+      - generic [ref=e57]:
+        - text: 還沒有帳號？
+        - link "立即註冊" [ref=e58] [cursor=pointer]:
+          - /url: "#"
+```
