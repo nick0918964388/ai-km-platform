@@ -120,11 +120,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://aikmbackend.nickai.cc
+        NEXT_PUBLIC_API_KEY: ${AIKM_API_KEY:-}
     container_name: aikm-frontend
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
       NODE_ENV: production
     depends_on:
       - backend

@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Send,
-  Microphone,
   Add,
   Bot,
   Chat,
@@ -13,6 +12,7 @@ import { useStore } from '@/store/useStore';
 import { Message, SearchResult } from '@/types';
 import SourcePreview from './SourcePreview';
 import { getApiHeaders, API_URL, TIMEOUTS, fetchWithTimeout, TimeoutError, getErrorMessage } from '@/lib/api';
+import { VoiceInputButton } from '@/components/VoiceInput';
 
 interface MessageSources {
   [messageId: string]: SearchResult[];
@@ -42,17 +42,14 @@ interface ExpandedInfoMap {
 
 export default function ChatWindow() {
   const [input, setInput] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [voiceSupported, setVoiceSupported] = useState(false);
   const [messageSources, setMessageSources] = useState<MessageSources>({});
   const [messageMetadata, setMessageMetadata] = useState<MessageMetadataMap>({});
   const [messageStreamingStatus, setMessageStreamingStatus] = useState<StreamingStatus>({});
   const [expandedInfo, setExpandedInfo] = useState<ExpandedInfoMap>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const recognitionRef = useRef<any>(null);
 
   const {
     conversations,
@@ -64,10 +61,6 @@ export default function ChatWindow() {
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
   const messages = activeConversation?.messages || [];
-
-  useEffect(() => {
-    setVoiceSupported('webkitSpeechRecognition' in window || 'SpeechRecognition' in window);
-  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -301,62 +294,6 @@ export default function ChatWindow() {
       handleSend();
     }
   };
-
-  const initSpeechRecognition = useCallback(() => {
-    if (!voiceSupported) return null;
-
-    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'zh-TW';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    recognition.onstart = () => setIsRecording(true);
-    recognition.onend = () => setIsRecording(false);
-    recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      setIsRecording(false);
-    };
-    recognition.onresult = (event: any) => {
-      let finalTranscript = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
-        }
-      }
-      if (finalTranscript) {
-        setInput(prev => prev + finalTranscript);
-      }
-    };
-
-    return recognition;
-  }, [voiceSupported]);
-
-  const handleVoiceInput = () => {
-    if (!voiceSupported) {
-      alert('您的瀏覽器不支援語音輸入功能');
-      return;
-    }
-
-    if (isRecording && recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    } else {
-      const recognition = initSpeechRecognition();
-      if (recognition) {
-        recognitionRef.current = recognition;
-        recognition.start();
-      }
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-    };
-  }, []);
 
   return (
     <div style={{ display: 'flex', flex: 1, height: '100%', overflow: 'hidden' }}>
@@ -726,26 +663,11 @@ export default function ChatWindow() {
                 outline: 'none',
               }}
             />
-            {voiceSupported && (
-              <button
-                onClick={handleVoiceInput}
-                title={isRecording ? '停止錄音' : '語音輸入'}
-                style={{
-                  width: 40,
-                  height: 40,
-                  border: 'none',
-                  background: isRecording ? 'var(--primary)' : 'transparent',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: isRecording ? 'white' : 'var(--text-secondary)',
-                }}
-              >
-                <Microphone size={20} />
-              </button>
-            )}
+            <VoiceInputButton
+              onTranscriptionReceived={(text) => {
+                setInput((prev) => prev ? `${prev} ${text}` : text);
+              }}
+            />
             <button
               onClick={handleSend}
               disabled={!input.trim() || isLoading}

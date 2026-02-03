@@ -9,14 +9,13 @@ import {
 } from "@carbon/react";
 import {
   Send,
-  Microphone,
   Image as ImageIcon,
   Attachment,
-  StopFilled,
   Copy,
   ThumbsUp,
   ThumbsDown,
 } from "@carbon/icons-react";
+import { VoiceInputButton } from "./VoiceInput";
 
 interface Message {
   id: string;
@@ -40,7 +39,6 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -97,9 +95,12 @@ export default function ChatInterface() {
     }
   };
 
-  const toggleRecording = () => {
-    setIsRecording(!isRecording);
-    // In real implementation, this would handle voice recording
+  const handleVoiceTranscription = (text: string) => {
+    // Append transcribed text to input value
+    setInputValue((prev) => {
+      const separator = prev.trim() ? " " : "";
+      return prev + separator + text;
+    });
   };
 
   const handleImageUpload = () => {
@@ -187,15 +188,9 @@ export default function ChatInterface() {
               >
                 <Attachment size={20} />
               </IconButton>
-              <IconButton
-                kind="ghost"
-                size="md"
-                label={isRecording ? "停止錄音" : "語音輸入"}
-                onClick={toggleRecording}
-                className={isRecording ? "text-red-600" : ""}
-              >
-                {isRecording ? <StopFilled size={20} /> : <Microphone size={20} />}
-              </IconButton>
+              <VoiceInputButton
+                onTranscriptionReceived={handleVoiceTranscription}
+              />
             </div>
 
             {/* Text input */}
