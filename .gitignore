@@ -50,6 +50,10 @@ backend/storage/documents/
 backend/backups/
 backend/uploads/
 
+# Storage
+storage/avatars/*
+!storage/avatars/.gitkeep
+
 # Secrets
 .secrets/
 *.key

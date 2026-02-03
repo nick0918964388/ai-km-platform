@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Document, Close } from '@carbon/icons-react';
+import { Document, Close, Download } from '@carbon/icons-react';
 import { API_URL } from '@/lib/api';
 import { createPortal } from 'react-dom';
 
@@ -30,8 +30,17 @@ function PreviewModal({
   documentName: string;
   onClose: () => void;
 }) {
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  
   const fileUrl = `${API_URL}/api/kb/documents/${documentId}/file`;
   const previewType = getPreviewType(documentName);
+  
+  // Ensure client-side only rendering for portal
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Close on ESC
   useEffect(() => {
@@ -48,39 +57,141 @@ function PreviewModal({
     return () => { document.body.style.overflow = ''; };
   }, []);
 
+  const handleIframeLoad = () => {
+    setIsLoading(false);
+  };
+
+  const handleIframeError = () => {
+    setIsLoading(false);
+    setHasError(true);
+  };
+
+  const handleImageLoad = () => {
+    setIsLoading(false);
+  };
+
+  const handleImageError = () => {
+    setIsLoading(false);
+    setHasError(true);
+  };
+
   const renderContent = () => {
+    if (hasError) {
+      return (
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          gap: '1rem',
+          color: 'var(--text-secondary, #525252)',
+        }}>
+          <Document size={48} />
+          <p>無法預覽此檔案</p>
+          <a
+            href={fileUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            download
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              padding: '0.5rem 1rem',
+              background: 'var(--primary, #0f62fe)',
+              color: 'white',
+              borderRadius: 8,
+              textDecoration: 'none',
+              fontSize: '0.875rem',
+            }}
+          >
+            <Download size={16} />
+            下載檔案
+          </a>
+        </div>
+      );
+    }
+
     switch (previewType) {
       case 'pdf':
         return (
-          <iframe
-            src={fileUrl}
-            style={{
-              width: '100%',
-              height: '100%',
-              border: 'none',
-              borderRadius: '0 0 12px 12px',
-            }}
-            title={documentName}
-          />
+          <>
+            {isLoading && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--bg-secondary, #fff)',
+              }}>
+                <div style={{ textAlign: 'center', color: 'var(--text-secondary, #525252)' }}>
+                  <div className="loading-spinner" style={{
+                    width: 40,
+                    height: 40,
+                    border: '3px solid var(--border, #e0e0e0)',
+                    borderTopColor: 'var(--primary, #0f62fe)',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite',
+                    margin: '0 auto 1rem',
+                  }} />
+                  <p>載入中...</p>
+                </div>
+              </div>
+            )}
+            <iframe
+              src={fileUrl}
+              style={{
+                width: '100%',
+                height: '100%',
+                border: 'none',
+                borderRadius: '0 0 12px 12px',
+                display: isLoading ? 'none' : 'block',
+              }}
+              title={documentName}
+              onLoad={handleIframeLoad}
+              onError={handleIframeError}
+            />
+          </>
         );
       case 'word':
       case 'excel': {
-        // Build absolute URL for Google Docs Viewer
-        const absoluteUrl = fileUrl.startsWith('http')
-          ? fileUrl
-          : `${window.location.origin}${fileUrl}`;
-        const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(absoluteUrl)}&embedded=true`;
+        // For Word/Excel, offer direct download as Google Docs Viewer often fails
         return (
-          <iframe
-            src={viewerUrl}
-            style={{
-              width: '100%',
-              height: '100%',
-              border: 'none',
-              borderRadius: '0 0 12px 12px',
-            }}
-            title={documentName}
-          />
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            gap: '1rem',
+            color: 'var(--text-secondary, #525252)',
+          }}>
+            <Document size={48} />
+            <p>Office 文件預覽</p>
+            <p style={{ fontSize: '0.875rem', opacity: 0.7 }}>建議下載後使用本機軟體開啟</p>
+            <a
+              href={fileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              download
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.5rem 1rem',
+                background: 'var(--primary, #0f62fe)',
+                color: 'white',
+                borderRadius: 8,
+                textDecoration: 'none',
+                fontSize: '0.875rem',
+              }}
+            >
+              <Download size={16} />
+              下載檔案
+            </a>
+          </div>
         );
       }
       case 'image':
@@ -93,7 +204,31 @@ function PreviewModal({
             height: '100%',
             overflow: 'auto',
             padding: '1rem',
+            position: 'relative',
           }}>
+            {isLoading && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--bg-secondary, #fff)',
+              }}>
+                <div style={{ textAlign: 'center', color: 'var(--text-secondary, #525252)' }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    border: '3px solid var(--border, #e0e0e0)',
+                    borderTopColor: 'var(--primary, #0f62fe)',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite',
+                    margin: '0 auto 1rem',
+                  }} />
+                  <p>載入中...</p>
+                </div>
+              </div>
+            )}
             <img
               src={fileUrl}
               alt={documentName}
@@ -102,7 +237,10 @@ function PreviewModal({
                 maxHeight: '100%',
                 objectFit: 'contain',
                 borderRadius: 8,
+                display: isLoading ? 'none' : 'block',
               }}
+              onLoad={handleImageLoad}
+              onError={handleImageError}
             />
           </div>
         );
@@ -115,7 +253,7 @@ function PreviewModal({
             justifyContent: 'center',
             height: '100%',
             gap: '1rem',
-            color: 'var(--text-secondary)',
+            color: 'var(--text-secondary, #525252)',
           }}>
             <Document size={48} />
             <p>此檔案類型不支援線上預覽</p>
@@ -123,15 +261,20 @@ function PreviewModal({
               href={fileUrl}
               target="_blank"
               rel="noopener noreferrer"
+              download
               style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
                 padding: '0.5rem 1rem',
-                background: 'var(--primary)',
+                background: 'var(--primary, #0f62fe)',
                 color: 'white',
                 borderRadius: 8,
                 textDecoration: 'none',
                 fontSize: '0.875rem',
               }}
             >
+              <Download size={16} />
               下載檔案
             </a>
           </div>
@@ -139,6 +282,8 @@ function PreviewModal({
     }
   };
 
+  if (!mounted) return null;
+  
   return createPortal(
     <div
       onClick={onClose}
@@ -153,6 +298,11 @@ function PreviewModal({
         backdropFilter: 'blur(4px)',
       }}
     >
+      <style>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -183,37 +333,62 @@ function PreviewModal({
             gap: '0.5rem',
             fontSize: '0.9375rem',
             fontWeight: 600,
-            color: 'var(--text-primary)',
+            color: 'var(--text-primary, #161616)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
+            flex: 1,
           }}>
-            <Document size={18} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+            <Document size={18} style={{ color: 'var(--accent, #0f62fe)', flexShrink: 0 }} />
             {documentName}
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              width: 32,
-              height: 32,
-              border: 'none',
-              background: 'transparent',
-              borderRadius: 8,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-secondary)',
-              flexShrink: 0,
-            }}
-            title="關閉"
-          >
-            <Close size={20} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <a
+              href={fileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              download
+              style={{
+                width: 32,
+                height: 32,
+                border: 'none',
+                background: 'transparent',
+                borderRadius: 8,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text-secondary, #525252)',
+                textDecoration: 'none',
+              }}
+              title="下載"
+            >
+              <Download size={18} />
+            </a>
+            <button
+              onClick={onClose}
+              style={{
+                width: 32,
+                height: 32,
+                border: 'none',
+                background: 'transparent',
+                borderRadius: 8,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text-secondary, #525252)',
+                flexShrink: 0,
+              }}
+              title="關閉"
+            >
+              <Close size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflow: 'hidden' }}>
+        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
           {renderContent()}
         </div>
       </div>
