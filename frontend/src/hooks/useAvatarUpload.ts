@@ -153,20 +153,18 @@ export function useAvatarUpload(): UseAvatarUploadReturn {
     }));
     setAvatarUploading(true, 0);
 
-    try {
-      // Simulate progress for better UX
-      const progressInterval = setInterval(() => {
-        setState((prev) => {
-          const newProgress = Math.min(prev.uploadProgress + 10, 90);
-          setAvatarUploading(true, newProgress);
-          return { ...prev, uploadProgress: newProgress };
-        });
-      }, 200);
+    // Simulate progress for better UX
+    const progressInterval = setInterval(() => {
+      setState((prev) => {
+        const newProgress = Math.min(prev.uploadProgress + 10, 90);
+        setAvatarUploading(true, newProgress);
+        return { ...prev, uploadProgress: newProgress };
+      });
+    }, 200);
 
+    try {
       // Upload avatar
       const response = await uploadAvatar(state.file);
-
-      clearInterval(progressInterval);
 
       // Update profile in store
       if (profile) {
@@ -204,6 +202,9 @@ export function useAvatarUpload(): UseAvatarUploadReturn {
       setAvatarUploading(false, 0);
 
       return false;
+    } finally {
+      // Always clear interval to prevent memory leak
+      clearInterval(progressInterval);
     }
   }, [state.file, profile, updateProfile, setAvatarUploading]);
 

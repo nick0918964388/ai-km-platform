@@ -188,5 +188,28 @@ def get_avatar_path(filename: str) -> Optional[Path]:
     Returns:
         Path object if file exists, None otherwise
     """
+    # Prevent path traversal attacks - reject filenames with path separators
+    if '..' in filename or '/' in filename or '\\' in filename:
+        logger.warning(f"Potential path traversal attempt detected: {filename}")
+        return None
+
+    # Additional validation: filename should only contain safe characters
+    # Allow: alphanumeric, underscore, hyphen, and a single dot for extension
+    import re
+    if not re.match(r'^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$', filename):
+        logger.warning(f"Invalid filename format: {filename}")
+        return None
+
     file_path = AVATAR_STORAGE_DIR / filename
+
+    # Ensure the resolved path is still within AVATAR_STORAGE_DIR
+    try:
+        file_path = file_path.resolve()
+        if not str(file_path).startswith(str(AVATAR_STORAGE_DIR.resolve())):
+            logger.warning(f"Path traversal attempt - resolved path outside storage: {filename}")
+            return None
+    except Exception as e:
+        logger.error(f"Error resolving path for {filename}: {e}")
+        return None
+
     return file_path if file_path.exists() else None

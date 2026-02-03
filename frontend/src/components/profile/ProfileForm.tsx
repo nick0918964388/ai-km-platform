@@ -27,12 +27,11 @@ export default function ProfileForm() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Load profile on mount
+  // Load profile on mount only once
   useEffect(() => {
-    if (!profile) {
-      fetchProfile();
-    }
-  }, [profile, fetchProfile]);
+    fetchProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Intentionally empty - only fetch on mount
 
   // Sync display name with profile
   useEffect(() => {

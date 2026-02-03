@@ -17,12 +17,11 @@ export default function DashboardPage() {
     refreshDashboard,
   } = useProfileDashboard();
 
-  // Fetch dashboard on mount
+  // Fetch dashboard on mount only once
   useEffect(() => {
-    if (!dashboardMetrics) {
-      fetchDashboard();
-    }
-  }, [dashboardMetrics, fetchDashboard]);
+    fetchDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Intentionally empty - only fetch on mount
 
   // Format account creation date
   const formatCreatedAt = (dateString?: string) => {
