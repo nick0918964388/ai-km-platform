@@ -445,13 +445,17 @@ def chat_stream_with_metadata(
     - type='content': text chunk
     - type='usage': token usage info (at the end)
     """
-    if not sources:
+    # Filter sources by relevance score (>= 0.5 threshold)
+    MIN_RELEVANCE_SCORE = 0.5
+    relevant_sources = [s for s in sources if (s.score or 0) >= MIN_RELEVANCE_SCORE]
+    
+    if not relevant_sources:
         yield {"type": "content", "data": "找不到相關的知識庫內容。請上傳相關文件後再試。"}
         return
 
-    # Build context from sources
+    # Build context from relevant sources only
     context_parts = []
-    for i, source in enumerate(sources, 1):
+    for i, source in enumerate(relevant_sources, 1):
         if source.doc_type == ChunkType.TEXT:
             context_parts.append(f"[來源 {i}] {source.document_name}:\n{source.content}")
         else:

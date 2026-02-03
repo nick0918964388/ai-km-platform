@@ -110,7 +110,8 @@ export default function ChatWindow() {
     activeConversationId,
     setActiveConversation,
     addMessage,
-    addConversation
+    addConversation,
+    updateConversationTitle
   } = useStore();
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
@@ -160,25 +161,21 @@ export default function ChatWindow() {
     addConversation(newConv);
   };
 
-  // Handle follow-up question click
-  const handleFollowUpClick = useCallback((question: string) => {
-    setInput(question);
-    // Use setTimeout to ensure state is updated before sending
-    setTimeout(() => {
-      const sendButton = document.querySelector('[data-send-button]') as HTMLButtonElement;
-      if (sendButton) sendButton.click();
-    }, 50);
-  }, []);
-
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleSend = useCallback(async (overrideQuery?: string) => {
+    const queryToSend = overrideQuery || input;
+    if (!queryToSend.trim() || isLoading) return;
+    
+    // Clear input if using the input field value
+    if (!overrideQuery) {
+      setInput('');
+    }
 
     let convId = activeConversationId;
 
     if (!convId) {
       const newConv = {
         id: Date.now().toString(),
-        title: input.slice(0, 30) + (input.length > 30 ? '...' : ''),
+        title: queryToSend.slice(0, 30) + (queryToSend.length > 30 ? '...' : ''),
         messages: [],
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -190,13 +187,20 @@ export default function ChatWindow() {
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: input,
+      content: queryToSend,
       timestamp: new Date(),
     };
 
     addMessage(convId, userMessage);
-    const userQuery = input;
-    setInput('');
+    
+    // Auto-update conversation title with first user message
+    const currentConv = conversations.find(c => c.id === convId);
+    if (currentConv && (currentConv.title === '新對話' || currentConv.messages.length === 0)) {
+      const newTitle = queryToSend.slice(0, 30) + (queryToSend.length > 30 ? '...' : '');
+      updateConversationTitle(convId, newTitle);
+    }
+    
+    const userQuery = queryToSend;
     setIsLoading(true);
 
     const messageId = (Date.now() + 1).toString();
@@ -378,7 +382,14 @@ export default function ChatWindow() {
       setIsLoading(false);
       setIsStreaming(false);
     }
-  };
+  }, [activeConversationId, input, isLoading, addConversation, addMessage]);
+
+  // Handle follow-up question click - directly send the question
+  const handleFollowUpClick = useCallback((question: string) => {
+    if (!isLoading) {
+      handleSend(question);
+    }
+  }, [handleSend, isLoading]);
 
   const getSimulatedResponse = (question: string): string => {
     const responses: Record<string, string> = {
@@ -598,12 +609,12 @@ export default function ChatWindow() {
                         </p>
                       ))
                     )}
-                    {/* 來源文件 - 只在 streaming 完成後且有高相關性來源時顯示 */}
+                    {/* 來源文件 - 只在 streaming 完成後且 AI 回答引用了來源時顯示 */}
                     {msg.role === 'assistant' && 
                      messageSources[msg.id] && 
                      messageSources[msg.id].length > 0 && 
                      !messageStreamingStatus[msg.id] &&
-                     Math.max(...messageSources[msg.id].map(s => s.score ?? 0)) >= 0.5 && (
+                     /\[來源\s*\d+\]/.test(msg.content) && (
                       <div style={{
                         marginTop: '1rem',
                         paddingTop: '0.75rem',
@@ -614,8 +625,8 @@ export default function ChatWindow() {
                           來源文件
                         </div>
                         {messageSources[msg.id]
-                          .filter(s => (s.score ?? 0) >= 0.5)
                           .map((source, idx) => {
+                          const sourceNumber = idx + 1; // 來源編號從 1 開始
                           const scorePercent = Math.round((source.score || 0) * 100);
                           const scoreColor = getScoreColor(source.score || 0);
                           const query = messageQueries[msg.id] || '';
@@ -630,7 +641,7 @@ export default function ChatWindow() {
                               border: '1px solid var(--border)',
                               overflow: 'hidden',
                             }}>
-                              {/* Header: Always visible - Document Name + Score + Preview */}
+                              {/* Header: Always visible - Source Number + Document Name + Score + Preview */}
                               <div 
                                 onClick={() => setExpandedSources(prev => ({ ...prev, [sourceKey]: !prev[sourceKey] }))}
                                 style={{
@@ -651,6 +662,21 @@ export default function ChatWindow() {
                                   transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                                 }}>
                                   ▶
+                                </span>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  minWidth: '1.25rem',
+                                  height: '1.25rem',
+                                  background: 'var(--primary)',
+                                  color: 'white',
+                                  borderRadius: '50%',
+                                  fontSize: '0.6875rem',
+                                  fontWeight: 600,
+                                  flexShrink: 0,
+                                }}>
+                                  {sourceNumber}
                                 </span>
                                 <span style={{ 
                                   flex: 1, 

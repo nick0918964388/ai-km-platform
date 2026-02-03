@@ -52,13 +52,20 @@ async def chat_stream(request: ChatRequest):
     async def generate():
         try:
             # First, search for relevant documents and send sources
-            sources = rag.search(
+            all_sources = rag.search(
                 query=request.query,
                 image_base64=request.image_base64,
                 top_k=request.top_k,
             )
 
-            # Send sources first
+            # Filter sources with score >= 0.5 for relevance
+            MIN_SCORE_THRESHOLD = 0.5
+            relevant_sources = [s for s in all_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
+            
+            # Only use relevant sources - don't fall back to low-score sources
+            sources = relevant_sources
+
+            # Send sources first (only if there are relevant ones)
             sources_data = [s.model_dump() for s in sources]
             yield f"data: {json.dumps({'type': 'sources', 'data': sources_data})}\n\n"
 
@@ -67,7 +74,7 @@ async def chat_stream(request: ChatRequest):
             total_tokens = None
             full_answer = ""
 
-            # Then stream the answer
+            # Then stream the answer (using only relevant sources for context)
             for result in rag.chat_stream_with_metadata(
                 query=request.query,
                 sources=sources,

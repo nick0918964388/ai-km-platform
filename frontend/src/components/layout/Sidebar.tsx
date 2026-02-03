@@ -17,15 +17,19 @@ import {
   Search,
   Document,
   Bot,
-  User
+  User,
+  TrashCan,
+  ChartLine
 } from '@carbon/icons-react';
 import { useStore } from '@/store/useStore';
+import AccountInitials from '@/components/profile/AccountInitials';
 
 const navItems = [
-  { href: '/admin/dashboard', label: '儀表板', icon: Dashboard },
   { href: '/chat', label: 'AI 問答', icon: Chat },
-  { href: '/admin/knowledge-base', label: '知識庫管理', icon: DataBase },
+  { href: '/dashboard', label: '我的儀表板', icon: ChartLine },
   { href: '/history', label: '查詢紀錄', icon: RecentlyViewed },
+  { href: '/admin/dashboard', label: '管理儀表板', icon: Dashboard, adminOnly: true },
+  { href: '/admin/knowledge-base', label: '知識庫管理', icon: DataBase, adminOnly: true },
 ];
 
 const settingsItems = [
@@ -37,11 +41,18 @@ const settingsItems = [
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, setUser, conversations, addConversation, setActiveConversation, activeConversationId, sidebarOpen, toggleSidebar, sidebarCollapsed, toggleSidebarCollapsed } = useStore();
+  const { user, setUser, profile, conversations, addConversation, deleteConversation, setActiveConversation, activeConversationId, sidebarOpen, toggleSidebar, sidebarCollapsed, toggleSidebarCollapsed } = useStore();
 
   const handleLogout = () => {
     setUser(null);
     router.push('/login');
+  };
+
+  const handleDeleteConversation = (e: React.MouseEvent, convId: string) => {
+    e.stopPropagation();
+    if (confirm('確定要刪除這個對話嗎？')) {
+      deleteConversation(convId);
+    }
   };
 
   const handleNewChat = () => {
@@ -87,18 +98,20 @@ export default function Sidebar() {
       {/* Navigation */}
       <nav className="sidebar-nav">
         {!sidebarCollapsed && <div className="nav-section">主選單</div>}
-        {navItems.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + '/') ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
-            onClick={handleNavClick}
-            title={sidebarCollapsed ? item.label : undefined}
-          >
-            <item.icon size={20} />
-            {!sidebarCollapsed && item.label}
-          </Link>
-        ))}
+        {navItems
+          .filter((item) => !item.adminOnly || user?.role === 'admin')
+          .map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + '/') ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
+              onClick={handleNavClick}
+              title={sidebarCollapsed ? item.label : undefined}
+            >
+              <item.icon size={20} />
+              {!sidebarCollapsed && item.label}
+            </Link>
+          ))}
 
         {/* Settings Section */}
         {user?.role === 'admin' && (
@@ -138,17 +151,48 @@ export default function Sidebar() {
                   height: '40px',
                   padding: '0.5rem 0.75rem',
                   background: conv.id === activeConversationId ? 'var(--bg-primary)' : 'transparent',
-                  borderRadius: 'var(--radius-md)'
+                  borderRadius: 'var(--radius-md)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
                 }}
               >
-                <Chat size={16} />
+                <Chat size={16} style={{ flexShrink: 0 }} />
                 <span style={{
+                  flex: 1,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap'
                 }}>
                   {conv.title}
                 </span>
+                <button
+                  onClick={(e) => handleDeleteConversation(e, conv.id)}
+                  style={{
+                    padding: '0.25rem',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    color: 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: 0.5,
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.opacity = '1';
+                    e.currentTarget.style.color = 'var(--error, #da1e28)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = '0.5';
+                    e.currentTarget.style.color = 'var(--text-muted)';
+                  }}
+                  title="刪除對話"
+                >
+                  <TrashCan size={14} />
+                </button>
               </div>
             ))}
           </>
@@ -166,14 +210,32 @@ export default function Sidebar() {
 
       {/* User Info */}
       <div className={`sidebar-user ${sidebarCollapsed ? 'collapsed' : ''}`}>
-        <div className="sidebar-user-avatar">
-          {user?.name?.charAt(0) || 'U'}
-        </div>
+        {/* Avatar - use profile avatar_url or AccountInitials */}
+        {profile?.avatar_url ? (
+          <img
+            src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${profile.avatar_url}`}
+            alt={profile.display_name}
+            className="sidebar-user-avatar"
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              objectFit: 'cover',
+            }}
+          />
+        ) : (
+          <div style={{ width: '36px', height: '36px' }}>
+            <AccountInitials
+              displayName={profile?.display_name || user?.name || 'User'}
+              size={36}
+            />
+          </div>
+        )}
         {!sidebarCollapsed && (
           <>
             <div className="sidebar-user-info">
               <div className="sidebar-user-name">
-                {user?.name || '訪客'}
+                {profile?.display_name || user?.name || '訪客'}
               </div>
               <div className="sidebar-user-role">
                 {user?.role === 'admin' ? '系統管理員' : user?.role === 'user' ? '使用者' : '訪客'}

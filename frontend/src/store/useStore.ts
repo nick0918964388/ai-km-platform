@@ -1,9 +1,32 @@
 import { create } from 'zustand';
 import { User, Conversation, Message, GlobalSettings } from '@/types';
+import { UserProfile } from '@/types/profile';
+import { DashboardMetrics } from '@/types/dashboard';
 
 // Helper functions for user-specific localStorage keys
 const getConversationsKey = (userId: string) => `conversations_${userId}`;
 const getActiveConversationKey = (userId: string) => `activeConversationId_${userId}`;
+
+// Profile localStorage helpers
+const PROFILE_STORAGE_KEY = 'user_profile';
+const loadStoredProfile = (): UserProfile | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem(PROFILE_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveStoredProfile = (profile: UserProfile | null) => {
+  if (typeof window === 'undefined') return;
+  if (profile) {
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  } else {
+    localStorage.removeItem(PROFILE_STORAGE_KEY);
+  }
+};
 
 // Load conversations from localStorage for a specific user
 const loadUserConversations = (userId: string | null): Conversation[] => {
@@ -60,11 +83,33 @@ interface AppState {
   user: User | null;
   setUser: (user: User | null) => void;
 
+  // Profile
+  profile: UserProfile | null;
+  profileLoading: boolean;
+  profileError: string | null;
+  setProfile: (profile: UserProfile) => void;
+  updateProfile: (updates: Partial<UserProfile>) => void;
+  clearProfile: () => void;
+
+  // Dashboard
+  dashboardMetrics: DashboardMetrics | null;
+  dashboardLoading: boolean;
+  dashboardError: string | null;
+  setDashboardMetrics: (metrics: DashboardMetrics) => void;
+  clearDashboard: () => void;
+
+  // Avatar upload
+  avatarUploading: boolean;
+  avatarUploadProgress: number;
+  setAvatarUploading: (uploading: boolean, progress?: number) => void;
+
   // Conversations
   conversations: Conversation[];
   activeConversationId: string | null;
   setActiveConversation: (id: string | null) => void;
   addConversation: (conversation: Conversation) => void;
+  deleteConversation: (conversationId: string) => void;
+  updateConversationTitle: (conversationId: string, title: string) => void;
   addMessage: (conversationId: string, message: Message) => void;
   updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string }) => void;
   loadUserData: () => void;
@@ -104,6 +149,51 @@ export const useStore = create<AppState>((set, get) => ({
       set({ conversations: [], activeConversationId: null });
     }
   },
+
+  // Profile state
+  profile: loadStoredProfile(),
+  profileLoading: false,
+  profileError: null,
+
+  setProfile: (profile) => {
+    saveStoredProfile(profile);
+    set({ profile, profileError: null });
+  },
+
+  updateProfile: (updates) => {
+    const currentProfile = get().profile;
+    if (!currentProfile) return;
+
+    const updatedProfile = { ...currentProfile, ...updates };
+    saveStoredProfile(updatedProfile);
+    set({ profile: updatedProfile });
+  },
+
+  clearProfile: () => {
+    saveStoredProfile(null);
+    set({ profile: null, dashboardMetrics: null });
+  },
+
+  // Dashboard state
+  dashboardMetrics: null,
+  dashboardLoading: false,
+  dashboardError: null,
+
+  setDashboardMetrics: (metrics) => {
+    set({ dashboardMetrics: metrics, dashboardError: null });
+  },
+
+  clearDashboard: () => {
+    set({ dashboardMetrics: null, dashboardError: null });
+  },
+
+  // Avatar upload state
+  avatarUploading: false,
+  avatarUploadProgress: 0,
+
+  setAvatarUploading: (uploading, progress = 0) => {
+    set({ avatarUploading: uploading, avatarUploadProgress: progress });
+  },
   
   // Conversations - now user-specific
   conversations: [],
@@ -136,6 +226,32 @@ export const useStore = create<AppState>((set, get) => ({
         conversations: newConversations,
         activeConversationId: conversation.id,
       };
+    }),
+
+  deleteConversation: (conversationId) =>
+    set((state) => {
+      const newConversations = state.conversations.filter((conv) => conv.id !== conversationId);
+      saveUserConversations(state.user?.id || null, newConversations);
+      // If deleting active conversation, switch to the first remaining one
+      const newActiveId = state.activeConversationId === conversationId
+        ? (newConversations[0]?.id || null)
+        : state.activeConversationId;
+      if (newActiveId !== state.activeConversationId) {
+        saveActiveConversationId(state.user?.id || null, newActiveId);
+      }
+      return {
+        conversations: newConversations,
+        activeConversationId: newActiveId,
+      };
+    }),
+
+  updateConversationTitle: (conversationId, title) =>
+    set((state) => {
+      const newConversations = state.conversations.map((conv) =>
+        conv.id === conversationId ? { ...conv, title, updatedAt: new Date() } : conv
+      );
+      saveUserConversations(state.user?.id || null, newConversations);
+      return { conversations: newConversations };
     }),
     
   addMessage: (conversationId, message) =>
