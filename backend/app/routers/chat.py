@@ -45,6 +45,7 @@ async def chat_stream(request: ChatRequest):
     - sources: Retrieved document sources (sent first)
     - content: Streaming text content
     - metadata: Model info, duration, token usage (sent at end)
+    - follow_up: Follow-up questions suggestions
     - done: Stream complete signal
     - error: Error message
     """
@@ -64,6 +65,7 @@ async def chat_stream(request: ChatRequest):
             # Track timing and tokens
             start_time = time.time()
             total_tokens = None
+            full_answer = ""
 
             # Then stream the answer
             for result in rag.chat_stream_with_metadata(
@@ -72,7 +74,9 @@ async def chat_stream(request: ChatRequest):
                 image_base64=request.image_base64,
             ):
                 if result.get("type") == "content":
-                    yield f"data: {json.dumps({'type': 'content', 'data': result['data']})}\n\n"
+                    content_chunk = result['data']
+                    full_answer += content_chunk
+                    yield f"data: {json.dumps({'type': 'content', 'data': content_chunk})}\n\n"
                 elif result.get("type") == "usage":
                     total_tokens = result.get("data")
 
@@ -87,8 +91,21 @@ async def chat_stream(request: ChatRequest):
             }
             yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
 
-            # Signal completion
+            # Signal completion first (so sources show immediately)
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+            # Generate and send follow-up questions (after done, so it doesn't block UI)
+            try:
+                follow_up_questions = rag.generate_follow_up_questions(
+                    query=request.query,
+                    answer=full_answer,
+                    max_questions=3,
+                )
+                if follow_up_questions:
+                    yield f"data: {json.dumps({'type': 'follow_up', 'data': follow_up_questions})}\n\n"
+            except Exception as e:
+                # Don't fail the whole request if follow-up generation fails
+                pass
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"

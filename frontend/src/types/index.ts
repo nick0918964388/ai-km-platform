@@ -16,6 +16,8 @@ export interface Message {
   content: string;
   timestamp: Date;
   attachments?: Attachment[];
+  sources?: SearchResult[];
+  query?: string; // Store original query for highlighting
 }
 
 export interface Attachment {

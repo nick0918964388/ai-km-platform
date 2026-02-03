@@ -40,6 +40,57 @@ interface ExpandedInfoMap {
   [messageId: string]: boolean;
 }
 
+interface MessageFollowUps {
+  [messageId: string]: string[];
+}
+
+// Helper: get score color based on similarity value
+function getScoreColor(score: number): string {
+  if (score > 0.8) return '#24a148'; // Green - high
+  if (score >= 0.5) return '#f1c21b'; // Yellow - medium
+  return '#da1e28'; // Red - low
+}
+
+// Helper: get score label
+function getScoreLabel(score: number): string {
+  if (score > 0.8) return '高';
+  if (score >= 0.5) return '中';
+  return '低';
+}
+
+// Helper: highlight keywords in text
+function highlightText(text: string, query: string): React.ReactNode {
+  if (!query || !text) return text;
+  
+  // Extract keywords (split by spaces, filter short words)
+  const keywords = query
+    .split(/\s+/)
+    .filter(k => k.length >= 2)
+    .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')); // Escape regex chars
+  
+  if (keywords.length === 0) return text;
+  
+  const pattern = new RegExp(`(${keywords.join('|')})`, 'gi');
+  const parts = text.split(pattern);
+  
+  return parts.map((part, i) => {
+    if (keywords.some(k => part.toLowerCase() === k.toLowerCase())) {
+      return (
+        <mark key={i} style={{
+          background: 'rgba(37, 99, 235, 0.2)',
+          color: 'var(--primary)',
+          padding: '0 2px',
+          borderRadius: 2,
+          fontWeight: 500,
+        }}>
+          {part}
+        </mark>
+      );
+    }
+    return part;
+  });
+}
+
 export default function ChatWindow() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -48,6 +99,9 @@ export default function ChatWindow() {
   const [messageMetadata, setMessageMetadata] = useState<MessageMetadataMap>({});
   const [messageStreamingStatus, setMessageStreamingStatus] = useState<StreamingStatus>({});
   const [expandedInfo, setExpandedInfo] = useState<ExpandedInfoMap>({});
+  const [messageFollowUps, setMessageFollowUps] = useState<MessageFollowUps>({});
+  const [messageQueries, setMessageQueries] = useState<{ [msgId: string]: string }>({});
+  const [expandedSources, setExpandedSources] = useState<{ [key: string]: boolean }>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -73,6 +127,28 @@ export default function ChatWindow() {
     }
   }, [input]);
 
+  // Load sources from messages when conversation changes or messages update
+  useEffect(() => {
+    if (messages.length > 0) {
+      const newSources: MessageSources = {};
+      const newQueries: { [msgId: string]: string } = {};
+      messages.forEach((msg) => {
+        if (msg.sources && msg.sources.length > 0) {
+          newSources[msg.id] = msg.sources;
+        }
+        if (msg.query) {
+          newQueries[msg.id] = msg.query;
+        }
+      });
+      setMessageSources(newSources);
+      setMessageQueries(newQueries);
+    } else {
+      // Reset when no messages
+      setMessageSources({});
+      setMessageQueries({});
+    }
+  }, [activeConversationId, messages]);
+
   const handleNewChat = () => {
     const newConv = {
       id: Date.now().toString(),
@@ -83,6 +159,16 @@ export default function ChatWindow() {
     };
     addConversation(newConv);
   };
+
+  // Handle follow-up question click
+  const handleFollowUpClick = useCallback((question: string) => {
+    setInput(question);
+    // Use setTimeout to ensure state is updated before sending
+    setTimeout(() => {
+      const sendButton = document.querySelector('[data-send-button]') as HTMLButtonElement;
+      if (sendButton) sendButton.click();
+    }, 50);
+  }, []);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -114,6 +200,9 @@ export default function ChatWindow() {
     setIsLoading(true);
 
     const messageId = (Date.now() + 1).toString();
+    
+    // Store query for highlighting in sources
+    setMessageQueries(prev => ({ ...prev, [messageId]: userQuery }));
 
     try {
       const response = await fetchWithTimeout(`${API_URL}/api/chat/stream`, {
@@ -144,6 +233,7 @@ export default function ChatWindow() {
       const decoder = new TextDecoder();
       let streamedContent = '';
       let buffer = '';
+      let receivedSources: any[] = [];
 
       if (reader) {
         while (true) {
@@ -162,6 +252,7 @@ export default function ChatWindow() {
                 const data = JSON.parse(line.slice(6));
 
                 if (data.type === 'sources' && data.data?.length > 0) {
+                  receivedSources = data.data;
                   setMessageSources(prev => ({
                     ...prev,
                     [messageId]: data.data,
@@ -174,8 +265,17 @@ export default function ChatWindow() {
                     ...prev,
                     [messageId]: data.data,
                   }));
+                } else if (data.type === 'follow_up' && data.data?.length > 0) {
+                  setMessageFollowUps(prev => ({
+                    ...prev,
+                    [messageId]: data.data,
+                  }));
                 } else if (data.type === 'done') {
                   setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
+                  // Save sources to message for persistence
+                  if (receivedSources.length > 0) {
+                    useStore.getState().updateMessage(convId!, messageId, streamedContent, { sources: receivedSources, query: userQuery });
+                  }
                 } else if (data.type === 'error') {
                   useStore.getState().updateMessage(convId!, messageId, getSimulatedResponse(userQuery));
                   setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
@@ -191,6 +291,7 @@ export default function ChatWindow() {
           try {
             const data = JSON.parse(buffer.slice(6));
             if (data.type === 'sources' && data.data?.length > 0) {
+              receivedSources = data.data;
               setMessageSources(prev => ({
                 ...prev,
                 [messageId]: data.data,
@@ -200,6 +301,11 @@ export default function ChatWindow() {
               useStore.getState().updateMessage(convId!, messageId, streamedContent);
             } else if (data.type === 'metadata' && data.data) {
               setMessageMetadata(prev => ({
+                ...prev,
+                [messageId]: data.data,
+              }));
+            } else if (data.type === 'follow_up' && data.data?.length > 0) {
+              setMessageFollowUps(prev => ({
                 ...prev,
                 [messageId]: data.data,
               }));
@@ -429,7 +535,9 @@ export default function ChatWindow() {
                       <Bot size={18} style={{ color: 'var(--accent)' }} />
                     </div>
                   )}
-                  <div style={{
+                  <div 
+                    className={msg.role === 'assistant' && messageStreamingStatus[msg.id] ? 'ai-message-streaming' : ''}
+                    style={{
                     maxWidth: '70%',
                     padding: '1rem 1.25rem',
                     borderRadius: 'var(--radius-lg)',
@@ -437,6 +545,7 @@ export default function ChatWindow() {
                     border: msg.role === 'assistant' ? '1px solid var(--border)' : 'none',
                     color: msg.role === 'user' ? 'white' : 'var(--text-primary)',
                     lineHeight: 1.6,
+                    position: 'relative',
                   }}>
                     {msg.role === 'assistant' ? (
                       <div className="markdown-content">
@@ -489,11 +598,12 @@ export default function ChatWindow() {
                         </p>
                       ))
                     )}
-                    {/* 來源文件 - 只在 streaming 完成後顯示 */}
+                    {/* 來源文件 - 只在 streaming 完成後且有高相關性來源時顯示 */}
                     {msg.role === 'assistant' && 
                      messageSources[msg.id] && 
                      messageSources[msg.id].length > 0 && 
-                     !messageStreamingStatus[msg.id] && (
+                     !messageStreamingStatus[msg.id] &&
+                     Math.max(...messageSources[msg.id].map(s => s.score ?? 0)) >= 0.5 && (
                       <div style={{
                         marginTop: '1rem',
                         paddingTop: '0.75rem',
@@ -503,26 +613,103 @@ export default function ChatWindow() {
                         <div style={{ color: 'var(--accent)', marginBottom: '0.5rem', fontSize: '0.75rem' }}>
                           來源文件
                         </div>
-                        {messageSources[msg.id].map((source, idx) => (
-                          <div key={source.id || idx} style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            padding: '0.375rem 0.5rem',
-                            background: 'var(--bg-primary)',
-                            borderRadius: 'var(--radius-sm)',
-                            marginBottom: '0.375rem',
-                          }}>
-                            <span style={{ color: 'var(--text-secondary)' }}>[{idx + 1}]</span>
-                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {source.document_name}
-                            </span>
-                            <SourcePreview
-                              documentId={source.document_id}
-                              documentName={source.document_name}
-                            />
-                          </div>
-                        ))}
+                        {messageSources[msg.id]
+                          .filter(s => (s.score ?? 0) >= 0.5)
+                          .map((source, idx) => {
+                          const scorePercent = Math.round((source.score || 0) * 100);
+                          const scoreColor = getScoreColor(source.score || 0);
+                          const query = messageQueries[msg.id] || '';
+                          const contentPreview = source.content?.slice(0, 200) || '';
+                          const sourceKey = `${msg.id}-${idx}`;
+                          const isExpanded = expandedSources[sourceKey];
+                          return (
+                            <div key={source.id || idx} style={{
+                              background: 'var(--bg-primary)',
+                              borderRadius: 'var(--radius-sm)',
+                              marginBottom: '0.5rem',
+                              border: '1px solid var(--border)',
+                              overflow: 'hidden',
+                            }}>
+                              {/* Header: Always visible - Document Name + Score + Preview */}
+                              <div 
+                                onClick={() => setExpandedSources(prev => ({ ...prev, [sourceKey]: !prev[sourceKey] }))}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.5rem',
+                                  padding: '0.5rem 0.75rem',
+                                  cursor: 'pointer',
+                                  transition: 'background 0.15s',
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              >
+                                <span style={{ 
+                                  color: 'var(--text-muted)', 
+                                  fontSize: '0.75rem',
+                                  transition: 'transform 0.2s',
+                                  transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                                }}>
+                                  ▶
+                                </span>
+                                <span style={{ 
+                                  flex: 1, 
+                                  overflow: 'hidden', 
+                                  textOverflow: 'ellipsis', 
+                                  whiteSpace: 'nowrap',
+                                  fontSize: '0.8125rem',
+                                }}>
+                                  📄 {source.document_name}
+                                </span>
+                                <span style={{
+                                  fontSize: '0.6875rem',
+                                  fontWeight: 600,
+                                  color: scoreColor,
+                                  padding: '0.125rem 0.375rem',
+                                  background: `${scoreColor}15`,
+                                  borderRadius: 4,
+                                }}>
+                                  {scorePercent}%
+                                </span>
+                                <div onClick={(e) => e.stopPropagation()}>
+                                  <SourcePreview
+                                    documentId={source.document_id}
+                                    documentName={source.document_name}
+                                  />
+                                </div>
+                              </div>
+                              {/* Expandable Content */}
+                              {isExpanded && contentPreview && (
+                                <div style={{
+                                  padding: '0.75rem',
+                                  borderTop: '1px solid var(--border)',
+                                  background: 'var(--bg-secondary)',
+                                }}>
+                                  <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.5rem',
+                                    marginBottom: '0.5rem',
+                                    fontSize: '0.6875rem',
+                                    color: 'var(--text-muted)',
+                                  }}>
+                                    <span>{source.content?.length || 0} 字</span>
+                                    <span>·</span>
+                                    <span>SCORE {(source.score || 0).toFixed(2)}</span>
+                                  </div>
+                                  <div style={{
+                                    fontSize: '0.8125rem',
+                                    color: 'var(--text-secondary)',
+                                    lineHeight: 1.6,
+                                  }}>
+                                    {highlightText(contentPreview, query)}
+                                    {source.content && source.content.length > 200 && '...'}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     {/* 模型資訊 - 可收合區塊 */}
@@ -574,6 +761,62 @@ export default function ChatWindow() {
                             )}
                           </div>
                         )}
+                      </div>
+                    )}
+                    {/* Follow-up Questions */}
+                    {msg.role === 'assistant' &&
+                     messageFollowUps[msg.id] &&
+                     messageFollowUps[msg.id].length > 0 &&
+                     !messageStreamingStatus[msg.id] && (
+                      <div style={{
+                        marginTop: '1rem',
+                        paddingTop: '0.75rem',
+                        borderTop: '1px solid var(--border)',
+                      }}>
+                        <div style={{ 
+                          color: 'var(--text-muted)', 
+                          marginBottom: '0.5rem', 
+                          fontSize: '0.75rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.25rem',
+                        }}>
+                          💡 相關問題
+                        </div>
+                        <div style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: '0.5rem',
+                        }}>
+                          {messageFollowUps[msg.id].map((question, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => handleFollowUpClick(question)}
+                              style={{
+                                padding: '0.375rem 0.75rem',
+                                background: 'var(--bg-primary)',
+                                border: '1px solid var(--border)',
+                                borderRadius: 16,
+                                color: 'var(--text-primary)',
+                                fontSize: '0.8125rem',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'var(--primary-light)';
+                                e.currentTarget.style.borderColor = 'var(--accent)';
+                                e.currentTarget.style.color = 'var(--accent)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'var(--bg-primary)';
+                                e.currentTarget.style.borderColor = 'var(--border)';
+                                e.currentTarget.style.color = 'var(--text-primary)';
+                              }}
+                            >
+                              {question}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -669,6 +912,7 @@ export default function ChatWindow() {
               }}
             />
             <button
+              data-send-button
               onClick={handleSend}
               disabled={!input.trim() || isLoading}
               title="發送"

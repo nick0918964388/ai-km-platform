@@ -66,7 +66,7 @@ interface AppState {
   setActiveConversation: (id: string | null) => void;
   addConversation: (conversation: Conversation) => void;
   addMessage: (conversationId: string, message: Message) => void;
-  updateMessage: (conversationId: string, messageId: string, content: string) => void;
+  updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string }) => void;
   loadUserData: () => void;
 
   // UI
@@ -149,14 +149,21 @@ export const useStore = create<AppState>((set, get) => ({
       return { conversations: newConversations };
     }),
 
-  updateMessage: (conversationId: string, messageId: string, content: string) =>
+  updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string }) =>
     set((state) => {
       const newConversations = state.conversations.map((conv) =>
         conv.id === conversationId
           ? {
               ...conv,
               messages: conv.messages.map((msg) =>
-                msg.id === messageId ? { ...msg, content } : msg
+                msg.id === messageId
+                  ? {
+                      ...msg,
+                      content,
+                      ...(extra?.sources !== undefined && { sources: extra.sources }),
+                      ...(extra?.query !== undefined && { query: extra.query }),
+                    }
+                  : msg
               ),
               updatedAt: new Date(),
             }

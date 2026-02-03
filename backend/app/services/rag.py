@@ -516,3 +516,54 @@ def chat_stream_with_metadata(
 
     except Exception as e:
         yield {"type": "content", "data": f"生成回答時發生錯誤: {str(e)}"}
+
+
+def generate_follow_up_questions(query: str, answer: str, max_questions: int = 3) -> list[str]:
+    """
+    Generate follow-up questions based on the user's query and the AI's answer.
+    
+    Args:
+        query: Original user query
+        answer: AI's response
+        max_questions: Maximum number of questions to generate
+        
+    Returns:
+        List of follow-up question strings
+    """
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    
+    if not api_key:
+        return []
+    
+    try:
+        client = OpenAI(api_key=api_key)
+        
+        prompt = f"""根據以下問答內容，生成 {max_questions} 個使用者可能想進一步了解的後續問題。
+
+使用者問題：{query}
+
+AI 回答：{answer[:1000]}...
+
+要求：
+1. 問題要與原始問題相關，但探索不同面向
+2. 問題要具體且實用
+3. 每個問題獨立一行，不要編號
+4. 使用繁體中文
+5. 問題要簡潔，不超過 30 字
+
+只輸出問題，不要其他內容。"""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=200,
+            temperature=0.7,
+        )
+        
+        content = response.choices[0].message.content or ""
+        questions = [q.strip() for q in content.strip().split('\n') if q.strip()]
+        return questions[:max_questions]
+        
+    except Exception as e:
+        logger.error(f"Error generating follow-up questions: {e}")
+        return []

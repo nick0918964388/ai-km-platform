@@ -116,11 +116,13 @@ html, body {
    ======================================== */
 
 .sidebar-header {
-  padding: 1.5rem 1rem;
+  height: 72px;
+  padding: 0 1rem;
   display: flex;
   align-items: center;
   gap: 0.75rem;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .sidebar-logo {
