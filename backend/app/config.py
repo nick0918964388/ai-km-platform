@@ -7,13 +7,26 @@ from functools import lru_cache
 class Settings(BaseSettings):
     """Application settings."""
 
+    # LLM Provider
+    llm_provider: str = "ollama"  # "ollama" or "openai"
+
     # OpenAI
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
 
+    # Ollama Chat
+    ollama_chat_url: str = "http://192.168.1.161:11434/v1"
+    ollama_chat_model: str = "qwen3-vl:32b"
+    ollama_light_model: str = "qwen3.5:9b"
+
     # Embedding models
     text_embedding_model: str = "all-MiniLM-L6-v2"
     clip_model: str = "openai/clip-vit-base-patch32"
+    
+    # Ollama Embedding
+    embedding_provider: str = "ollama"  # "openai" or "ollama"
+    ollama_url: str = "http://192.168.1.161:11434"
+    ollama_embedding_model: str = "qwen3-embedding:latest"
 
     # Qdrant
     qdrant_collection_name: str = "knowledge_base"
@@ -28,6 +41,16 @@ class Settings(BaseSettings):
     cohere_api_key: str = ""
     cohere_model: str = "rerank-v3.5"
     rerank_top_n: int = 10
+
+    # Multi-Provider Reranker Configuration
+    reranker_provider: str = "auto"  # "cohere" | "bge" | "auto"
+    reranker_timeout: float = 5.0  # seconds
+    reranker_fallback_enabled: bool = True
+
+    # BGE Reranker Configuration
+    bge_model_name: str = "BAAI/bge-reranker-v2-m3"
+    bge_max_length: int = 512
+    bge_batch_size: int = 32
 
     # Backup
     backup_dir: str = "./backups"

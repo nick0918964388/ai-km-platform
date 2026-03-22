@@ -39,7 +39,7 @@ services:
       QDRANT__LOG_LEVEL: INFO
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -72,6 +72,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: aikm-backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     volumes:
@@ -86,14 +88,22 @@ services:
       # Cache
       REDIS_URL: redis://redis:6379
       CACHE_TTL: 3600
-      # Embedding Models
+      # Embedding Models (using OpenAI for 1536-dim compatibility with existing vectors)
+      EMBEDDING_PROVIDER: openai
+      OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_EMBEDDING_MODEL: qwen3-embedding:latest
       TEXT_EMBEDDING_MODEL: all-MiniLM-L6-v2
       CLIP_MODEL: openai/clip-vit-base-patch32
       # Reranking
       COHERE_API_KEY: ${COHERE_API_KEY:-}
       COHERE_MODEL: rerank-v3.5
       RERANK_TOP_N: 10
-      # LLM (optional)
+      # LLM Configuration
+      LLM_PROVIDER: ollama
+      OLLAMA_CHAT_URL: http://host.docker.internal:11434/v1
+      OLLAMA_CHAT_MODEL: qwen3-vl:32b
+      OLLAMA_LIGHT_MODEL: qwen3.5:9b
+      # Fallback OpenAI (optional)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       JINA_API_KEY: ${JINA_API_KEY:-}
       # Server
@@ -132,7 +142,7 @@ services:
       - backend
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

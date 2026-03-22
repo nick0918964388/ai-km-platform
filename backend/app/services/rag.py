@@ -10,12 +10,28 @@ from app.config import get_settings
 from app.services import embedding as embed_service
 from app.services import vector_store
 from app.services import reranker as reranker_service
+from app.services.reranker_factory import get_reranker_factory
 from app.services import cache as cache_service
 from app.services import file_storage
 from app.services.terminology import expand_query, RAIL_TERMINOLOGY
-from app.models.schemas import SearchResult, ChunkType
+from app.models.schemas import SearchResult, RerankerMetadata, ChunkType
 
 logger = logging.getLogger(__name__)
+
+
+def _get_llm_client(light: bool = False):
+    """Return (client, model) based on configured LLM provider."""
+    settings = get_settings()
+    if settings.llm_provider == "ollama":
+        client = OpenAI(base_url=settings.ollama_chat_url, api_key="ollama")
+        model = settings.ollama_light_model if light else settings.ollama_chat_model
+    else:
+        api_key = os.environ.get("OPENAI_API_KEY", settings.openai_api_key)
+        if not api_key:
+            return None, None
+        client = OpenAI(api_key=api_key)
+        model = "gpt-4o-mini" if light else settings.openai_model
+    return client, model
 
 
 # 優化後的 System Prompt
@@ -121,7 +137,7 @@ def hybrid_search(
     top_k: int = 5,
     use_expansion: bool = True,
     use_rerank: bool = True,
-) -> list[dict]:
+) -> tuple[list[dict], Optional[dict]]:
     """
     混合搜尋：結合向量搜尋和關鍵字搜尋，可選 Reranker
 
@@ -129,12 +145,13 @@ def hybrid_search(
         query: 查詢字串
         top_k: 返回結果數量
         use_expansion: 是否使用查詢擴展
-        use_rerank: 是否使用 Cohere Reranker
+        use_rerank: 是否使用 Reranker (via RerankerFactory)
 
     Returns:
-        搜尋結果列表
+        Tuple of (搜尋結果列表, reranker_info dict or None)
     """
     settings = get_settings()
+    reranker_info = None
 
     # Query Expansion
     expanded_query = expand_query(query) if use_expansion else query
@@ -160,18 +177,26 @@ def hybrid_search(
     fusion_top_k = settings.rerank_top_n * 2 if use_rerank else top_k
     fused_results = reciprocal_rank_fusion(vector_results, keyword_results, fusion_top_k)
 
-    # 4. Rerank (if enabled and available)
-    if use_rerank and reranker_service.is_reranker_available():
-        logger.debug(f"Reranking {len(fused_results)} results for query: {query[:50]}...")
-        reranked = reranker_service.rerank(
-            query=query,  # Use original query for reranking
-            documents=fused_results,
-            top_n=top_k,
-            content_key="content",
-        )
-        return reranked
+    # 4. Rerank using RerankerFactory (if enabled)
+    if use_rerank:
+        factory = get_reranker_factory()
+        if factory.is_available():
+            logger.debug(f"Reranking {len(fused_results)} results for query: {query[:50]}...")
+            result = factory.rerank(
+                query=query,  # Use original query for reranking
+                documents=fused_results,
+                top_n=top_k,
+                content_key="content",
+            )
+            reranker_info = {
+                "provider": result.provider,
+                "latency_ms": result.latency_ms,
+                "fallback_used": result.fallback_used,
+                "original_ranks": result.original_ranks,
+            }
+            return result.documents, reranker_info
 
-    return fused_results[:top_k]
+    return fused_results[:top_k], None
 
 
 def search(
@@ -202,18 +227,30 @@ def search(
             return results
 
     # Text search
+    reranker_info = None
     if query:
         if use_hybrid:
-            text_results = hybrid_search(query, top_k=top_k, use_rerank=use_rerank)
+            text_results, reranker_info = hybrid_search(query, top_k=top_k, use_rerank=use_rerank)
         else:
             # 原始向量搜尋
             text_embedding = embed_service.embed_text(query)
             text_results = vector_store.search_text(text_embedding, top_k=top_k)
 
-        for r in text_results:
+        for idx, r in enumerate(text_results):
             # Check if original file exists for preview
             doc_id = r["document_id"]
             file_url = f"/api/kb/documents/{doc_id}/file" if file_storage.file_exists(doc_id) else None
+
+            # Build reranker metadata if available
+            reranker_metadata = None
+            if reranker_info:
+                original_rank = reranker_info["original_ranks"][idx] if idx < len(reranker_info.get("original_ranks", [])) else None
+                reranker_metadata = RerankerMetadata(
+                    provider=reranker_info["provider"],
+                    latency_ms=reranker_info["latency_ms"],
+                    fallback_used=reranker_info["fallback_used"],
+                    original_rank=original_rank,
+                )
 
             results.append(
                 SearchResult(
@@ -224,6 +261,8 @@ def search(
                     document_name=r["document_name"],
                     score=r.get("score", 0.0),
                     file_url=file_url,
+                    relevance_score=r.get("relevance_score"),
+                    reranker_metadata=reranker_metadata,
                 )
             )
 
@@ -340,15 +379,14 @@ def chat(
                 "image_url": {"url": f"data:image/jpeg;base64,{source.image_base64}"}
             })
 
-    # Call GPT-4o
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if not api_key:
+    # Call LLM
+    client, model = _get_llm_client()
+    if client is None:
         return "錯誤：未設定 OpenAI API Key。請在環境變數中設定 OPENAI_API_KEY。", sources
 
     try:
-        client = OpenAI(api_key=api_key)
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
@@ -406,16 +444,15 @@ def chat_stream(
                 "image_url": {"url": f"data:image/jpeg;base64,{source.image_base64}"}
             })
 
-    # Call GPT-4o with streaming
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if not api_key:
+    # Call LLM with streaming
+    client, model = _get_llm_client()
+    if client is None:
         yield "錯誤：未設定 OpenAI API Key。請在環境變數中設定 OPENAI_API_KEY。"
         return
 
     try:
-        client = OpenAI(api_key=api_key)
         stream = client.chat.completions.create(
-            model="gpt-4o",
+            model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
@@ -482,16 +519,18 @@ def chat_stream_with_metadata(
                 "image_url": {"url": f"data:image/jpeg;base64,{source.image_base64}"}
             })
 
-    # Call GPT-4o with streaming
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if not api_key:
+    # Call LLM with streaming
+    client, model = _get_llm_client()
+    if client is None:
         yield {"type": "content", "data": "錯誤：未設定 OpenAI API Key。請在環境變數中設定 OPENAI_API_KEY。"}
         return
 
+    settings = get_settings()
+    is_openai = settings.llm_provider != "ollama"
+
     try:
-        client = OpenAI(api_key=api_key)
-        stream = client.chat.completions.create(
-            model="gpt-4o",
+        create_kwargs = dict(
+            model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
@@ -499,14 +538,18 @@ def chat_stream_with_metadata(
             max_tokens=1500,
             temperature=0.5,
             stream=True,
-            stream_options={"include_usage": True},
         )
+        # stream_options is OpenAI-only; Ollama doesn't support it
+        if is_openai:
+            create_kwargs["stream_options"] = {"include_usage": True}
+
+        stream = client.chat.completions.create(**create_kwargs)
 
         usage_info = None
         for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
                 yield {"type": "content", "data": chunk.choices[0].delta.content}
-            # Capture usage from the final chunk
+            # Capture usage from the final chunk (OpenAI only)
             if chunk.usage:
                 usage_info = {
                     "prompt_tokens": chunk.usage.prompt_tokens,
@@ -534,14 +577,12 @@ def generate_follow_up_questions(query: str, answer: str, max_questions: int = 3
     Returns:
         List of follow-up question strings
     """
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    
-    if not api_key:
+    client, model = _get_llm_client(light=True)
+
+    if client is None:
         return []
-    
+
     try:
-        client = OpenAI(api_key=api_key)
-        
         prompt = f"""根據以下問答內容，生成 {max_questions} 個使用者可能想進一步了解的後續問題。
 
 使用者問題：{query}
@@ -558,7 +599,7 @@ AI 回答：{answer[:1000]}...
 只輸出問題，不要其他內容。"""
 
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=200,
             temperature=0.7,
