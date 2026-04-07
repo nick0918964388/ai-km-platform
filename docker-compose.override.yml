@@ -1,14 +1,9 @@
 # Override for 192.168.1.162 (elk host) — avoids port conflicts with existing services
-# Port mapping changes:
-#   redis:   6379 → not exposed (internal only)
-#   backend: 8000 → 8003
-#   frontend: 3000 → 3000 (free on this host)
-# NEXT_PUBLIC_API_URL must match backend port: http://192.168.1.162:8003
+# redis already uses 6380:6379 in base file (avoids conflict with ragflow-redis on 6379)
+# backend: remapped to 8003 (8000 taken by mkdocs)
+# NEXT_PUBLIC_API_URL matches backend port: http://192.168.1.162:8003
 
 services:
-  redis:
-    ports: []   # Redis doesn't need external exposure
-
   backend:
     ports:
       - "8003:8000"
