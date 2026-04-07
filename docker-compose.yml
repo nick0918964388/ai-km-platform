@@ -50,7 +50,7 @@ services:
     image: redis:7-alpine
     container_name: aikm-redis
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
@@ -75,7 +75,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "8000:8000"
+      - "8100:8000"
     volumes:
       - ./backend/storage:/app/storage
       - ./backend/backups:/app/backups
@@ -131,7 +131,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://192.168.1.162:8000
+        NEXT_PUBLIC_API_URL: http://192.168.1.162:8100
         NEXT_PUBLIC_API_KEY: ${AIKM_API_KEY:-}
     container_name: aikm-frontend
     ports:
