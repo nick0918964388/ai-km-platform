@@ -31,7 +31,7 @@ export default function UsageStatisticsChart({ data, loading, error, onRetry }: 
   if (loading) {
     return (
       <div className="h-[250px] flex items-center justify-center">
-        <div className="animate-pulse text-gray-400">載入中...</div>
+        <div className="animate-pulse" style={{ color: 'var(--text-muted)' }}>載入中...</div>
       </div>
     );
   }
@@ -39,9 +39,9 @@ export default function UsageStatisticsChart({ data, loading, error, onRetry }: 
   if (error) {
     return (
       <div className="h-[250px] flex flex-col items-center justify-center gap-2">
-        <p className="text-red-600">{error}</p>
+        <p style={{ color: 'var(--error)' }}>{error}</p>
         {onRetry && (
-          <button onClick={onRetry} className="text-blue-600 hover:underline">
+          <button onClick={onRetry} style={{ color: 'var(--primary)' }} className="hover:underline">
             重試
           </button>
         )}
@@ -53,35 +53,35 @@ export default function UsageStatisticsChart({ data, loading, error, onRetry }: 
     <div className="h-[250px]">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} barCategoryGap="20%">
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#e8e6dc" vertical={false} />
           <XAxis
             dataKey="date"
-            tick={{ fontSize: 12, fill: '#9ca3af' }}
+            tick={{ fontSize: 12, fill: '#87867f' }}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
-            tick={{ fontSize: 12, fill: '#9ca3af' }}
+            tick={{ fontSize: 12, fill: '#87867f' }}
             axisLine={false}
             tickLine={false}
             width={40}
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: '#1f2937',
+              backgroundColor: '#141413',
               border: 'none',
               borderRadius: '8px',
-              color: '#fff',
+              color: '#b0aea5',
               padding: '8px 12px',
             }}
             formatter={(value: number) => [`${value} 個`, '上傳檔案']}
-            cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+            cursor={{ fill: 'rgba(201, 100, 66, 0.08)' }}
           />
           <Bar dataKey="uploads" radius={[6, 6, 0, 0]} maxBarSize={50}>
             {chartData.map((entry, index) => (
               <Cell
                 key={`cell-${index}`}
-                fill={entry.uploads === maxUploads ? '#3b82f6' : '#e5e7eb'}
+                fill={entry.uploads === maxUploads ? '#c96442' : '#e8e6dc'}
               />
             ))}
           </Bar>

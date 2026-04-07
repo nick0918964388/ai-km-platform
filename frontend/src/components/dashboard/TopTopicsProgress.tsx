@@ -7,7 +7,7 @@ interface TopTopicsProgressProps {
   loading?: boolean;
 }
 
-const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
+const COLORS = ['#c96442', '#d97757', '#87867f', '#4d4c48', '#b0aea5'];
 
 // Mock data
 const mockTopics = [
@@ -23,10 +23,10 @@ export default function TopTopicsProgress({ topics, loading }: TopTopicsProgress
         {[1, 2, 3].map((i) => (
           <div key={i} className="animate-pulse">
             <div className="flex justify-between mb-2">
-              <div className="h-4 bg-gray-100 rounded w-1/3" />
-              <div className="h-4 bg-gray-100 rounded w-12" />
+              <div style={{ height: '1rem', background: 'var(--border-light)', borderRadius: '4px', width: '33%' }} />
+              <div style={{ height: '1rem', background: 'var(--border-light)', borderRadius: '4px', width: '3rem' }} />
             </div>
-            <div className="h-2 bg-gray-100 rounded-full" />
+            <div style={{ height: '0.5rem', background: 'var(--border-light)', borderRadius: '9999px' }} />
           </div>
         ))}
       </div>
@@ -38,7 +38,7 @@ export default function TopTopicsProgress({ topics, loading }: TopTopicsProgress
 
   if (displayTopics.length === 0) {
     return (
-      <div className="text-center py-8 text-gray-400">
+      <div style={{ textAlign: 'center', padding: '2rem 0', color: 'var(--text-muted)' }}>
         <p>尚無搜尋記錄</p>
       </div>
     );
@@ -53,13 +53,15 @@ export default function TopTopicsProgress({ topics, loading }: TopTopicsProgress
         return (
           <div key={index}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700">{topic.query_text}</span>
-              <span className="text-sm font-semibold text-gray-900">{topic.count} 次</span>
+              <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>{topic.query_text}</span>
+              <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>{topic.count} 次</span>
             </div>
-            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div style={{ height: '0.5rem', background: 'var(--border-light)', borderRadius: '9999px', overflow: 'hidden' }}>
               <div
-                className="h-full rounded-full transition-all duration-500"
+                className="transition-all duration-500"
                 style={{
+                  height: '100%',
+                  borderRadius: '9999px',
                   width: `${percentage}%`,
                   backgroundColor: color,
                 }}

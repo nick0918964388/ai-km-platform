@@ -808,9 +808,10 @@ h1, h2, h3, h4, h5, h6,
 
 .login-branding-text {
   font-size: 2rem;
-  font-weight: 700;
-  color: white;
+  font-weight: 500;
+  color: #faf9f5;
   margin-bottom: 0.5rem;
+  font-family: Georgia, serif;
 }
 
 .login-branding-desc {
@@ -985,8 +986,9 @@ h1, h2, h3, h4, h5, h6,
 
 .page-title {
   font-size: 1.75rem;
-  font-weight: 700;
+  font-weight: 500;
   color: var(--text-primary);
+  font-family: Georgia, serif;
 }
 
 .page-subtitle {

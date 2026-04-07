@@ -7,13 +7,13 @@ interface FileTypePieChartProps {
   loading?: boolean;
 }
 
-const COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981'];
+const COLORS = ['#c96442', '#d97757', '#87867f', '#4d4c48'];
 
 const defaultData = [
-  { name: 'PDF', value: 40, color: '#3b82f6' },
-  { name: 'Word', value: 25, color: '#8b5cf6' },
-  { name: 'PPT', value: 20, color: '#f59e0b' },
-  { name: '其他', value: 15, color: '#10b981' },
+  { name: 'PDF', value: 40, color: '#c96442' },
+  { name: 'Word', value: 25, color: '#d97757' },
+  { name: 'PPT', value: 20, color: '#87867f' },
+  { name: '其他', value: 15, color: '#4d4c48' },
 ];
 
 export default function FileTypePieChart({ data, loading }: FileTypePieChartProps) {
@@ -26,7 +26,7 @@ export default function FileTypePieChart({ data, loading }: FileTypePieChartProp
   if (loading) {
     return (
       <div className="h-[220px] flex items-center justify-center">
-        <div className="animate-pulse text-gray-400">載入中...</div>
+        <div className="animate-pulse" style={{ color: 'var(--text-muted)' }}>載入中...</div>
       </div>
     );
   }
@@ -65,8 +65,8 @@ export default function FileTypePieChart({ data, loading }: FileTypePieChartProp
                 className="w-3 h-3 rounded-full"
                 style={{ backgroundColor: item.color || COLORS[index % COLORS.length] }}
               />
-              <span className="text-sm text-gray-600">{item.name}</span>
-              <span className="text-sm font-semibold text-gray-900">{percentage}%</span>
+              <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{item.name}</span>
+              <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>{percentage}%</span>
             </div>
           );
         })}

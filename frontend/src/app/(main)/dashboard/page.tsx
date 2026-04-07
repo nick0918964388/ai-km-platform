@@ -53,15 +53,15 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50/50">
+    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)' }}>
       <div className="p-8 md:p-12 lg:p-16">
         {/* Page Header */}
         <div className="flex items-center justify-between mb-10">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">
+            <h1 style={{ fontSize: '1.75rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif', marginBottom: '0.25rem' }}>
               儀表板
             </h1>
-            <p className="text-gray-500">
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9375rem' }}>
               {`歡迎回來，${user?.name ?? dashboardMetrics?.display_name ?? 'User'}`}
             </p>
           </div>
@@ -79,88 +79,94 @@ export default function DashboardPage() {
 
         {/* Error State */}
         {dashboardError && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
-            <p className="text-red-800 font-medium">載入儀表板失敗</p>
-            <p className="text-sm text-red-600 mt-1">{dashboardError}</p>
+          <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--error-light)', border: '1px solid var(--error)', borderRadius: '12px' }}>
+            <p style={{ color: 'var(--error)', fontWeight: 500 }}>載入儀表板失敗</p>
+            <p style={{ fontSize: '0.875rem', color: 'var(--error)', marginTop: '0.25rem', opacity: 0.8 }}>{dashboardError}</p>
           </div>
         )}
 
         {/* Metrics Grid - 4 Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-0 mb-10 bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-0 mb-10 overflow-hidden"
+          style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', boxShadow: 'rgba(0,0,0,0.05) 0px 4px 24px' }}>
           {/* Documents */}
-          <div className="bg-white border-r border-gray-200 p-6 hover:bg-gray-50 transition-all">
+          <div style={{ background: 'var(--bg-secondary)', borderRight: '1px solid var(--border-light)', padding: '1.5rem' }}
+            className="hover:bg-[#f0eee6] transition-all">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-medium text-gray-500">文件數據</span>
-              <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
-                <DocumentBlank size={24} className="text-blue-600" />
+              <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>文件數據</span>
+              <div style={{ width: '3rem', height: '3rem', background: 'var(--primary-light)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <DocumentBlank size={24} style={{ color: 'var(--primary)' }} />
               </div>
             </div>
-            <p className="text-4xl font-bold text-gray-900 mb-2">
+            <p style={{ fontSize: '2.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem', lineHeight: 1 }}>
               {dashboardMetrics?.document_count?.toLocaleString() ?? '1,234'}
             </p>
-            <div className="flex items-center gap-1 text-sm text-green-600">
+            <div className="flex items-center gap-1" style={{ fontSize: '0.875rem', color: 'var(--success)' }}>
               <ArrowUpRight size={16} />
               <span>+12% 較上月</span>
             </div>
           </div>
 
           {/* Queries */}
-          <div className="bg-white border-r border-gray-200 p-6 hover:bg-gray-50 transition-all sm:border-b lg:border-b-0">
+          <div style={{ background: 'var(--bg-secondary)', borderRight: '1px solid var(--border-light)', padding: '1.5rem' }}
+            className="hover:bg-[#f0eee6] transition-all sm:border-b lg:border-b-0">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-medium text-gray-500">查詢次數</span>
-              <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
-                <Search size={24} className="text-blue-600" />
+              <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>查詢次數</span>
+              <div style={{ width: '3rem', height: '3rem', background: 'var(--primary-light)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Search size={24} style={{ color: 'var(--primary)' }} />
               </div>
             </div>
-            <p className="text-4xl font-bold text-gray-900 mb-2">
+            <p style={{ fontSize: '2.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem', lineHeight: 1 }}>
               {dashboardMetrics?.query_count?.toLocaleString() ?? '5,678'}
             </p>
-            <div className="flex items-center gap-1 text-sm text-green-600">
+            <div className="flex items-center gap-1" style={{ fontSize: '0.875rem', color: 'var(--success)' }}>
               <ArrowUpRight size={16} />
               <span>+23% 較上月</span>
             </div>
           </div>
 
           {/* Account Level */}
-          <div className="bg-white border-r border-gray-200 p-6 hover:bg-gray-50 transition-all sm:border-t lg:border-t-0">
+          <div style={{ background: 'var(--bg-secondary)', borderRight: '1px solid var(--border-light)', padding: '1.5rem' }}
+            className="hover:bg-[#f0eee6] transition-all sm:border-t lg:border-t-0">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-medium text-gray-500">帳戶等級</span>
-              <div className="w-12 h-12 bg-purple-50 rounded-xl flex items-center justify-center">
-                <Star size={24} className="text-purple-600" />
+              <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>帳戶等級</span>
+              <div style={{ width: '3rem', height: '3rem', background: '#f5ede8', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Star size={24} style={{ color: '#a34d30' }} />
               </div>
             </div>
-            <p className="text-4xl font-bold text-gray-900 mb-2">
+            <p style={{ fontSize: '2.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem', lineHeight: 1 }}>
               {formatAccountLevel(dashboardMetrics?.account_level)}
             </p>
-            <span className="inline-block px-3 py-1 bg-purple-100 text-purple-700 text-xs font-semibold rounded-lg">
+            <span style={{ display: 'inline-block', padding: '0.2rem 0.75rem', background: 'var(--primary-light)', color: 'var(--primary)', fontSize: '0.75rem', fontWeight: 600, borderRadius: '6px' }}>
               PRO
             </span>
           </div>
 
           {/* Member Since */}
-          <div className="bg-white p-6 hover:bg-gray-50 transition-all sm:border-t lg:border-t-0">
+          <div style={{ background: 'var(--bg-secondary)', padding: '1.5rem' }}
+            className="hover:bg-[#f0eee6] transition-all sm:border-t lg:border-t-0">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-medium text-gray-500">加入時間</span>
-              <div className="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center">
-                <Calendar size={24} className="text-orange-600" />
+              <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>加入時間</span>
+              <div style={{ width: '3rem', height: '3rem', background: 'var(--bg-tertiary)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Calendar size={24} style={{ color: 'var(--text-secondary)' }} />
               </div>
             </div>
-            <p className="text-4xl font-bold text-gray-900 mb-2">
+            <p style={{ fontSize: '2.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem', lineHeight: 1 }}>
               {getDaysSinceJoined(dashboardMetrics?.created_at)}
             </p>
-            <span className="text-sm text-gray-400">
+            <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
               {formatJoinDate(dashboardMetrics?.created_at)}
             </span>
           </div>
         </div>
 
         {/* Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 mb-10 bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 mb-10 overflow-hidden"
+          style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', boxShadow: 'rgba(0,0,0,0.05) 0px 4px 24px' }}>
           {/* Query Bar Chart - 2 columns */}
-          <div className="lg:col-span-2 border-b lg:border-b-0 lg:border-r border-gray-200 p-8">
+          <div className="lg:col-span-2" style={{ borderBottom: '1px solid var(--border-light)', padding: '2rem' }}>
             <div className="flex items-center justify-between mb-8">
-              <h3 className="text-xl font-semibold text-gray-900">查詢趨勢</h3>
-              <span className="px-3 py-1 bg-gray-100 text-gray-500 text-sm rounded-lg">近 7 天</span>
+              <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif' }}>查詢趨勢</h3>
+              <span style={{ padding: '0.2rem 0.75rem', background: 'var(--bg-tertiary)', color: 'var(--text-muted)', fontSize: '0.875rem', borderRadius: '6px' }}>近 7 天</span>
             </div>
             <QueryBarChart
               data={dashboardMetrics?.query_trend}
@@ -169,8 +175,8 @@ export default function DashboardPage() {
           </div>
 
           {/* File Type Pie Chart */}
-          <div className="p-8">
-            <h3 className="text-xl font-semibold text-gray-900 mb-8">文件類型分佈</h3>
+          <div style={{ padding: '2rem' }}>
+            <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif', marginBottom: '2rem' }}>文件類型分佈</h3>
             <FileTypePieChart
               data={dashboardMetrics?.file_type_distribution}
               loading={dashboardLoading && !dashboardMetrics}
@@ -179,10 +185,11 @@ export default function DashboardPage() {
         </div>
 
         {/* Analytics Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 mb-10 bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 mb-10 overflow-hidden"
+          style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', boxShadow: 'rgba(0,0,0,0.05) 0px 4px 24px' }}>
           {/* Query Trend Chart */}
-          <div className="border-b lg:border-b-0 lg:border-r border-gray-200 p-8">
-            <h3 className="text-xl font-semibold text-gray-900 mb-8">查詢趨勢分析</h3>
+          <div style={{ borderBottom: '1px solid var(--border-light)', padding: '2rem' }}>
+            <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif', marginBottom: '2rem' }}>查詢趨勢分析</h3>
             <QueryTrendChart
               data={dashboardMetrics?.query_trend}
               loading={dashboardLoading && !dashboardMetrics}
@@ -190,8 +197,8 @@ export default function DashboardPage() {
           </div>
 
           {/* Usage Statistics Chart */}
-          <div className="p-8">
-            <h3 className="text-xl font-semibold text-gray-900 mb-8">文件上傳統計</h3>
+          <div style={{ padding: '2rem' }}>
+            <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif', marginBottom: '2rem' }}>文件上傳統計</h3>
             <UsageStatisticsChart
               data={dashboardMetrics?.upload_stats}
               loading={dashboardLoading && !dashboardMetrics}
@@ -200,12 +207,14 @@ export default function DashboardPage() {
         </div>
 
         {/* Bottom Row: Activity & Topics */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 overflow-hidden"
+          style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', boxShadow: 'rgba(0,0,0,0.05) 0px 4px 24px' }}>
           {/* Recent Activity */}
-          <div className="border-b lg:border-b-0 lg:border-r border-gray-200 p-8">
+          <div style={{ borderBottom: '1px solid var(--border-light)', padding: '2rem' }}>
             <div className="flex items-center justify-between mb-8">
-              <h3 className="text-xl font-semibold text-gray-900">最近活動</h3>
-              <button className="text-sm text-blue-600 hover:text-blue-700 font-medium hover:underline">
+              <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif' }}>最近活動</h3>
+              <button style={{ fontSize: '0.875rem', color: 'var(--primary)', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer' }}
+                className="hover:underline">
                 查看全部
               </button>
             </div>
@@ -216,10 +225,10 @@ export default function DashboardPage() {
           </div>
 
           {/* Top Topics */}
-          <div className="p-8">
+          <div style={{ padding: '2rem' }}>
             <div className="flex items-center justify-between mb-8">
-              <h3 className="text-xl font-semibold text-gray-900">熱門主題</h3>
-              <ArrowUpRight size={20} className="text-gray-400" />
+              <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif' }}>熱門主題</h3>
+              <ArrowUpRight size={20} style={{ color: 'var(--text-muted)' }} />
             </div>
             <TopTopicsProgress
               topics={dashboardMetrics?.top_topics ?? []}

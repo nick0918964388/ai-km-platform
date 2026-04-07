@@ -8,7 +8,7 @@ interface StatCardProps {
   title: string;
   value: number | string;
   unit?: string;
-  trend?: number; // Percentage change
+  trend?: number;
   trendLabel?: string;
   icon?: React.ReactNode;
   color?: 'default' | 'success' | 'warning' | 'danger';
@@ -16,18 +16,18 @@ interface StatCardProps {
   onClick?: () => void;
 }
 
-const colorClasses = {
-  default: 'text-blue-600',
-  success: 'text-green-600',
-  warning: 'text-yellow-600',
-  danger: 'text-red-600',
+const iconBgStyles = {
+  default: { background: '#f9ede8' },
+  success: { background: 'var(--success-light)' },
+  warning: { background: 'var(--warning-light)' },
+  danger: { background: 'var(--error-light)' },
 };
 
-const bgClasses = {
-  default: 'bg-blue-50',
-  success: 'bg-green-50',
-  warning: 'bg-yellow-50',
-  danger: 'bg-red-50',
+const valueStyles = {
+  default: { color: '#c96442' },
+  success: { color: 'var(--success)' },
+  warning: { color: 'var(--warning)' },
+  danger: { color: 'var(--error)' },
 };
 
 export default function StatCard({
@@ -51,7 +51,7 @@ export default function StatCard({
   }
 
   const TrendIcon = trend && trend > 0 ? ArrowUp : trend && trend < 0 ? ArrowDown : Subtract;
-  const trendColor = trend && trend > 0 ? 'text-red-500' : trend && trend < 0 ? 'text-green-500' : 'text-gray-500';
+  const trendStyle = trend && trend > 0 ? { color: 'var(--error)' } : trend && trend < 0 ? { color: 'var(--success)' } : { color: 'var(--text-muted)' };
 
   return (
     <Tile
@@ -60,23 +60,23 @@ export default function StatCard({
     >
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-gray-500 mb-1">{title}</p>
+          <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>{title}</p>
           <div className="flex items-baseline gap-1">
-            <span className={`text-2xl font-bold ${colorClasses[color]}`}>
+            <span style={{ fontSize: '1.5rem', fontWeight: 700, ...valueStyles[color] }}>
               {typeof value === 'number' ? value.toLocaleString() : value}
             </span>
-            {unit && <span className="text-sm text-gray-500">{unit}</span>}
+            {unit && <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{unit}</span>}
           </div>
           {trend !== undefined && (
-            <div className={`flex items-center gap-1 mt-1 text-sm ${trendColor}`}>
+            <div className="flex items-center gap-1 mt-1" style={{ fontSize: '0.875rem', ...trendStyle }}>
               <TrendIcon size={12} />
               <span>{Math.abs(trend)}%</span>
-              {trendLabel && <span className="text-gray-400">{trendLabel}</span>}
+              {trendLabel && <span style={{ color: 'var(--text-muted)' }}>{trendLabel}</span>}
             </div>
           )}
         </div>
         {icon && (
-          <div className={`p-2 rounded-lg ${bgClasses[color]}`}>
+          <div style={{ padding: '0.5rem', borderRadius: '8px', ...iconBgStyles[color] }}>
             {icon}
           </div>
         )}

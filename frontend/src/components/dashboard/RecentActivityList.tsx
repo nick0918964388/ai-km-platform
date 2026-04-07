@@ -11,11 +11,11 @@ interface RecentActivityListProps {
 function getActivityIcon(actionType: string) {
   switch (actionType) {
     case 'query':
-      return { icon: Search, bgColor: 'bg-blue-50', iconColor: 'text-blue-600' };
+      return { icon: Search, bgStyle: { background: '#f9ede8' }, iconStyle: { color: '#c96442' } };
     case 'document_upload':
-      return { icon: DocumentAdd, bgColor: 'bg-green-50', iconColor: 'text-green-600' };
+      return { icon: DocumentAdd, bgStyle: { background: '#edf5ee' }, iconStyle: { color: '#3a7d44' } };
     default:
-      return { icon: Settings, bgColor: 'bg-gray-50', iconColor: 'text-gray-600' };
+      return { icon: Settings, bgStyle: { background: 'var(--bg-tertiary)' }, iconStyle: { color: 'var(--text-secondary)' } };
   }
 }
 
@@ -64,10 +64,10 @@ export default function RecentActivityList({ activities, loading }: RecentActivi
       <div className="space-y-4">
         {[1, 2, 3].map((i) => (
           <div key={i} className="flex items-center gap-4 animate-pulse">
-            <div className="w-10 h-10 bg-gray-100 rounded-xl" />
+            <div style={{ width: '2.5rem', height: '2.5rem', background: 'var(--border-light)', borderRadius: '10px' }} />
             <div className="flex-1">
-              <div className="h-4 bg-gray-100 rounded w-3/4 mb-2" />
-              <div className="h-3 bg-gray-100 rounded w-1/4" />
+              <div style={{ height: '1rem', background: 'var(--border-light)', borderRadius: '4px', width: '75%', marginBottom: '0.5rem' }} />
+              <div style={{ height: '0.75rem', background: 'var(--border-light)', borderRadius: '4px', width: '25%' }} />
             </div>
           </div>
         ))}
@@ -79,7 +79,7 @@ export default function RecentActivityList({ activities, loading }: RecentActivi
 
   if (displayActivities.length === 0) {
     return (
-      <div className="text-center py-8 text-gray-400">
+      <div style={{ textAlign: 'center', padding: '2rem 0', color: 'var(--text-muted)' }}>
         <p>尚無活動記錄</p>
       </div>
     );
@@ -88,18 +88,18 @@ export default function RecentActivityList({ activities, loading }: RecentActivi
   return (
     <div className="space-y-4">
       {displayActivities.map((activity, index) => {
-        const { icon: Icon, bgColor, iconColor } = getActivityIcon(activity.action_type);
+        const { icon: Icon, bgStyle, iconStyle } = getActivityIcon(activity.action_type);
         const label = getActivityLabel(activity as ActivityEntry);
         const time = formatTimestamp(activity.timestamp);
 
         return (
           <div key={index} className="flex items-center gap-4">
-            <div className={`w-10 h-10 ${bgColor} rounded-xl flex items-center justify-center flex-shrink-0`}>
-              <Icon size={20} className={iconColor} />
+            <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, ...bgStyle }}>
+              <Icon size={20} style={iconStyle} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{label}</p>
-              <p className="text-xs text-gray-400">{time}</p>
+              <p style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-primary)' }} className="truncate">{label}</p>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{time}</p>
             </div>
           </div>
         );
