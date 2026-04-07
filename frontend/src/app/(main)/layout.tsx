@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import MobileHeader from '@/components/layout/MobileHeader';
 import { useStore } from '@/store/useStore';
@@ -12,8 +12,10 @@ export default function MainLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, sidebarOpen, toggleSidebar, sidebarCollapsed, loadUserData } = useStore();
   const [isHydrated, setIsHydrated] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   // Wait for hydration to complete
   useEffect(() => {
@@ -22,27 +24,36 @@ export default function MainLayout({
 
   // Auth guard: redirect to login if not authenticated
   useEffect(() => {
-    if (isHydrated && !user) {
-      router.replace('/login');
+    if (isHydrated && !user && !isRedirecting) {
+      setIsRedirecting(true);
+      router.push('/login');
     }
-  }, [isHydrated, user, router]);
+  }, [isHydrated, user, router, isRedirecting]);
 
   // Load user-specific data on mount (after hydration)
   useEffect(() => {
     if (user) {
       loadUserData();
     }
-  }, [user, loadUserData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]); // Only re-run when user changes, not when loadUserData ref changes
 
-  // Show loading state while checking auth
-  if (!isHydrated || !user) {
+  // Show loading screen only during initial hydration or when redirecting to login
+  // Don't show it during normal navigation between pages
+  if (!isHydrated) {
     return (
       <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         height: '100vh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'var(--bg-secondary)'
+        background: 'var(--bg-secondary)',
+        zIndex: 9999,
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{
@@ -67,6 +78,11 @@ export default function MainLayout({
     );
   }
 
+  // If not authenticated after hydration, don't render anything (will redirect)
+  if (!user) {
+    return null;
+  }
+
   return (
     <>
       {/* Mobile Header */}
@@ -83,7 +99,7 @@ export default function MainLayout({
 
       <div className="app-container">
         <Sidebar />
-        <main className="main-content">
+        <main key={pathname} className="main-content">
           {children}
         </main>
       </div>

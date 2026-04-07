@@ -87,6 +87,14 @@ class UploadResponse(BaseModel):
     message: str
 
 
+class RerankerMetadata(BaseModel):
+    """Metadata about the reranking process."""
+    provider: str = Field(..., description="Provider used: 'cohere' / 'bge' / 'none'")
+    latency_ms: float = Field(..., description="Reranking latency in milliseconds")
+    fallback_used: bool = Field(False, description="Whether fallback was triggered")
+    original_rank: Optional[int] = Field(None, description="Original position before reranking (1-indexed)")
+
+
 class SearchResult(BaseModel):
     """Single search result."""
     id: str
@@ -97,6 +105,9 @@ class SearchResult(BaseModel):
     score: float
     image_base64: Optional[str] = None
     file_url: Optional[str] = None
+    # Reranker fields (optional, added when reranking is applied)
+    relevance_score: Optional[float] = Field(None, description="Reranker relevance score (0-1)")
+    reranker_metadata: Optional[RerankerMetadata] = Field(None, description="Reranking process metadata")
 
 
 class ChatResponse(BaseModel):

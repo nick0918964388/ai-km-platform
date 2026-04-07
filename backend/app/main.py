@@ -122,6 +122,14 @@ async def health():
     return {"status": "healthy"}
 
 
+@app.get("/health/reranker")
+async def health_reranker():
+    """Reranker status endpoint."""
+    from app.services.reranker_factory import get_reranker_factory
+    factory = get_reranker_factory()
+    return factory.get_status()
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -7,6 +7,27 @@ import { DashboardMetrics } from '@/types/dashboard';
 const getConversationsKey = (userId: string) => `conversations_${userId}`;
 const getActiveConversationKey = (userId: string) => `activeConversationId_${userId}`;
 
+// User localStorage helpers
+const USER_STORAGE_KEY = 'user_session';
+const loadStoredUser = (): User | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem(USER_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveStoredUser = (user: User | null) => {
+  if (typeof window === 'undefined') return;
+  if (user) {
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+  } else {
+    localStorage.removeItem(USER_STORAGE_KEY);
+  }
+};
+
 // Profile localStorage helpers
 const PROFILE_STORAGE_KEY = 'user_profile';
 const loadStoredProfile = (): UserProfile | null => {
@@ -137,8 +158,9 @@ const defaultSettings: GlobalSettings = {
 
 export const useStore = create<AppState>((set, get) => ({
   // User
-  user: null,
+  user: loadStoredUser(),
   setUser: (user) => {
+    saveStoredUser(user);
     set({ user });
     // Load user-specific conversations when user changes
     if (user) {

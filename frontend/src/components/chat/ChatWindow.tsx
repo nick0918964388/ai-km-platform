@@ -939,7 +939,7 @@ export default function ChatWindow() {
             />
             <button
               data-send-button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={!input.trim() || isLoading}
               title="發送"
               style={{

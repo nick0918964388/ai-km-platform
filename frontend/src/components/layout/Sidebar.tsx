@@ -1,7 +1,6 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import {
   Chat,
   Settings,
@@ -40,12 +39,11 @@ const settingsItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const { user, setUser, profile, conversations, addConversation, deleteConversation, setActiveConversation, activeConversationId, sidebarOpen, toggleSidebar, sidebarCollapsed, toggleSidebarCollapsed } = useStore();
 
   const handleLogout = () => {
     setUser(null);
-    router.push('/login');
+    window.location.href = '/login';
   };
 
   const handleDeleteConversation = (e: React.MouseEvent, convId: string) => {
@@ -64,15 +62,19 @@ export default function Sidebar() {
       updatedAt: new Date(),
     };
     addConversation(newConv);
-    router.push('/chat');
+    window.location.href = '/chat';
     if (window.innerWidth <= 768) {
       toggleSidebar();
     }
   };
 
   const handleNavClick = () => {
+    // Close sidebar on mobile after navigation starts
     if (window.innerWidth <= 768) {
-      toggleSidebar();
+      // Use setTimeout to ensure navigation starts before closing sidebar
+      setTimeout(() => {
+        toggleSidebar();
+      }, 50);
     }
   };
 
@@ -101,7 +103,7 @@ export default function Sidebar() {
         {navItems
           .filter((item) => !item.adminOnly || user?.role === 'admin')
           .map((item) => (
-            <Link
+            <a
               key={item.href}
               href={item.href}
               className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + '/') ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
@@ -110,7 +112,7 @@ export default function Sidebar() {
             >
               <item.icon size={20} />
               {!sidebarCollapsed && item.label}
-            </Link>
+            </a>
           ))}
 
         {/* Settings Section */}
@@ -118,7 +120,7 @@ export default function Sidebar() {
           <>
             {!sidebarCollapsed && <div className="nav-section">設定</div>}
             {settingsItems.map((item) => (
-              <Link
+              <a
                 key={item.href}
                 href={item.href}
                 className={`nav-item ${pathname === item.href ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
@@ -127,7 +129,7 @@ export default function Sidebar() {
               >
                 <item.icon size={20} />
                 {!sidebarCollapsed && item.label}
-              </Link>
+              </a>
             ))}
           </>
         )}
@@ -142,8 +144,12 @@ export default function Sidebar() {
                 className={`nav-item ${conv.id === activeConversationId ? 'active' : ''}`}
                 onClick={() => {
                   setActiveConversation(conv.id);
-                  router.push('/chat');
-                  handleNavClick();
+                  window.location.href = '/chat';
+                  if (window.innerWidth <= 768) {
+                    setTimeout(() => {
+                      toggleSidebar();
+                    }, 100);
+                  }
                 }}
                 style={{
                   fontSize: '0.8125rem',

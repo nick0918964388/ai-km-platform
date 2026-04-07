@@ -1,6 +1,5 @@
 'use client';
 
-import { Tile, SkeletonText } from '@carbon/react';
 import { DocumentAdd, Search, UserAvatar, Renew } from '@carbon/icons-react';
 import type { ActivityEntry } from '@/types/dashboard';
 
@@ -19,29 +18,33 @@ interface ActivityTimelineProps {
 function getActivityIcon(actionType: string) {
   switch (actionType) {
     case 'document_upload':
-      return DocumentAdd;
+      return { icon: DocumentAdd, emoji: '📄', bgClass: 'bg-green-50' };
     case 'query':
-      return Search;
+      return { icon: Search, emoji: '💬', bgClass: 'bg-blue-50' };
     case 'profile_update':
-      return UserAvatar;
+      return { icon: UserAvatar, emoji: '🔧', bgClass: 'bg-orange-50' };
     default:
-      return Renew;
+      return { icon: Renew, emoji: '🔄', bgClass: 'bg-gray-50' };
   }
 }
 
 /**
  * Get human-readable label for activity type
  */
-function getActivityLabel(actionType: string): string {
-  switch (actionType) {
+function getActivityLabel(activity: ActivityEntry): string {
+  switch (activity.action_type) {
     case 'document_upload':
-      return 'Document Uploaded';
+      return activity.metadata?.filename
+        ? `上傳「${activity.metadata.filename}」`
+        : '上傳文件';
     case 'query':
-      return 'Query Performed';
+      return activity.metadata?.query_text
+        ? `查詢「${activity.metadata.query_text.slice(0, 20)}${activity.metadata.query_text.length > 20 ? '...' : ''}」`
+        : '執行查詢';
     case 'profile_update':
-      return 'Profile Updated';
+      return '更新個人資料';
     default:
-      return 'Activity';
+      return '活動';
   }
 }
 
@@ -57,12 +60,15 @@ function formatTimestamp(timestamp: string): string {
     const diffHours = Math.floor(diffMins / 60);
     const diffDays = Math.floor(diffHours / 24);
 
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffMins < 1) return '剛剛';
+    if (diffMins < 60) return `${diffMins} 分鐘前`;
+    if (diffHours < 24) return `${diffHours} 小時前`;
+    if (diffDays === 1) {
+      return `昨天 ${date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    if (diffDays < 7) return `${diffDays} 天前`;
 
-    return date.toLocaleDateString('en-US', {
+    return date.toLocaleDateString('zh-TW', {
       month: 'short',
       day: 'numeric',
     });
@@ -74,13 +80,6 @@ function formatTimestamp(timestamp: string): string {
 /**
  * ActivityTimeline Component
  * Displays chronological list of user activity entries
- *
- * Features:
- * - Timeline layout with icons
- * - Relative timestamps (e.g., "2h ago")
- * - Action type icons and labels
- * - Empty state for new users
- * - Loading skeleton state
  */
 export default function ActivityTimeline({
   activities,
@@ -90,71 +89,89 @@ export default function ActivityTimeline({
   // Loading skeleton
   if (loading) {
     return (
-      <Tile className={`p-6 ${className}`}>
-        <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
+      <div className={`bg-white rounded-xl p-6 shadow-sm ${className}`}>
+        <div className="flex items-center gap-2 mb-6">
+          <span className="text-lg">⏱️</span>
+          <h3 className="text-lg font-semibold text-gray-900">最近活動</h3>
+          <span className="bg-blue-100 text-blue-600 text-xs px-2 py-1 rounded-full font-medium">
+            載入中
+          </span>
+        </div>
         <div className="space-y-4">
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-gray-200 rounded-full animate-pulse flex-shrink-0" />
+            <div key={i} className="flex items-center gap-3 py-3 border-b border-gray-100 last:border-0">
+              <div className="w-9 h-9 bg-gray-100 rounded-full animate-pulse flex-shrink-0" />
               <div className="flex-1">
-                <SkeletonText width="80%" />
-                <SkeletonText width="40%" />
+                <div className="h-4 bg-gray-100 rounded w-3/4 mb-2 animate-pulse" />
+                <div className="h-3 bg-gray-100 rounded w-1/4 animate-pulse" />
               </div>
             </div>
           ))}
         </div>
-      </Tile>
+      </div>
     );
   }
 
   // Empty state
   if (!activities || activities.length === 0) {
     return (
-      <Tile className={`p-6 ${className}`}>
-        <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
+      <div className={`bg-white rounded-xl p-6 shadow-sm ${className}`}>
+        <div className="flex items-center gap-2 mb-6">
+          <span className="text-lg">⏱️</span>
+          <h3 className="text-lg font-semibold text-gray-900">最近活動</h3>
+          <span className="bg-blue-100 text-blue-600 text-xs px-2 py-1 rounded-full font-medium">
+            0 筆
+          </span>
+        </div>
         <div className="text-center py-8">
-          <Renew size={48} className="mx-auto text-gray-400 mb-4" />
-          <p className="text-gray-600 font-medium mb-2">No Activity Yet</p>
-          <p className="text-sm text-gray-500">
-            Your recent actions will appear here once you start using the platform
+          <Renew size={48} className="mx-auto text-gray-300 mb-4" />
+          <p className="text-gray-500 font-medium mb-1">尚無活動記錄</p>
+          <p className="text-sm text-gray-400">
+            您的操作記錄將顯示在這裡
           </p>
         </div>
-      </Tile>
+      </div>
     );
   }
 
   return (
-    <Tile className={`p-6 ${className}`}>
-      <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
+    <div className={`bg-white rounded-xl p-6 shadow-sm ${className}`}>
+      <div className="flex items-center gap-2 mb-6">
+        <span className="text-lg">⏱️</span>
+        <h3 className="text-lg font-semibold text-gray-900">最近活動</h3>
+        <span className="bg-blue-100 text-blue-600 text-xs px-2 py-1 rounded-full font-medium">
+          {activities.length} 筆
+        </span>
+      </div>
 
       {/* Timeline */}
-      <div className="space-y-4">
-        {activities.map((activity, index) => {
-          const Icon = getActivityIcon(activity.action_type);
-          const label = getActivityLabel(activity.action_type);
+      <div>
+        {activities.slice(0, 5).map((activity, index) => {
+          const { emoji, bgClass } = getActivityIcon(activity.action_type);
+          const label = getActivityLabel(activity);
           const timestamp = formatTimestamp(activity.timestamp);
 
           return (
-            <div key={index} className="flex items-start gap-3">
+            <div
+              key={index}
+              className="flex items-center gap-3 py-3 border-b border-gray-100 last:border-0"
+            >
               {/* Icon */}
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-                <Icon size={16} className="text-blue-600" />
+              <div
+                className={`flex-shrink-0 w-9 h-9 ${bgClass} rounded-full flex items-center justify-center text-base`}
+              >
+                {emoji}
               </div>
 
               {/* Content */}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900">{label}</p>
-                <p className="text-xs text-gray-500">{timestamp}</p>
-                {activity.metadata && Object.keys(activity.metadata).length > 0 && (
-                  <p className="text-xs text-gray-600 mt-1 truncate">
-                    {JSON.stringify(activity.metadata)}
-                  </p>
-                )}
+                <p className="text-sm font-medium text-gray-900 truncate">{label}</p>
+                <p className="text-xs text-gray-400">{timestamp}</p>
               </div>
             </div>
           );
         })}
       </div>
-    </Tile>
+    </div>
   );
 }

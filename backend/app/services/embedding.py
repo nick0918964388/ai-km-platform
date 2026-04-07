@@ -13,9 +13,17 @@ from PIL import Image
 _openai_client = None
 _jina_api_key = None
 
+# Embedding provider configuration
+EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "ollama")  # "openai" or "ollama"
+
 # OpenAI embedding model
 OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
 OPENAI_EMBEDDING_DIMENSION = 1536
+
+# Ollama embedding configuration
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://192.168.1.161:11434")
+OLLAMA_EMBEDDING_MODEL = os.environ.get("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:latest")
+OLLAMA_EMBEDDING_DIMENSION = 4096  # Qwen3 embedding dimension
 
 # Jina CLIP model
 JINA_CLIP_MODEL = "jina-clip-v1"
@@ -53,7 +61,39 @@ def get_jina_api_key() -> str:
     return _jina_api_key
 
 
-def embed_text(text: str) -> list[float]:
+def embed_text_ollama(text: str) -> list[float]:
+    """Embed text using Ollama API."""
+    response = requests.post(
+        f"{OLLAMA_URL}/api/embed",
+        json={
+            "model": OLLAMA_EMBEDDING_MODEL,
+            "input": text
+        },
+        timeout=60,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data["embeddings"][0]
+
+
+def embed_texts_ollama(texts: list[str]) -> list[list[float]]:
+    """Embed multiple texts using Ollama API."""
+    if not texts:
+        return []
+    response = requests.post(
+        f"{OLLAMA_URL}/api/embed",
+        json={
+            "model": OLLAMA_EMBEDDING_MODEL,
+            "input": texts
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data["embeddings"]
+
+
+def embed_text_openai(text: str) -> list[float]:
     """Embed text using OpenAI API."""
     client = get_openai_client()
     response = client.embeddings.create(
@@ -63,7 +103,7 @@ def embed_text(text: str) -> list[float]:
     return response.data[0].embedding
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
+def embed_texts_openai(texts: list[str]) -> list[list[float]]:
     """Embed multiple texts using OpenAI API."""
     if not texts:
         return []
@@ -75,6 +115,22 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     # Sort by index to maintain order
     sorted_embeddings = sorted(response.data, key=lambda x: x.index)
     return [item.embedding for item in sorted_embeddings]
+
+
+def embed_text(text: str) -> list[float]:
+    """Embed text using configured provider."""
+    if EMBEDDING_PROVIDER == "ollama":
+        return embed_text_ollama(text)
+    else:
+        return embed_text_openai(text)
+
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Embed multiple texts using configured provider."""
+    if EMBEDDING_PROVIDER == "ollama":
+        return embed_texts_ollama(texts)
+    else:
+        return embed_texts_openai(texts)
 
 
 def embed_image_jina(image_base64: str) -> list[float]:
@@ -142,8 +198,11 @@ def embed_image_from_bytes(image_bytes: bytes) -> list[float]:
 
 
 def get_text_embedding_dimension() -> int:
-    """Get text embedding dimension."""
-    return OPENAI_EMBEDDING_DIMENSION  # text-embedding-3-small
+    """Get text embedding dimension based on configured provider."""
+    if EMBEDDING_PROVIDER == "ollama":
+        return OLLAMA_EMBEDDING_DIMENSION  # Qwen3 embedding
+    else:
+        return OPENAI_EMBEDDING_DIMENSION  # text-embedding-3-small
 
 
 def get_image_embedding_dimension() -> int:
