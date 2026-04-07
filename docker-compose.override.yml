@@ -1,19 +1,10 @@
-# Override for 192.168.1.162 (elk host) — avoids port conflicts with existing services
-# Port conflict resolutions:
-#   redis:   6379 → 6380 (6379 taken by ragflow valkey) — !reset clears base ports
-#   backend: 8000 → 8003 (8000 taken by mkdocs nginx) — !reset clears base ports
-#   frontend: 3000 (free on this host)
-# NEXT_PUBLIC_API_URL must match backend port: http://192.168.1.162:8003
+# Override for 192.168.1.162 (elk host)
+# Port conflicts are handled via .env file:
+#   REDIS_HOST_PORT=6380
+#   BACKEND_HOST_PORT=8003
+# This override rebuilds frontend with the correct API URL for this host.
 
 services:
-  redis:
-    ports: !reset
-      - "6380:6379"
-
-  backend:
-    ports: !reset
-      - "8003:8000"
-
   frontend:
     build:
       context: ./frontend
@@ -21,5 +12,3 @@ services:
       args:
         NEXT_PUBLIC_API_URL: http://192.168.1.162:8003
         NEXT_PUBLIC_API_KEY: ${AIKM_API_KEY:-}
-    ports: !reset
-      - "3000:3000"
