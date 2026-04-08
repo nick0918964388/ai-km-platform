@@ -1649,7 +1649,7 @@ a.btn, a.nav-item, a[role="button"] {
   inset: 0;
   background: rgba(20, 20, 19, 0.5);
   z-index: 200;
-  animation: fadeIn var(--transition-normal);
+  animation: overlayFadeIn var(--transition-normal) forwards;
 }
 
 .bottom-sheet {
@@ -1663,7 +1663,7 @@ a.btn, a.nav-item, a[role="button"] {
   z-index: 201;
   max-height: 85vh;
   overflow-y: auto;
-  animation: slideUp var(--transition-normal);
+  animation: slideUp var(--transition-normal) forwards;
   padding: 1rem;
 }
 
@@ -1684,7 +1684,7 @@ a.btn, a.nav-item, a[role="button"] {
   padding-right: 2rem;
 }
 
-@keyframes fadeIn {
+@keyframes overlayFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }

@@ -185,7 +185,7 @@ export default function UsersPage() {
                         className="input-btn"
                         title="刪除"
                         onClick={() => handleDelete(user.id)}
-                        style={{ color: '#da1e28' }}
+                        style={{ color: 'var(--error)' }}
                       >
                         <TrashCan size={16} />
                       </button>
@@ -216,9 +216,9 @@ export default function UsersPage() {
         marginTop: '1.5rem'
       }}>
         {[
-          { label: '管理員', count: users.filter(u => u.role === 'admin').length, color: '#da1e28' },
-          { label: '使用者', count: users.filter(u => u.role === 'user').length, color: '#0043ce' },
-          { label: '訪客', count: users.filter(u => u.role === 'guest').length, color: '#525252' },
+          { label: '管理員', count: users.filter(u => u.role === 'admin').length, color: 'var(--error)' },
+          { label: '使用者', count: users.filter(u => u.role === 'user').length, color: 'var(--primary)' },
+          { label: '訪客', count: users.filter(u => u.role === 'guest').length, color: 'var(--text-muted)' },
         ].map((stat) => (
           <div key={stat.label} className="settings-section" style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '2rem', fontWeight: 600, color: stat.color }}>

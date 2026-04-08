@@ -125,8 +125,8 @@ export default function DashboardPage() {
           </div>
 
           {/* Account Level — bottom-left on mobile, 3rd on desktop */}
-          <div style={{ background: 'var(--bg-secondary)', borderRight: '1px solid var(--border-light)', padding: '1.5rem' }}
-            className="hover:bg-[#f0eee6] transition-all">
+          <div style={{ background: 'var(--bg-secondary)', borderRight: '1px solid var(--border-light)', borderBottom: '1px solid var(--border-light)', padding: '1.5rem' }}
+            className="hover:bg-[#f0eee6] transition-all lg:[border-bottom:none]">
             <div className="flex items-center justify-between mb-4">
               <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>帳戶等級</span>
               <div style={{ width: '3rem', height: '3rem', background: '#f5ede8', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

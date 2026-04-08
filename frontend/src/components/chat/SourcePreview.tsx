@@ -99,7 +99,7 @@ function PreviewModal({
               alignItems: 'center',
               gap: '0.5rem',
               padding: '0.5rem 1rem',
-              background: 'var(--primary, #0f62fe)',
+              background: 'var(--primary, #c96442)',
               color: 'white',
               borderRadius: 8,
               textDecoration: 'none',
@@ -131,7 +131,7 @@ function PreviewModal({
                     width: 40,
                     height: 40,
                     border: '3px solid var(--border, #e0e0e0)',
-                    borderTopColor: 'var(--primary, #0f62fe)',
+                    borderTopColor: 'var(--primary, #c96442)',
                     borderRadius: '50%',
                     animation: 'spin 1s linear infinite',
                     margin: '0 auto 1rem',
@@ -181,7 +181,7 @@ function PreviewModal({
                 alignItems: 'center',
                 gap: '0.5rem',
                 padding: '0.5rem 1rem',
-                background: 'var(--primary, #0f62fe)',
+                background: 'var(--primary, #c96442)',
                 color: 'white',
                 borderRadius: 8,
                 textDecoration: 'none',
@@ -220,7 +220,7 @@ function PreviewModal({
                     width: 40,
                     height: 40,
                     border: '3px solid var(--border, #e0e0e0)',
-                    borderTopColor: 'var(--primary, #0f62fe)',
+                    borderTopColor: 'var(--primary, #c96442)',
                     borderRadius: '50%',
                     animation: 'spin 1s linear infinite',
                     margin: '0 auto 1rem',
@@ -267,7 +267,7 @@ function PreviewModal({
                 alignItems: 'center',
                 gap: '0.5rem',
                 padding: '0.5rem 1rem',
-                background: 'var(--primary, #0f62fe)',
+                background: 'var(--primary, #c96442)',
                 color: 'white',
                 borderRadius: 8,
                 textDecoration: 'none',
@@ -341,8 +341,8 @@ function PreviewModal({
               rel="noopener noreferrer"
               download
               style={{
-                width: 36,
-                height: 36,
+                width: 44,
+                height: 44,
                 border: 'none',
                 background: 'transparent',
                 borderRadius: 8,
@@ -360,8 +360,8 @@ function PreviewModal({
             <button
               onClick={onClose}
               style={{
-                width: 36,
-                height: 36,
+                width: 44,
+                height: 44,
                 border: 'none',
                 background: 'transparent',
                 borderRadius: 8,
@@ -408,38 +408,25 @@ export default function SourcePreview({ documentId, documentName }: SourcePrevie
   return (
     <>
       <button
-        className="source-preview-btn"
         onClick={handleOpen}
         title={`預覽 ${documentName}`}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.25rem',
+          padding: '0.25rem 0.5rem',
+          fontSize: '0.75rem',
+          color: 'var(--primary, #c96442)',
+          background: 'var(--primary-light, #f9ede8)',
+          border: '1px solid var(--primary, #c96442)',
+          borderRadius: 4,
+          cursor: 'pointer',
+          transition: 'all 0.15s ease',
+          whiteSpace: 'nowrap',
+        }}
       >
         <Document size={14} />
         <span>預覽原檔</span>
-
-        <style jsx>{`
-          .source-preview-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.25rem;
-            padding: 0.25rem 0.5rem;
-            font-size: 0.75rem;
-            color: var(--primary, #0f62fe);
-            background: var(--bg-brand-light, #e5f0ff);
-            border: 1px solid var(--primary, #0f62fe);
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.15s ease;
-            white-space: nowrap;
-          }
-
-          .source-preview-btn:hover {
-            background: var(--primary, #0f62fe);
-            color: white;
-          }
-
-          .source-preview-btn:active {
-            transform: scale(0.98);
-          }
-        `}</style>
       </button>
 
       {isOpen && (
