@@ -55,9 +55,9 @@ const COLUMN_LABELS: Record<string, string> = {
 };
 
 // Severity tag colors
-const SEVERITY_COLORS: Record<string, 'red' | 'orange' | 'blue' | 'gray'> = {
+const SEVERITY_COLORS: Record<string, 'red' | 'warm-gray' | 'blue' | 'gray'> = {
   critical: 'red',
-  major: 'orange',
+  major: 'warm-gray',
   minor: 'blue',
 };
 

@@ -220,26 +220,29 @@ export default function KnowledgeBasePage() {
   );
 
   return (
-    <div style={{
-      padding: '2rem',
+    <div className="p-4 sm:p-6 lg:p-8" style={{
       height: '100%',
       overflow: 'auto',
       background: 'var(--bg-primary)'
     }}>
       {/* Header */}
-      <div style={{
+      <div className="kb-page-header" style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'flex-start',
-        marginBottom: '1.5rem'
+        marginBottom: '1.5rem',
+        flexWrap: 'wrap',
+        gap: '0.75rem',
       }}>
         <div>
           <h1 style={{
-            fontSize: '1.75rem',
+            fontSize: '1.5rem',
             fontWeight: 700,
             color: 'var(--text-primary)',
             marginBottom: '0.25rem'
-          }}>
+          }}
+            className="sm:text-[1.75rem]"
+          >
             知識庫管理
           </h1>
           <p style={{
@@ -255,12 +258,17 @@ export default function KnowledgeBasePage() {
       </div>
 
       {/* Stats Grid */}
-      <div style={{
+      <div className="kb-stats-grid" style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
-        gap: '1.25rem',
+        gridTemplateColumns: 'repeat(2, 1fr)',
+        gap: '1rem',
         marginBottom: '1.5rem'
       }}>
+        <style>{`
+          @media (min-width: 1024px) {
+            .kb-stats-grid { grid-template-columns: repeat(4, 1fr) !important; gap: 1.25rem !important; }
+          }
+        `}</style>
         <div className="stat-card">
           <div className="stat-card-header">
             <span className="stat-card-title">文件數量</span>
@@ -304,11 +312,17 @@ export default function KnowledgeBasePage() {
       </div>
 
       {/* Search and Upload Row */}
-      <div style={{
+      <div className="kb-controls-row" style={{
         display: 'flex',
-        gap: '1rem',
+        flexDirection: 'column',
+        gap: '0.75rem',
         marginBottom: '1.5rem'
       }}>
+        <style>{`
+          @media (min-width: 640px) {
+            .kb-controls-row { flex-direction: row !important; gap: 1rem !important; }
+          }
+        `}</style>
         <div style={{ flex: 1, position: 'relative' }}>
           <Search
             size={18}
@@ -333,7 +347,8 @@ export default function KnowledgeBasePage() {
               paddingLeft: 48,
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border)',
-              height: 48
+              height: 48,
+              width: '100%',
             }}
           />
         </div>
@@ -344,9 +359,11 @@ export default function KnowledgeBasePage() {
           style={{
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'center',
             gap: '0.5rem',
             padding: '0 1.5rem',
-            height: 48
+            height: 48,
+            flexShrink: 0,
           }}
         >
           <Upload size={18} />
@@ -401,8 +418,8 @@ export default function KnowledgeBasePage() {
       )}
 
       {/* Document Table */}
-      <div className="table-container">
-        <table className="data-table">
+      <div className="table-container" style={{ overflowX: 'auto' }}>
+        <table className="data-table" style={{ minWidth: 600 }}>
           <thead>
             <tr>
               <th>文件名稱</th>
@@ -417,7 +434,7 @@ export default function KnowledgeBasePage() {
           <tbody>
             {paginatedDocuments.map((doc) => (
               <tr key={doc.id}>
-                <td>
+                <td data-label="文件名稱">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     <div style={{
                       width: 36,
@@ -447,14 +464,14 @@ export default function KnowledgeBasePage() {
                     </span>
                   </div>
                 </td>
-                <td>
+                <td data-label="類型">
                   <span className={`badge ${doc.type === 'pdf' ? 'badge-admin' : 'badge-user'}`}>
                     {doc.type.toUpperCase()}
                   </span>
                 </td>
-                <td style={{ color: 'var(--text-muted)' }}>{formatSize(doc.size)}</td>
-                <td style={{ color: 'var(--text-muted)' }}>{doc.chunks || '-'}</td>
-                <td>
+                <td data-label="大小" style={{ color: 'var(--text-muted)' }}>{formatSize(doc.size)}</td>
+                <td data-label="知識片段" style={{ color: 'var(--text-muted)' }}>{doc.chunks || '-'}</td>
+                <td data-label="狀態">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     {doc.status === 'ready' && (
                       <>
@@ -476,10 +493,10 @@ export default function KnowledgeBasePage() {
                     )}
                   </div>
                 </td>
-                <td style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                <td data-label="上傳時間" style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
                   {doc.uploadedAt.toLocaleDateString('zh-TW')}
                 </td>
-                <td style={{ textAlign: 'center' }}>
+                <td data-label="操作" style={{ textAlign: 'center' }}>
                   <button
                     className="btn-icon"
                     title="刪除"
@@ -522,18 +539,23 @@ export default function KnowledgeBasePage() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div style={{
+          <div className="kb-pagination" style={{
             display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
+            flexDirection: 'column',
+            gap: '0.75rem',
             padding: '1rem 1.5rem',
             borderTop: '1px solid var(--border)',
             background: 'var(--bg-secondary)'
           }}>
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+            <style>{`
+              @media (min-width: 640px) {
+                .kb-pagination { flex-direction: row !important; justify-content: space-between !important; align-items: center !important; }
+              }
+            `}</style>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', textAlign: 'center' }}>
               顯示 {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredDocuments.length)} 筆，共 {filteredDocuments.length} 筆
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
               <button
                 className="btn-icon"
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}

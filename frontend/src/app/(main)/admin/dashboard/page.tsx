@@ -156,8 +156,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div style={{
-      padding: '2rem',
+    <div className="p-4 sm:p-6 lg:p-8" style={{
       height: '100%',
       overflow: 'auto',
       background: 'var(--bg-primary)'
@@ -171,11 +170,13 @@ export default function DashboardPage() {
       }}>
         <div>
           <h1 style={{
-            fontSize: '1.75rem',
+            fontSize: '1.5rem',
             fontWeight: 700,
             color: 'var(--text-primary)',
             marginBottom: '0.25rem'
-          }}>
+          }}
+            className="sm:text-[1.75rem]"
+          >
             儀表板
           </h1>
           <p style={{
@@ -193,10 +194,18 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       <div className="dashboard-grid" style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-        gap: '1.25rem',
+        gridTemplateColumns: 'repeat(1, 1fr)',
+        gap: '1rem',
         marginBottom: '1.5rem'
       }}>
+        <style>{`
+          @media (min-width: 640px) {
+            .dashboard-grid { grid-template-columns: repeat(2, 1fr) !important; }
+          }
+          @media (min-width: 1024px) {
+            .dashboard-grid { grid-template-columns: repeat(4, 1fr) !important; gap: 1.25rem !important; }
+          }
+        `}</style>
         <StatCard
           title="今日查詢次數"
           value="128"
@@ -232,12 +241,17 @@ export default function DashboardPage() {
       </div>
 
       {/* Content Row */}
-      <div style={{
+      <div className="dashboard-content-row" style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-        gap: '1.25rem',
-        minHeight: '400px'
+        gridTemplateColumns: 'repeat(1, 1fr)',
+        gap: '1rem',
+        minHeight: 'auto'
       }}>
+        <style>{`
+          @media (min-width: 768px) {
+            .dashboard-content-row { grid-template-columns: repeat(2, 1fr) !important; min-height: 400px !important; gap: 1.25rem !important; }
+          }
+        `}</style>
         {/* Recent Queries */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div style={{

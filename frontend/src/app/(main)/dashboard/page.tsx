@@ -188,7 +188,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 mb-10 overflow-hidden"
           style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', boxShadow: 'rgba(0,0,0,0.05) 0px 4px 24px' }}>
           {/* Query Trend Chart */}
-          <div className="p-4 sm:p-6 lg:p-8" style={{ borderBottom: '1px solid var(--border-light)' }}>
+          <div className="p-4 sm:p-6 lg:p-8" style={{ borderBottom: '1px solid var(--border-light)', minWidth: 0 }}>
             <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif', marginBottom: '2rem' }}>查詢趨勢分析</h3>
             <QueryTrendChart
               data={dashboardMetrics?.query_trend}
@@ -197,7 +197,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Usage Statistics Chart */}
-          <div className="p-4 sm:p-6 lg:p-8">
+          <div className="p-4 sm:p-6 lg:p-8" style={{ borderBottom: '1px solid var(--border-light)', minWidth: 0 }}>
             <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif', marginBottom: '2rem' }}>文件上傳統計</h3>
             <UsageStatisticsChart
               data={dashboardMetrics?.upload_stats}
@@ -210,7 +210,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 overflow-hidden"
           style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', boxShadow: 'rgba(0,0,0,0.05) 0px 4px 24px' }}>
           {/* Recent Activity */}
-          <div className="p-4 sm:p-6 lg:p-8" style={{ borderBottom: '1px solid var(--border-light)' }}>
+          <div className="p-4 sm:p-6 lg:p-8" style={{ borderBottom: '1px solid var(--border-light)', minWidth: 0 }}>
             <div className="flex items-center justify-between mb-8">
               <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif' }}>最近活動</h3>
               <button style={{ fontSize: '0.875rem', color: 'var(--primary)', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer' }}
@@ -225,7 +225,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Top Topics */}
-          <div className="p-4 sm:p-6 lg:p-8">
+          <div className="p-4 sm:p-6 lg:p-8" style={{ minWidth: 0 }}>
             <div className="flex items-center justify-between mb-8">
               <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif' }}>熱門主題</h3>
               <ArrowUpRight size={20} style={{ color: 'var(--text-muted)' }} />

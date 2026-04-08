@@ -335,7 +335,7 @@ export default function PermissionsPage() {
               <tbody>
                 {permissions.map((perm) => (
                   <tr key={perm.id}>
-                    <td>
+                    <td data-label="權限項目">
                       <div style={{ fontWeight: 500, color: 'var(--text-primary)', marginBottom: '0.125rem' }}>
                         {perm.name}
                       </div>
@@ -345,8 +345,9 @@ export default function PermissionsPage() {
                     </td>
                     {(['admin', 'user', 'guest'] as const).map((role) => {
                       const isLocked = role === 'admin' && ['user_management', 'permission_management', 'system_settings'].includes(perm.id);
+                      const roleLabel = role === 'admin' ? '管理員' : role === 'user' ? '使用者' : '訪客';
                       return (
-                        <td key={role} style={{ textAlign: 'center' }}>
+                        <td key={role} data-label={roleLabel} style={{ textAlign: 'center' }}>
                           <label style={{
                             cursor: isLocked ? 'not-allowed' : 'pointer',
                             display: 'inline-flex',
@@ -439,7 +440,7 @@ export default function PermissionsPage() {
               <tbody>
                 {users.map((user) => (
                   <tr key={user.id}>
-                    <td>
+                    <td data-label="使用者">
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                         <div style={{
                           width: 40,
@@ -461,12 +462,12 @@ export default function PermissionsPage() {
                         </div>
                       </div>
                     </td>
-                    <td>
+                    <td data-label="角色">
                       <span className={`badge ${getRoleBadgeClass(user.role)}`}>
                         {getRoleLabel(user.role)}
                       </span>
                     </td>
-                    <td>
+                    <td data-label="狀態">
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <div style={{
                           width: 8,
@@ -482,10 +483,10 @@ export default function PermissionsPage() {
                         </span>
                       </div>
                     </td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                    <td data-label="最後活動" style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
                       {user.lastActive}
                     </td>
-                    <td>
+                    <td data-label="操作">
                       <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
                         <button className="btn-icon" title="編輯">
                           <Edit size={16} />

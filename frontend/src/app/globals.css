@@ -747,9 +747,9 @@ h1, h2, h3, h4, h5, h6,
 /* Chat Input */
 .chat-input-container {
   padding: 1.5rem 5rem;
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 1.5rem));
   background: var(--bg-primary);
   border-top: 1px solid var(--border-light);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .chat-input-wrapper {
@@ -1799,8 +1799,8 @@ a.btn, a.nav-item, a[role="button"] {
     display: flex;
   }
 
-  /* Ensure app container accounts for bottom nav */
-  .app-container {
-    padding-bottom: 64px;
-  }
+  /* Ensure main content accounts for bottom nav height
+     Note: padding-bottom on .app-container has no effect because
+     it uses overflow:hidden + height:100dvh. Padding goes on .main-content instead. */
+  /* .app-container padding-bottom intentionally omitted */
 }

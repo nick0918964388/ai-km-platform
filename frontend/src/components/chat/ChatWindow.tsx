@@ -918,6 +918,13 @@ export default function ChatWindow() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              onFocus={() => {
+                setTimeout(() => {
+                  if (messagesEndRef?.current) {
+                    messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                  }
+                }, 300);
+              }}
               rows={1}
               style={{
                 flex: 1,

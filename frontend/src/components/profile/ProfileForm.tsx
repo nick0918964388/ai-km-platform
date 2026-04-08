@@ -227,11 +227,11 @@ export default function ProfileForm() {
               <TextInput
                 id="created-at"
                 labelText="Account Created"
-                value={new Date(profile.created_at).toLocaleDateString('en-US', {
+                value={profile.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', {
                   year: 'numeric',
                   month: 'long',
                   day: 'numeric',
-                })}
+                }) : ''}
                 readOnly
                 disabled
               />

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import MobileHeader from '@/components/layout/MobileHeader';
+import BottomNav from '@/components/layout/BottomNav';
 import { useStore } from '@/store/useStore';
 
 export default function MainLayout({
@@ -103,6 +104,7 @@ export default function MainLayout({
           {children}
         </main>
       </div>
+      <BottomNav />
     </>
   );
 }

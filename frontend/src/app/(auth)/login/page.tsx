@@ -54,11 +54,14 @@ export default function LoginPage() {
   return (
     <div className="login-container">
       {/* Left Panel - Train Image with Branding */}
-      <div className="login-image-panel" style={{
-        backgroundImage: 'url(https://images.unsplash.com/photo-1474487548417-781cb71495f3?w=1200)',
-        flex: 1,
-        minWidth: 0,
-      }}>
+      <div
+        className="login-image-panel"
+        style={{
+          backgroundImage: 'url(https://images.unsplash.com/photo-1474487548417-781cb71495f3?w=1200)',
+          flex: 1,
+          minWidth: 0,
+        }}
+      >
         <div className="login-image-overlay" />
         <div className="login-image-content" style={{ gap: '1rem', display: 'flex', flexDirection: 'column' }}>
           <h1 className="login-branding-text">AIKM 台鐵問答 AI</h1>
@@ -66,13 +69,15 @@ export default function LoginPage() {
             AI 驅動的車輛維修知識管理平台，快速查詢維修知識與技術文件
           </p>
 
-          {/* Feature Cards */}
-          <div style={{
-            display: 'flex',
-            gap: '1.5rem',
-            marginTop: '1.5rem',
-            flexWrap: 'wrap',
-          }}>
+          {/* Feature Cards - hidden on mobile to save space */}
+          <div
+            className="hidden sm:flex"
+            style={{
+              gap: '1.5rem',
+              marginTop: '1.5rem',
+              flexWrap: 'wrap',
+            }}
+          >
             <div className="feature-card" style={{ flex: 1, minWidth: 180 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                 <Bot size={20} style={{ color: 'var(--accent)' }} />
@@ -100,7 +105,7 @@ export default function LoginPage() {
 
       {/* Right Panel - Login Form */}
       <div className="login-panel">
-        <div className="login-card">
+        <div className="login-card" style={{ width: '100%', maxWidth: 400 }}>
           {/* Logo Section */}
           <div className="login-logo-section">
             <div className="login-logo-icon">

@@ -66,7 +66,7 @@ export default function MetricsCard({
 
       {/* Content */}
       <p className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">{title}</p>
-      <p className="text-3xl font-bold text-gray-900 truncate">
+      <p className="text-2xl sm:text-3xl font-bold text-gray-900 truncate" style={{ wordBreak: 'break-word' }}>
         {value}
       </p>
     </div>
