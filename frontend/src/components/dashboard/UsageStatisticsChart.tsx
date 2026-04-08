@@ -30,7 +30,7 @@ export default function UsageStatisticsChart({ data, loading, error, onRetry }: 
 
   if (loading) {
     return (
-      <div className="h-[250px] flex items-center justify-center">
+      <div className="h-[200px] sm:h-[250px] flex items-center justify-center">
         <div className="animate-pulse" style={{ color: 'var(--text-muted)' }}>載入中...</div>
       </div>
     );
@@ -38,7 +38,7 @@ export default function UsageStatisticsChart({ data, loading, error, onRetry }: 
 
   if (error) {
     return (
-      <div className="h-[250px] flex flex-col items-center justify-center gap-2">
+      <div className="h-[200px] sm:h-[250px] flex flex-col items-center justify-center gap-2">
         <p style={{ color: 'var(--error)' }}>{error}</p>
         {onRetry && (
           <button onClick={onRetry} style={{ color: 'var(--primary)' }} className="hover:underline">
@@ -50,7 +50,7 @@ export default function UsageStatisticsChart({ data, loading, error, onRetry }: 
   }
 
   return (
-    <div className="h-[250px]">
+    <div className="h-[200px] sm:h-[250px]" style={{ width: '100%', minWidth: 0 }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} barCategoryGap="20%">
           <CartesianGrid strokeDasharray="3 3" stroke="#e8e6dc" vertical={false} />

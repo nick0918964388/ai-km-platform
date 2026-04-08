@@ -36,7 +36,7 @@ export default function QueryTrendChart({ data, loading, error, onRetry }: Query
 
   if (loading) {
     return (
-      <div className="h-[220px] flex items-center justify-center">
+      <div className="h-[180px] sm:h-[220px] flex items-center justify-center">
         <div className="animate-pulse" style={{ color: 'var(--text-muted)' }}>載入中...</div>
       </div>
     );
@@ -44,7 +44,7 @@ export default function QueryTrendChart({ data, loading, error, onRetry }: Query
 
   if (error) {
     return (
-      <div className="h-[220px] flex flex-col items-center justify-center gap-2">
+      <div className="h-[180px] sm:h-[220px] flex flex-col items-center justify-center gap-2">
         <p style={{ color: 'var(--error)' }}>{error}</p>
         {onRetry && (
           <button onClick={onRetry} style={{ color: 'var(--primary)' }} className="hover:underline">
@@ -56,7 +56,7 @@ export default function QueryTrendChart({ data, loading, error, onRetry }: Query
   }
 
   return (
-    <div className="h-[220px]">
+    <div className="h-[180px] sm:h-[220px]" style={{ width: '100%', minWidth: 0 }}>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={chartData}>
           <defs>

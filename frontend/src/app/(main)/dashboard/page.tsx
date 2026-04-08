@@ -54,11 +54,11 @@ export default function DashboardPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)' }}>
-      <div className="p-8 md:p-12 lg:p-16">
+      <div className="p-4 sm:p-6 lg:p-10">
         {/* Page Header */}
         <div className="flex items-center justify-between mb-10">
           <div>
-            <h1 style={{ fontSize: '1.75rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif', marginBottom: '0.25rem' }}>
+            <h1 style={{ fontSize: 'clamp(1.25rem, 4vw, 1.75rem)', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif', marginBottom: '0.25rem' }}>
               儀表板
             </h1>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.9375rem' }}>
@@ -86,11 +86,11 @@ export default function DashboardPage() {
         )}
 
         {/* Metrics Grid - 4 Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-0 mb-10 overflow-hidden"
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-0 mb-10 overflow-hidden"
           style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', boxShadow: 'rgba(0,0,0,0.05) 0px 4px 24px' }}>
-          {/* Documents */}
-          <div style={{ background: 'var(--bg-secondary)', borderRight: '1px solid var(--border-light)', padding: '1.5rem' }}
-            className="hover:bg-[#f0eee6] transition-all">
+          {/* Documents — top-left */}
+          <div style={{ background: 'var(--bg-secondary)', borderRight: '1px solid var(--border-light)', borderBottom: '1px solid var(--border-light)', padding: '1.5rem' }}
+            className="hover:bg-[#f0eee6] transition-all lg:[border-bottom:none]">
             <div className="flex items-center justify-between mb-4">
               <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>文件數據</span>
               <div style={{ width: '3rem', height: '3rem', background: 'var(--primary-light)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -106,9 +106,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Queries */}
-          <div style={{ background: 'var(--bg-secondary)', borderRight: '1px solid var(--border-light)', padding: '1.5rem' }}
-            className="hover:bg-[#f0eee6] transition-all sm:border-b lg:border-b-0">
+          {/* Queries — top-right on mobile, 2nd on desktop */}
+          <div style={{ background: 'var(--bg-secondary)', borderRight: '1px solid var(--border-light)', borderBottom: '1px solid var(--border-light)', padding: '1.5rem' }}
+            className="hover:bg-[#f0eee6] transition-all lg:[border-bottom:none]">
             <div className="flex items-center justify-between mb-4">
               <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>查詢次數</span>
               <div style={{ width: '3rem', height: '3rem', background: 'var(--primary-light)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -124,9 +124,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Account Level */}
+          {/* Account Level — bottom-left on mobile, 3rd on desktop */}
           <div style={{ background: 'var(--bg-secondary)', borderRight: '1px solid var(--border-light)', padding: '1.5rem' }}
-            className="hover:bg-[#f0eee6] transition-all sm:border-t lg:border-t-0">
+            className="hover:bg-[#f0eee6] transition-all">
             <div className="flex items-center justify-between mb-4">
               <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>帳戶等級</span>
               <div style={{ width: '3rem', height: '3rem', background: '#f5ede8', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -141,9 +141,9 @@ export default function DashboardPage() {
             </span>
           </div>
 
-          {/* Member Since */}
+          {/* Member Since — bottom-right on mobile, 4th on desktop */}
           <div style={{ background: 'var(--bg-secondary)', padding: '1.5rem' }}
-            className="hover:bg-[#f0eee6] transition-all sm:border-t lg:border-t-0">
+            className="hover:bg-[#f0eee6] transition-all">
             <div className="flex items-center justify-between mb-4">
               <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>加入時間</span>
               <div style={{ width: '3rem', height: '3rem', background: 'var(--bg-tertiary)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -163,7 +163,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 mb-10 overflow-hidden"
           style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', boxShadow: 'rgba(0,0,0,0.05) 0px 4px 24px' }}>
           {/* Query Bar Chart - 2 columns */}
-          <div className="lg:col-span-2" style={{ borderBottom: '1px solid var(--border-light)', padding: '2rem' }}>
+          <div className="lg:col-span-2 p-4 sm:p-6 lg:p-8" style={{ borderBottom: '1px solid var(--border-light)', minWidth: 0 }}>
             <div className="flex items-center justify-between mb-8">
               <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif' }}>查詢趨勢</h3>
               <span style={{ padding: '0.2rem 0.75rem', background: 'var(--bg-tertiary)', color: 'var(--text-muted)', fontSize: '0.875rem', borderRadius: '6px' }}>近 7 天</span>
@@ -175,7 +175,7 @@ export default function DashboardPage() {
           </div>
 
           {/* File Type Pie Chart */}
-          <div style={{ padding: '2rem' }}>
+          <div className="p-4 sm:p-6 lg:p-8" style={{ borderBottom: '1px solid var(--border-light)', minWidth: 0 }}>
             <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif', marginBottom: '2rem' }}>文件類型分佈</h3>
             <FileTypePieChart
               data={dashboardMetrics?.file_type_distribution}
@@ -188,7 +188,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 mb-10 overflow-hidden"
           style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', boxShadow: 'rgba(0,0,0,0.05) 0px 4px 24px' }}>
           {/* Query Trend Chart */}
-          <div style={{ borderBottom: '1px solid var(--border-light)', padding: '2rem' }}>
+          <div className="p-4 sm:p-6 lg:p-8" style={{ borderBottom: '1px solid var(--border-light)' }}>
             <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif', marginBottom: '2rem' }}>查詢趨勢分析</h3>
             <QueryTrendChart
               data={dashboardMetrics?.query_trend}
@@ -197,7 +197,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Usage Statistics Chart */}
-          <div style={{ padding: '2rem' }}>
+          <div className="p-4 sm:p-6 lg:p-8">
             <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif', marginBottom: '2rem' }}>文件上傳統計</h3>
             <UsageStatisticsChart
               data={dashboardMetrics?.upload_stats}
@@ -210,7 +210,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 overflow-hidden"
           style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '16px', boxShadow: 'rgba(0,0,0,0.05) 0px 4px 24px' }}>
           {/* Recent Activity */}
-          <div style={{ borderBottom: '1px solid var(--border-light)', padding: '2rem' }}>
+          <div className="p-4 sm:p-6 lg:p-8" style={{ borderBottom: '1px solid var(--border-light)' }}>
             <div className="flex items-center justify-between mb-8">
               <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif' }}>最近活動</h3>
               <button style={{ fontSize: '0.875rem', color: 'var(--primary)', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer' }}
@@ -225,7 +225,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Top Topics */}
-          <div style={{ padding: '2rem' }}>
+          <div className="p-4 sm:p-6 lg:p-8">
             <div className="flex items-center justify-between mb-8">
               <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif' }}>熱門主題</h3>
               <ArrowUpRight size={20} style={{ color: 'var(--text-muted)' }} />

@@ -25,14 +25,14 @@ export default function QueryBarChart({ data, loading }: QueryBarChartProps) {
 
   if (loading) {
     return (
-      <div className="h-[250px] flex items-center justify-center">
+      <div className="h-[200px] sm:h-[250px] flex items-center justify-center">
         <div className="animate-pulse" style={{ color: 'var(--text-muted)' }}>載入中...</div>
       </div>
     );
   }
 
   return (
-    <div className="h-[250px]">
+    <div className="h-[200px] sm:h-[250px]" style={{ width: '100%', minWidth: 0 }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} barCategoryGap="20%">
           <CartesianGrid strokeDasharray="3 3" stroke="#e8e6dc" vertical={false} />

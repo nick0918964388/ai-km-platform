@@ -32,9 +32,9 @@ export default function FileTypePieChart({ data, loading }: FileTypePieChartProp
   }
 
   return (
-    <div className="flex items-center gap-6">
+    <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6" style={{ minWidth: 0 }}>
       {/* Chart */}
-      <div className="w-[140px] h-[140px] relative">
+      <div className="w-[140px] h-[140px] relative flex-shrink-0 mx-auto sm:mx-0">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
