@@ -283,20 +283,11 @@ function PreviewModal({
   };
 
   if (!mounted) return null;
-  
+
   return createPortal(
     <div
+      className="bottom-sheet-overlay"
       onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0, 0, 0, 0.6)',
-        backdropFilter: 'blur(4px)',
-      }}
     >
       <style>{`
         @keyframes spin {
@@ -304,28 +295,27 @@ function PreviewModal({
         }
       `}</style>
       <div
+        className="bottom-sheet"
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: '90vw',
-          height: '85vh',
-          maxWidth: 1100,
-          background: 'var(--bg-secondary, #fff)',
-          borderRadius: 12,
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-          overflow: 'hidden',
+          padding: 0,
         }}
       >
+        {/* Drag handle (mobile) */}
+        <div className="bottom-sheet-handle" />
+
         {/* Header */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '0.75rem 1.25rem',
-          borderBottom: '1px solid var(--border, #e0e0e0)',
-          background: 'var(--bg-tertiary, #f4f4f4)',
+          padding: '0.75rem 1rem',
+          borderBottom: '1px solid var(--border-light, #e8e6dc)',
+          background: 'var(--bg-tertiary, #e8e6dc)',
           flexShrink: 0,
+          position: 'relative',
         }}>
           <div style={{
             display: 'flex',
@@ -333,14 +323,16 @@ function PreviewModal({
             gap: '0.5rem',
             fontSize: '0.9375rem',
             fontWeight: 600,
-            color: 'var(--text-primary, #161616)',
+            color: 'var(--text-primary, #141413)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
             flex: 1,
           }}>
-            <Document size={18} style={{ color: 'var(--accent, #0f62fe)', flexShrink: 0 }} />
-            {documentName}
+            <Document size={18} style={{ color: 'var(--primary, #c96442)', flexShrink: 0 }} />
+            <span className="bottom-sheet-title" style={{ margin: 0, fontSize: 'inherit', fontWeight: 'inherit' }}>
+              {documentName}
+            </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <a
@@ -349,8 +341,8 @@ function PreviewModal({
               rel="noopener noreferrer"
               download
               style={{
-                width: 32,
-                height: 32,
+                width: 36,
+                height: 36,
                 border: 'none',
                 background: 'transparent',
                 borderRadius: 8,
@@ -358,7 +350,7 @@ function PreviewModal({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: 'var(--text-secondary, #525252)',
+                color: 'var(--text-secondary, #5e5d59)',
                 textDecoration: 'none',
               }}
               title="下載"
@@ -368,8 +360,8 @@ function PreviewModal({
             <button
               onClick={onClose}
               style={{
-                width: 32,
-                height: 32,
+                width: 36,
+                height: 36,
                 border: 'none',
                 background: 'transparent',
                 borderRadius: 8,
@@ -377,10 +369,11 @@ function PreviewModal({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: 'var(--text-secondary, #525252)',
+                color: 'var(--text-secondary, #5e5d59)',
                 flexShrink: 0,
               }}
               title="關閉"
+              aria-label="關閉預覽"
             >
               <Close size={20} />
             </button>
@@ -388,7 +381,7 @@ function PreviewModal({
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+        <div style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: '60vh' }}>
           {renderContent()}
         </div>
       </div>
