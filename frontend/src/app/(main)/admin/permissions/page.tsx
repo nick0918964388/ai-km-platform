@@ -159,26 +159,40 @@ export default function PermissionsPage() {
   };
 
   return (
-    <div style={{
-      padding: '2rem',
+    <div className="p-4 sm:p-6 lg:p-8" style={{
       height: '100%',
       overflow: 'auto',
       background: 'var(--bg-primary)'
     }}>
-      {/* Header */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: '1.5rem'
-      }}>
+      {/* Header - stacks on mobile */}
+      <div
+        className="perms-page-header"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.75rem',
+          marginBottom: '1.5rem',
+        }}
+      >
+        <style>{`
+          @media (min-width: 640px) {
+            .perms-page-header {
+              flex-direction: row !important;
+              justify-content: space-between !important;
+              align-items: flex-start !important;
+            }
+          }
+        `}</style>
         <div>
-          <h1 style={{
-            fontSize: '1.75rem',
-            fontWeight: 700,
-            color: 'var(--text-primary)',
-            marginBottom: '0.25rem'
-          }}>
+          <h1
+            className="sm:text-[1.75rem]"
+            style={{
+              fontSize: '1.5rem',
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+              marginBottom: '0.25rem'
+            }}
+          >
             權限設定
           </h1>
           <p style={{
@@ -188,7 +202,7 @@ export default function PermissionsPage() {
             管理系統角色與使用者權限
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexShrink: 0 }}>
           <button className="btn-icon">
             <Notification size={20} />
           </button>
@@ -234,7 +248,8 @@ export default function PermissionsPage() {
         gap: '0.5rem',
         marginBottom: '1.5rem',
         borderBottom: '1px solid var(--border)',
-        paddingBottom: '0.5rem'
+        paddingBottom: '0.5rem',
+        flexWrap: 'wrap',
       }}>
         <button
           onClick={() => setActiveTab('permissions')}
@@ -279,12 +294,20 @@ export default function PermissionsPage() {
       {activeTab === 'permissions' && (
         <>
           {/* Role Summary Cards */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '1.25rem',
-            marginBottom: '1.5rem'
-          }}>
+          <div
+            className="perms-role-grid"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(1, 1fr)',
+              gap: '1rem',
+              marginBottom: '1.5rem'
+            }}
+          >
+            <style>{`
+              @media (min-width: 640px) {
+                .perms-role-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 1.25rem !important; }
+              }
+            `}</style>
             {[
               { role: 'admin' as const, label: '管理員', color: 'var(--error)', icon: Locked, desc: '完整系統權限' },
               { role: 'user' as const, label: '使用者', color: 'var(--accent)', icon: Unlocked, desc: '基本功能權限' },
@@ -308,67 +331,68 @@ export default function PermissionsPage() {
 
           {/* Permissions Table */}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th style={{ width: '40%' }}>權限項目</th>
-                  <th style={{ textAlign: 'center', width: '20%' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                      <Locked size={16} style={{ color: 'var(--error)' }} />
-                      管理員
-                    </div>
-                  </th>
-                  <th style={{ textAlign: 'center', width: '20%' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                      <Unlocked size={16} style={{ color: 'var(--accent)' }} />
-                      使用者
-                    </div>
-                  </th>
-                  <th style={{ textAlign: 'center', width: '20%' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                      <View size={16} style={{ color: 'var(--text-muted)' }} />
-                      訪客
-                    </div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {permissions.map((perm) => (
-                  <tr key={perm.id}>
-                    <td data-label="權限項目">
-                      <div style={{ fontWeight: 500, color: 'var(--text-primary)', marginBottom: '0.125rem' }}>
-                        {perm.name}
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table" style={{ minWidth: 480 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: '40%' }}>權限項目</th>
+                    <th style={{ textAlign: 'center', width: '20%' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                        <Locked size={16} style={{ color: 'var(--error)' }} />
+                        管理員
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        {perm.description}
+                    </th>
+                    <th style={{ textAlign: 'center', width: '20%' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                        <Unlocked size={16} style={{ color: 'var(--accent)' }} />
+                        使用者
                       </div>
-                    </td>
-                    {(['admin', 'user', 'guest'] as const).map((role) => {
-                      const isLocked = role === 'admin' && ['user_management', 'permission_management', 'system_settings'].includes(perm.id);
-                      const roleLabel = role === 'admin' ? '管理員' : role === 'user' ? '使用者' : '訪客';
-                      return (
-                        <td key={role} data-label={roleLabel} style={{ textAlign: 'center' }}>
-                          <label style={{
-                            cursor: isLocked ? 'not-allowed' : 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                          }}>
-                            <input
-                              type="checkbox"
-                              checked={perm.roles[role]}
-                              onChange={() => handleToggle(perm.id, role)}
-                              disabled={isLocked}
-                              className="checkbox"
-                            />
-                          </label>
-                        </td>
-                      );
-                    })}
+                    </th>
+                    <th style={{ textAlign: 'center', width: '20%' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                        <View size={16} style={{ color: 'var(--text-muted)' }} />
+                        訪客
+                      </div>
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {permissions.map((perm) => (
+                    <tr key={perm.id}>
+                      <td>
+                        <div style={{ fontWeight: 500, color: 'var(--text-primary)', marginBottom: '0.125rem' }}>
+                          {perm.name}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {perm.description}
+                        </div>
+                      </td>
+                      {(['admin', 'user', 'guest'] as const).map((role) => {
+                        const isLocked = role === 'admin' && ['user_management', 'permission_management', 'system_settings'].includes(perm.id);
+                        return (
+                          <td key={role} style={{ textAlign: 'center' }}>
+                            <label style={{
+                              cursor: isLocked ? 'not-allowed' : 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center'
+                            }}>
+                              <input
+                                type="checkbox"
+                                checked={perm.roles[role]}
+                                onChange={() => handleToggle(perm.id, role)}
+                                disabled={isLocked}
+                                className="checkbox"
+                              />
+                            </label>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* Info Banner */}
@@ -427,79 +451,82 @@ export default function PermissionsPage() {
 
           {/* Users Table */}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>使用者</th>
-                  <th>角色</th>
-                  <th>狀態</th>
-                  <th>最後活動</th>
-                  <th style={{ width: 100, textAlign: 'center' }}>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((user) => (
-                  <tr key={user.id}>
-                    <td data-label="使用者">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div style={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: '50%',
-                          background: 'var(--accent)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: 'white',
-                          fontWeight: 600,
-                          fontSize: '0.875rem'
-                        }}>
-                          {user.name.charAt(0)}
-                        </div>
-                        <div>
-                          <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{user.name}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{user.email}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td data-label="角色">
-                      <span className={`badge ${getRoleBadgeClass(user.role)}`}>
-                        {getRoleLabel(user.role)}
-                      </span>
-                    </td>
-                    <td data-label="狀態">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <div style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: '50%',
-                          background: user.status === 'active' ? 'var(--success)' : 'var(--text-muted)'
-                        }} />
-                        <span style={{
-                          color: user.status === 'active' ? 'var(--success)' : 'var(--text-muted)',
-                          fontSize: '0.8125rem'
-                        }}>
-                          {user.status === 'active' ? '活躍' : '停用'}
-                        </span>
-                      </div>
-                    </td>
-                    <td data-label="最後活動" style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
-                      {user.lastActive}
-                    </td>
-                    <td data-label="操作">
-                      <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
-                        <button className="btn-icon" title="編輯">
-                          <Edit size={16} />
-                        </button>
-                        <button className="btn-icon" title="刪除" style={{ color: 'var(--error)' }}>
-                          <TrashCan size={16} />
-                        </button>
-                      </div>
-                    </td>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table" style={{ minWidth: 500 }}>
+                <thead>
+                  <tr>
+                    <th>使用者</th>
+                    <th>角色</th>
+                    <th>狀態</th>
+                    <th>最後活動</th>
+                    <th style={{ width: 100, textAlign: 'center' }}>操作</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {users.map((user) => (
+                    <tr key={user.id}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <div style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: '50%',
+                            background: 'var(--accent)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'white',
+                            fontWeight: 600,
+                            fontSize: '0.875rem',
+                            flexShrink: 0,
+                          }}>
+                            {user.name.charAt(0)}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{user.name}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{user.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${getRoleBadgeClass(user.role)}`}>
+                          {getRoleLabel(user.role)}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            background: user.status === 'active' ? 'var(--success)' : 'var(--text-muted)'
+                          }} />
+                          <span style={{
+                            color: user.status === 'active' ? 'var(--success)' : 'var(--text-muted)',
+                            fontSize: '0.8125rem'
+                          }}>
+                            {user.status === 'active' ? '活躍' : '停用'}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                        {user.lastActive}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
+                          <button className="btn-icon" title="編輯">
+                            <Edit size={16} />
+                          </button>
+                          <button className="btn-icon" title="刪除" style={{ color: 'var(--error)' }}>
+                            <TrashCan size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}

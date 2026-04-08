@@ -16,7 +16,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="settings-container">
+    <div className="settings-container" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
       <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '1.5rem' }}>
         系統設定
       </h1>
@@ -24,7 +24,7 @@ export default function SettingsPage() {
       {/* General Settings */}
       <div className="settings-section">
         <h2 className="settings-title">一般設定</h2>
-        
+
         <div className="form-group">
           <label className="form-label">系統名稱</label>
           <input
@@ -32,22 +32,24 @@ export default function SettingsPage() {
             className="form-input"
             value={localSettings.siteName}
             onChange={(e) => setLocalSettings({ ...localSettings, siteName: e.target.value })}
+            style={{ width: '100%' }}
           />
         </div>
 
         <div className="form-group">
           <label className="form-label">主題色</label>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <input
               type="color"
               value={localSettings.primaryColor}
               onChange={(e) => setLocalSettings({ ...localSettings, primaryColor: e.target.value })}
-              style={{ 
-                width: 48, 
-                height: 48, 
+              style={{
+                width: 48,
+                height: 48,
                 border: '1px solid var(--border)',
                 borderRadius: 8,
-                cursor: 'pointer'
+                cursor: 'pointer',
+                flexShrink: 0,
               }}
             />
             <input
@@ -64,13 +66,14 @@ export default function SettingsPage() {
       {/* AI Settings */}
       <div className="settings-section">
         <h2 className="settings-title">AI 設定</h2>
-        
+
         <div className="form-group">
           <label className="form-label">AI 模型</label>
           <select
             className="form-input"
             value={localSettings.aiModel}
             onChange={(e) => setLocalSettings({ ...localSettings, aiModel: e.target.value })}
+            style={{ width: '100%' }}
           >
             <option value="gpt-4">GPT-4</option>
             <option value="gpt-4o">GPT-4o</option>
@@ -89,6 +92,7 @@ export default function SettingsPage() {
             min={256}
             max={32000}
             step={256}
+            style={{ width: '100%' }}
           />
         </div>
       </div>
@@ -97,7 +101,7 @@ export default function SettingsPage() {
       {user?.role === 'admin' && (
         <div className="settings-section">
           <h2 className="settings-title">使用者設定</h2>
-          
+
           <div className="form-group">
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
               <input
@@ -116,6 +120,7 @@ export default function SettingsPage() {
               className="form-input"
               value={localSettings.defaultRole}
               onChange={(e) => setLocalSettings({ ...localSettings, defaultRole: e.target.value as any })}
+              style={{ width: '100%' }}
             >
               <option value="user">一般使用者</option>
               <option value="guest">訪客</option>
@@ -125,7 +130,7 @@ export default function SettingsPage() {
       )}
 
       {/* Save Button */}
-      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <button className="btn btn-primary" onClick={handleSave}>
           <Save size={16} />
           儲存設定

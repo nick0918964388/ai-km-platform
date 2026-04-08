@@ -13,23 +13,25 @@ export default function HistoryPage() {
   const filterByDate = (conv: Conversation) => {
     const now = new Date();
     const convDate = new Date(conv.updatedAt);
-    
+
     switch (dateFilter) {
       case 'today':
         return convDate.toDateString() === now.toDateString();
-      case 'week':
+      case 'week': {
         const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         return convDate >= weekAgo;
-      case 'month':
+      }
+      case 'month': {
         const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         return convDate >= monthAgo;
+      }
       default:
         return true;
     }
   };
 
   const filteredConversations = conversations
-    .filter(conv => 
+    .filter(conv =>
       conv.title.toLowerCase().includes(search.toLowerCase()) ||
       conv.messages.some(m => m.content.toLowerCase().includes(search.toLowerCase()))
     )
@@ -46,7 +48,7 @@ export default function HistoryPage() {
     const now = new Date();
     const diff = now.getTime() - d.getTime();
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    
+
     if (days === 0) return '今天 ' + d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
     if (days === 1) return '昨天';
     if (days < 7) return `${days} 天前`;
@@ -54,24 +56,33 @@ export default function HistoryPage() {
   };
 
   return (
-    <div className="settings-container" style={{ maxWidth: 900 }}>
+    <div className="settings-container" style={{ maxWidth: 900, width: '100%' }}>
       <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '1.5rem' }}>
         對話歷史
       </h1>
 
-      {/* Search and Filter */}
+      {/* Search and Filter - stacks on mobile */}
       <div className="settings-section" style={{ padding: '1rem' }}>
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-          <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-            <Search 
-              size={18} 
-              style={{ 
-                position: 'absolute', 
-                left: 12, 
-                top: '50%', 
+        <div className="history-controls" style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.75rem',
+        }}>
+          <style>{`
+            @media (min-width: 640px) {
+              .history-controls { flex-direction: row !important; gap: 1rem !important; flex-wrap: wrap !important; }
+            }
+          `}</style>
+          <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+            <Search
+              size={18}
+              style={{
+                position: 'absolute',
+                left: 12,
+                top: '50%',
                 transform: 'translateY(-50%)',
                 color: 'var(--text-secondary)'
-              }} 
+              }}
             />
             <input
               type="text"
@@ -79,11 +90,11 @@ export default function HistoryPage() {
               placeholder="搜尋對話內容..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              style={{ paddingLeft: 40 }}
+              style={{ paddingLeft: 40, width: '100%' }}
             />
           </div>
-          
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             {[
               { value: 'all', label: '全部' },
               { value: 'today', label: '今天' },
@@ -106,10 +117,10 @@ export default function HistoryPage() {
       {/* Conversation List */}
       <div className="settings-section" style={{ padding: 0 }}>
         {filteredConversations.length === 0 ? (
-          <div style={{ 
-            padding: '4rem', 
-            textAlign: 'center', 
-            color: 'var(--text-secondary)' 
+          <div style={{
+            padding: '4rem',
+            textAlign: 'center',
+            color: 'var(--text-secondary)'
           }}>
             <Chat size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
             <p>{conversations.length === 0 ? '尚無對話記錄' : '找不到符合的對話'}</p>
@@ -142,8 +153,8 @@ export default function HistoryPage() {
                   <Chat size={20} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ 
-                    fontWeight: 500, 
+                  <div style={{
+                    fontWeight: 500,
                     marginBottom: '0.25rem',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -151,28 +162,29 @@ export default function HistoryPage() {
                   }}>
                     {conv.title}
                   </div>
-                  <div style={{ 
-                    fontSize: '0.875rem', 
+                  <div style={{
+                    fontSize: '0.875rem',
                     color: 'var(--text-secondary)',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap'
                   }}>
-                    {conv.messages.length > 0 
+                    {conv.messages.length > 0
                       ? conv.messages[conv.messages.length - 1].content.slice(0, 100)
                       : '空對話'}
                   </div>
                 </div>
-                <div style={{ 
-                  fontSize: '0.75rem', 
+                <div style={{
+                  fontSize: '0.75rem',
                   color: 'var(--text-secondary)',
-                  whiteSpace: 'nowrap'
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
                 }}>
                   {formatDate(conv.updatedAt)}
                 </div>
               </div>
-              <div style={{ 
-                marginTop: '0.5rem', 
+              <div style={{
+                marginTop: '0.5rem',
                 marginLeft: '3.5rem',
                 fontSize: '0.75rem',
                 color: 'var(--text-placeholder)'
@@ -185,7 +197,7 @@ export default function HistoryPage() {
       </div>
 
       {/* Stats */}
-      <div style={{ 
+      <div style={{
         marginTop: '1.5rem',
         padding: '1rem',
         background: 'var(--bg-secondary)',
