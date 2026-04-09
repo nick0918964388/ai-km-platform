@@ -141,12 +141,12 @@ export default function ChatInput({
         {/* Input row */}
         <div style={{
           display: 'flex',
-          alignItems: 'flex-end',
+          alignItems: 'center',
           gap: '0.5rem',
           padding: '0.625rem 0.75rem',
         }}>
           {/* Left: attach only */}
-          <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0, paddingBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
             <input
               ref={fileInputRef}
               type="file"
@@ -204,7 +204,7 @@ export default function ChatInput({
           />
 
           {/* Right: model + voice + send/stop */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0, paddingBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0 }}>
             <ModelSelector selectedModel={selectedModel} onModelChange={onModelChange} />
             <VoiceInputButton
               onTranscriptionReceived={(text) => {
