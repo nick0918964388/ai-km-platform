@@ -5,7 +5,7 @@ import { UserAvatar } from '@carbon/icons-react';
 
 export default function ProfilePage() {
   return (
-    <div className="p-4 sm:p-6 md:p-8" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+    <div style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box', padding: '1.5rem 2rem' }}>
       {/* Page Header */}
       <div className="mb-6 md:mb-8">
         <div className="flex items-center gap-3 mb-2">

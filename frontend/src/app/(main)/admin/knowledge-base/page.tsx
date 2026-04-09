@@ -220,10 +220,11 @@ export default function KnowledgeBasePage() {
   );
 
   return (
-    <div className="p-6 sm:p-8 lg:p-10" style={{
+    <div style={{
       height: '100%',
       overflow: 'auto',
-      background: 'var(--bg-primary)'
+      background: 'var(--bg-primary)',
+      padding: '1.5rem 2rem',
     }}>
       {/* Header */}
       <div className="kb-page-header" style={{

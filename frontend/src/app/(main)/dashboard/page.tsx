@@ -54,7 +54,7 @@ export default function DashboardPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)' }}>
-      <div className="p-4 sm:p-6 lg:p-10">
+      <div style={{ padding: '1.5rem 2rem' }}>
         {/* Page Header */}
         <div className="flex items-center justify-between mb-10">
           <div>

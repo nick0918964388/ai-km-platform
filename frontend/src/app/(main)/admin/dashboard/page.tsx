@@ -156,10 +156,11 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8" style={{
+    <div style={{
       height: '100%',
       overflow: 'auto',
-      background: 'var(--bg-primary)'
+      background: 'var(--bg-primary)',
+      padding: '1.5rem 2rem',
     }}>
       {/* Header */}
       <div style={{
