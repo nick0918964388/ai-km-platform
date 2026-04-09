@@ -4,8 +4,6 @@ import { usePathname } from 'next/navigation';
 import {
   Chat,
   Settings,
-  UserMultiple,
-  Add,
   Logout,
   Dashboard,
   RecentlyViewed,
@@ -13,19 +11,14 @@ import {
   DataBase,
   ChevronLeft,
   ChevronRight,
-  Search,
-  Document,
   Bot,
   User,
-  TrashCan,
-  ChartLine
 } from '@carbon/icons-react';
 import { useStore } from '@/store/useStore';
 import AccountInitials from '@/components/profile/AccountInitials';
 
 const navItems = [
   { href: '/chat', label: 'AI 問答', icon: Chat },
-  { href: '/dashboard', label: '我的儀表板', icon: ChartLine },
   { href: '/history', label: '查詢紀錄', icon: RecentlyViewed },
   { href: '/admin/dashboard', label: '管理儀表板', icon: Dashboard, adminOnly: true },
   { href: '/admin/knowledge-base', label: '知識庫管理', icon: DataBase, adminOnly: true },
@@ -39,33 +32,11 @@ const settingsItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { user, setUser, profile, conversations, addConversation, deleteConversation, setActiveConversation, activeConversationId, sidebarOpen, toggleSidebar, sidebarCollapsed, toggleSidebarCollapsed } = useStore();
+  const { user, setUser, profile, sidebarOpen, toggleSidebar, sidebarCollapsed, toggleSidebarCollapsed } = useStore();
 
   const handleLogout = () => {
     setUser(null);
     window.location.href = '/login';
-  };
-
-  const handleDeleteConversation = (e: React.MouseEvent, convId: string) => {
-    e.stopPropagation();
-    if (confirm('確定要刪除這個對話嗎？')) {
-      deleteConversation(convId);
-    }
-  };
-
-  const handleNewChat = () => {
-    const newConv = {
-      id: Date.now().toString(),
-      title: '新對話',
-      messages: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    addConversation(newConv);
-    window.location.href = '/chat';
-    if (window.innerWidth <= 768) {
-      toggleSidebar();
-    }
   };
 
   const handleNavClick = () => {
@@ -134,75 +105,6 @@ export default function Sidebar() {
           </>
         )}
 
-        {/* Recent Conversations - hide when collapsed */}
-        {!sidebarCollapsed && conversations.length > 0 && (
-          <>
-            <div className="nav-section">對話紀錄</div>
-            {conversations.slice(0, 4).map((conv) => (
-              <div
-                key={conv.id}
-                className={`nav-item ${conv.id === activeConversationId ? 'active' : ''}`}
-                onClick={() => {
-                  setActiveConversation(conv.id);
-                  window.location.href = '/chat';
-                  if (window.innerWidth <= 768) {
-                    setTimeout(() => {
-                      toggleSidebar();
-                    }, 100);
-                  }
-                }}
-                style={{
-                  fontSize: '0.8125rem',
-                  cursor: 'pointer',
-                  height: '40px',
-                  padding: '0.5rem 0.75rem',
-                  background: conv.id === activeConversationId ? 'var(--bg-primary)' : 'transparent',
-                  borderRadius: 'var(--radius-md)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                }}
-              >
-                <Chat size={16} style={{ flexShrink: 0 }} />
-                <span style={{
-                  flex: 1,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}>
-                  {conv.title}
-                </span>
-                <button
-                  onClick={(e) => handleDeleteConversation(e, conv.id)}
-                  style={{
-                    padding: '0.25rem',
-                    background: 'transparent',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    color: 'var(--text-muted)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    opacity: 0.5,
-                    transition: 'all 0.15s',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.opacity = '1';
-                    e.currentTarget.style.color = 'var(--error, #da1e28)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.opacity = '0.5';
-                    e.currentTarget.style.color = 'var(--text-muted)';
-                  }}
-                  title="刪除對話"
-                >
-                  <TrashCan size={14} />
-                </button>
-              </div>
-            ))}
-          </>
-        )}
       </nav>
 
       {/* Collapse Toggle Button */}

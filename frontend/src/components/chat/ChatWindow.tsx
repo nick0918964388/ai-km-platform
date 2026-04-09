@@ -4,6 +4,9 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Add,
   Bot,
+  RecentlyViewed,
+  Chat,
+  TrashCan,
 } from '@carbon/icons-react';
 import ReactMarkdown from 'react-markdown';
 import { useStore } from '@/store/useStore';
@@ -102,8 +105,10 @@ export default function ChatWindow() {
   const [expandedSources, setExpandedSources] = useState<{ [key: string]: boolean }>({});
   const [taskSteps, setTaskSteps] = useState<Step[]>([]);
   const [selectedModel, setSelectedModel] = useState('qwen3-vl:32b');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
 
   const {
     conversations,
@@ -111,8 +116,20 @@ export default function ChatWindow() {
     setActiveConversation,
     addMessage,
     addConversation,
-    updateConversationTitle
+    updateConversationTitle,
+    deleteConversation,
   } = useStore();
+
+  // Close history dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
+        setHistoryOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
   const messages = activeConversation?.messages || [];
@@ -458,24 +475,162 @@ export default function ChatWindow() {
               </div>
             </div>
           </div>
-          <button
-            onClick={handleNewChat}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.5rem 1rem',
-              background: 'var(--bg-primary)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-md)',
-              color: 'var(--text-primary)',
-              fontSize: '0.875rem',
-              cursor: 'pointer',
-            }}
-          >
-            <Add size={16} />
-            新對話
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {/* History dropdown */}
+            <div ref={historyRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setHistoryOpen(o => !o)}
+                title="歷史對話"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.375rem',
+                  padding: '0.5rem 0.75rem',
+                  background: historyOpen ? 'var(--bg-primary)' : 'transparent',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)',
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.875rem',
+                  cursor: 'pointer',
+                }}
+              >
+                <RecentlyViewed size={16} />
+                {conversations.length > 0 && (
+                  <span style={{
+                    background: 'var(--accent)',
+                    color: 'white',
+                    borderRadius: '10px',
+                    fontSize: '0.6875rem',
+                    padding: '0 5px',
+                    lineHeight: '16px',
+                  }}>{conversations.length}</span>
+                )}
+              </button>
+
+              {historyOpen && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 8px)',
+                  right: 0,
+                  width: 280,
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-lg)',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+                  zIndex: 100,
+                  overflow: 'hidden',
+                }}>
+                  <div style={{
+                    padding: '0.75rem 1rem',
+                    borderBottom: '1px solid var(--border)',
+                    fontSize: '0.8125rem',
+                    fontWeight: 600,
+                    color: 'var(--text-secondary)',
+                  }}>
+                    歷史對話
+                  </div>
+                  {conversations.length === 0 ? (
+                    <div style={{ padding: '1rem', fontSize: '0.8125rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                      尚無對話紀錄
+                    </div>
+                  ) : (
+                    <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                      {conversations.map((conv) => (
+                        <div
+                          key={conv.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            padding: '0.625rem 1rem',
+                            cursor: 'pointer',
+                            background: conv.id === activeConversationId ? 'var(--primary-light)' : 'transparent',
+                            borderLeft: conv.id === activeConversationId ? '2px solid var(--accent)' : '2px solid transparent',
+                            transition: 'background 0.15s',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (conv.id !== activeConversationId)
+                              e.currentTarget.style.background = 'var(--bg-primary)';
+                          }}
+                          onMouseLeave={(e) => {
+                            if (conv.id !== activeConversationId)
+                              e.currentTarget.style.background = 'transparent';
+                          }}
+                          onClick={() => {
+                            setActiveConversation(conv.id);
+                            setHistoryOpen(false);
+                          }}
+                        >
+                          <Chat size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+                          <span style={{
+                            flex: 1,
+                            fontSize: '0.8125rem',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            color: 'var(--text-primary)',
+                          }}>
+                            {conv.title}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm('確定要刪除這個對話嗎？')) {
+                                deleteConversation(conv.id);
+                              }
+                            }}
+                            style={{
+                              flexShrink: 0,
+                              padding: '2px',
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: 'var(--text-muted)',
+                              opacity: 0.5,
+                              display: 'flex',
+                              alignItems: 'center',
+                              borderRadius: '4px',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.opacity = '1';
+                              e.currentTarget.style.color = '#da1e28';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.opacity = '0.5';
+                              e.currentTarget.style.color = 'var(--text-muted)';
+                            }}
+                            title="刪除"
+                          >
+                            <TrashCan size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* New chat button */}
+            <button
+              onClick={handleNewChat}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.5rem 1rem',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--text-primary)',
+                fontSize: '0.875rem',
+                cursor: 'pointer',
+              }}
+            >
+              <Add size={16} />
+              新對話
+            </button>
+          </div>
         </div>
 
         {/* Messages Area */}
