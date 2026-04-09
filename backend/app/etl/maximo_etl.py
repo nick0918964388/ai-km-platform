@@ -74,7 +74,7 @@ ASSET_SELECT = ",".join([
 
 def sync_assets(conn):
     log.info("Syncing assets...")
-    records = _get_all("mxasset", ASSET_SELECT, where='eq9 in ("車輛","車組")')
+    records = _get_all("mxasset", ASSET_SELECT, where='eq9 in ["車輛","車組"]')
 
     rows = []
     for r in records:
@@ -146,7 +146,7 @@ def sync_pmwo(conn):
     log.info("Syncing PM work orders (定期工單)...")
     records = _get_all(
         "mxwo", PMWO_SELECT,
-        where='WORKTYPE in ("1A","2A","3A","4A")'
+        where='WORKTYPE in ["1A","2A","3A","4A"]'
     )
 
     rows = []
@@ -210,7 +210,7 @@ def sync_cmwo(conn):
     log.info("Syncing CM work orders (維修工單)...")
     records = _get_all(
         "mxwo", CMWO_SELECT,
-        where='WORKTYPE in ("T1","TR","CM","T2","T3")'
+        where='WORKTYPE in ["T1","TR","CM","T2","T3"]'
     )
 
     rows = []
