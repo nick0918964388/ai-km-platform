@@ -25,8 +25,10 @@ log = logging.getLogger(__name__)
 MAXIMO_URL   = os.environ.get("MAXIMO_URL",   "http://tra.webtw.xyz:8888/maximo")
 MAXIMO_USER  = os.environ.get("MAXIMO_USER",  "MAX_NICK")
 MAXIMO_PASS  = os.environ.get("MAXIMO_PASS",  "zaq1xsW2")
-DATABASE_URL = os.environ.get("DATABASE_URL",
-    "postgresql://aikm:aikm@localhost:5432/aikm")
+# Strip async driver prefix so psycopg2 can connect
+_raw_db_url = os.environ.get("DATABASE_URL", "postgresql://aikm:aikm@postgres:5432/aikm")
+DATABASE_URL = _raw_db_url.replace("postgresql+asyncpg://", "postgresql://") \
+                           .replace("postgresql+psycopg2://", "postgresql://")
 
 PAGE_SIZE = 100
 
