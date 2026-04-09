@@ -89,9 +89,10 @@ services:
       REDIS_URL: redis://redis:6379
       CACHE_TTL: 3600
       # Embedding Models
-      EMBEDDING_PROVIDER: local
-      OLLAMA_URL: https://j2ollama.nickai.cc
-      OLLAMA_EMBEDDING_MODEL: qwen3-embedding:latest
+      EMBEDDING_PROVIDER: ollama
+      OLLAMA_URL: http://ollama.webtw.xyz:11434
+      OLLAMA_EMBEDDING_MODEL: nomic-embed-text:latest
+      OLLAMA_EMBEDDING_DIMENSION: "768"
       TEXT_EMBEDDING_MODEL: all-MiniLM-L6-v2
       CLIP_MODEL: openai/clip-vit-base-patch32
       # Reranking

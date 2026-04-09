@@ -23,8 +23,8 @@ OPENAI_EMBEDDING_DIMENSION = 1536
 
 # Ollama embedding configuration
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://192.168.1.161:11434")
-OLLAMA_EMBEDDING_MODEL = os.environ.get("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:latest")
-OLLAMA_EMBEDDING_DIMENSION = 4096  # Qwen3 embedding dimension
+OLLAMA_EMBEDDING_MODEL = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text:latest")
+OLLAMA_EMBEDDING_DIMENSION = int(os.environ.get("OLLAMA_EMBEDDING_DIMENSION", "768"))
 
 # Local sentence-transformers embedding
 LOCAL_EMBEDDING_MODEL = os.environ.get("TEXT_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
