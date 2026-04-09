@@ -14,6 +14,7 @@ API_KEY = os.getenv("AIKM_API_KEY", "")
 # Allowed origins for CORS
 ALLOWED_ORIGINS = [
     "https://aikm.nickai.cc",
+    "https://trc-ai-km.nickai.cc",
     "http://localhost:3000",
     "http://localhost:3001",
     "http://192.168.1.11:3000",

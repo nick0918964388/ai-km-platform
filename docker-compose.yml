@@ -131,7 +131,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://192.168.1.11:8000
+        NEXT_PUBLIC_API_URL: https://aikmbackend.nickai.cc
         NEXT_PUBLIC_API_KEY: ${AIKM_API_KEY:-}
     container_name: aikm-frontend
     ports:
