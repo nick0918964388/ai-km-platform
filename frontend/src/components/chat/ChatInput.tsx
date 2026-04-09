@@ -146,8 +146,8 @@ export default function ChatInput({
           gap: '0.5rem',
           padding: '0.625rem 0.75rem',
         }}>
-          {/* Left: attach + model */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexShrink: 0, paddingBottom: 4 }}>
+          {/* Left: attach only */}
+          <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0, paddingBottom: 4 }}>
             <input
               ref={fileInputRef}
               type="file"
@@ -178,7 +178,6 @@ export default function ChatInput({
             >
               <Attachment size={18} />
             </button>
-            <ModelSelector selectedModel={selectedModel} onModelChange={onModelChange} />
           </div>
 
           {/* Textarea */}
@@ -205,8 +204,9 @@ export default function ChatInput({
             }}
           />
 
-          {/* Right: voice + send/stop */}
+          {/* Right: model + voice + send/stop */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0, paddingBottom: 4 }}>
+            <ModelSelector selectedModel={selectedModel} onModelChange={onModelChange} />
             <VoiceInputButton
               onTranscriptionReceived={(text) => {
                 setInput((prev) => prev ? `${prev} ${text}` : text);
