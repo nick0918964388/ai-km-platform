@@ -220,7 +220,7 @@ export default function KnowledgeBasePage() {
   );
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8" style={{
+    <div className="p-6 sm:p-8 lg:p-10" style={{
       height: '100%',
       overflow: 'auto',
       background: 'var(--bg-primary)'
@@ -261,12 +261,12 @@ export default function KnowledgeBasePage() {
       <div className="kb-stats-grid" style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(2, 1fr)',
-        gap: '1rem',
-        marginBottom: '1.5rem'
+        gap: '1.25rem',
+        marginBottom: '2rem'
       }}>
         <style>{`
           @media (min-width: 1024px) {
-            .kb-stats-grid { grid-template-columns: repeat(4, 1fr) !important; gap: 1.25rem !important; }
+            .kb-stats-grid { grid-template-columns: repeat(4, 1fr) !important; gap: 1.5rem !important; }
           }
         `}</style>
         <div className="stat-card">
