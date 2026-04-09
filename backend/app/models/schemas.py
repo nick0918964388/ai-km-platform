@@ -52,6 +52,7 @@ class ChatRequest(BaseModel):
     query: str = Field(..., min_length=1, description="User query")
     image_base64: Optional[str] = Field(None, description="Base64 encoded image for multimodal query")
     top_k: int = Field(5, ge=1, le=20, description="Number of documents to retrieve")
+    model: Optional[str] = None
 
 
 class SearchRequest(BaseModel):

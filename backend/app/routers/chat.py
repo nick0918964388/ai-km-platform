@@ -1,6 +1,8 @@
 """Chat and search router for RAG queries."""
 import json
 import time
+import urllib.request
+import urllib.error
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
@@ -11,6 +13,7 @@ from app.models.schemas import (
     SearchResponse,
 )
 from app.services import rag
+from app.config import get_settings
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -49,32 +52,36 @@ async def chat_stream(request: ChatRequest):
     - done: Stream complete signal
     - error: Error message
     """
+    settings = get_settings()
+
     async def generate():
         try:
-            # First, search for relevant documents and send sources
+            # Step 1: search
+            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'search', 'label': '查詢知識庫', 'status': 'running'}})}\n\n"
             all_sources = rag.search(
                 query=request.query,
                 image_base64=request.image_base64,
                 top_k=request.top_k,
             )
-
-            # Filter sources with score >= 0.5 for relevance
             MIN_SCORE_THRESHOLD = 0.5
-            relevant_sources = [s for s in all_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
-            
-            # Only use relevant sources - don't fall back to low-score sources
-            sources = relevant_sources
+            sources = [s for s in all_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
+            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'search', 'label': '查詢知識庫', 'status': 'done'}})}\n\n"
 
-            # Send sources first (only if there are relevant ones)
+            # Step 2: rerank (already done inside search, just report)
+            if sources:
+                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'rerank', 'label': '重排序結果', 'status': 'running'}})}\n\n"
+                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'rerank', 'label': '重排序結果', 'status': 'done'}})}\n\n"
+
+            # Send sources
             sources_data = [s.model_dump() for s in sources]
             yield f"data: {json.dumps({'type': 'sources', 'data': sources_data})}\n\n"
 
-            # Track timing and tokens
+            # Step 3: generate
+            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'generate', 'label': '生成回答', 'status': 'running'}})}\n\n"
             start_time = time.time()
             total_tokens = None
             full_answer = ""
 
-            # Then stream the answer (using only relevant sources for context)
             for result in rag.chat_stream_with_metadata(
                 query=request.query,
                 sources=sources,
@@ -87,21 +94,17 @@ async def chat_stream(request: ChatRequest):
                 elif result.get("type") == "usage":
                     total_tokens = result.get("data")
 
-            # Calculate duration
-            duration_ms = int((time.time() - start_time) * 1000)
+            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'generate', 'label': '生成回答', 'status': 'done'}})}\n\n"
 
-            # Send metadata
+            duration_ms = int((time.time() - start_time) * 1000)
             metadata = {
-                "model": "gpt-4o",
+                "model": request.model or settings.ollama_chat_model,
                 "duration_ms": duration_ms,
                 "tokens": total_tokens,
             }
             yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
-
-            # Signal completion first (so sources show immediately)
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
-            # Generate and send follow-up questions (after done, so it doesn't block UI)
             try:
                 follow_up_questions = rag.generate_follow_up_questions(
                     query=request.query,
@@ -110,8 +113,7 @@ async def chat_stream(request: ChatRequest):
                 )
                 if follow_up_questions:
                     yield f"data: {json.dumps({'type': 'follow_up', 'data': follow_up_questions})}\n\n"
-            except Exception as e:
-                # Don't fail the whole request if follow-up generation fails
+            except Exception:
                 pass
 
         except Exception as e:
@@ -126,6 +128,33 @@ async def chat_stream(request: ChatRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/models")
+async def get_models():
+    settings = get_settings()
+    ollama_base = settings.ollama_chat_url.replace("/v1", "").rstrip("/")
+    try:
+        req = urllib.request.Request(f"{ollama_base}/api/tags")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            models = [
+                {"name": m["name"], "size": m.get("details", {}).get("parameter_size", "")}
+                for m in data.get("models", [])
+            ]
+            return {
+                "models": models,
+                "current": settings.ollama_chat_model,
+            }
+    except Exception:
+        pass
+    return {
+        "models": [
+            {"name": settings.ollama_chat_model, "size": ""},
+            {"name": settings.ollama_light_model, "size": ""},
+        ],
+        "current": settings.ollama_chat_model,
+    }
 
 
 @router.post("/search", response_model=SearchResponse)

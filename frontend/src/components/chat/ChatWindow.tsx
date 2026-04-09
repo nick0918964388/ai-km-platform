@@ -2,17 +2,16 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Send,
   Add,
   Bot,
-  Chat,
 } from '@carbon/icons-react';
 import ReactMarkdown from 'react-markdown';
 import { useStore } from '@/store/useStore';
 import { Message, SearchResult } from '@/types';
 import SourcePreview from './SourcePreview';
 import { getApiHeaders, API_URL, TIMEOUTS, fetchWithTimeout, TimeoutError, getErrorMessage } from '@/lib/api';
-import { VoiceInputButton } from '@/components/VoiceInput';
+import TaskProgress, { Step } from './TaskProgress';
+import ChatInput from './ChatInput';
 
 interface MessageSources {
   [messageId: string]: SearchResult[];
@@ -92,7 +91,6 @@ function highlightText(text: string, query: string): React.ReactNode {
 }
 
 export default function ChatWindow() {
-  const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [messageSources, setMessageSources] = useState<MessageSources>({});
@@ -102,8 +100,10 @@ export default function ChatWindow() {
   const [messageFollowUps, setMessageFollowUps] = useState<MessageFollowUps>({});
   const [messageQueries, setMessageQueries] = useState<{ [msgId: string]: string }>({});
   const [expandedSources, setExpandedSources] = useState<{ [key: string]: boolean }>({});
+  const [taskSteps, setTaskSteps] = useState<Step[]>([]);
+  const [selectedModel, setSelectedModel] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const {
     conversations,
@@ -120,13 +120,6 @@ export default function ChatWindow() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-  }, [input]);
 
   // Load sources from messages when conversation changes or messages update
   useEffect(() => {
@@ -161,14 +154,12 @@ export default function ChatWindow() {
     addConversation(newConv);
   };
 
-  const handleSend = useCallback(async (overrideQuery?: string) => {
-    const queryToSend = overrideQuery || input;
+  const handleStop = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
+
+  const handleSend = useCallback(async (queryToSend: string, imageBase64?: string, model?: string) => {
     if (!queryToSend.trim() || isLoading) return;
-    
-    // Clear input if using the input field value
-    if (!overrideQuery) {
-      setInput('');
-    }
 
     let convId = activeConversationId;
 
@@ -202,11 +193,16 @@ export default function ChatWindow() {
     
     const userQuery = queryToSend;
     setIsLoading(true);
+    setTaskSteps([]);
 
     const messageId = (Date.now() + 1).toString();
-    
+
     // Store query for highlighting in sources
     setMessageQueries(prev => ({ ...prev, [messageId]: userQuery }));
+
+    // Create new AbortController for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     try {
       const response = await fetchWithTimeout(`${API_URL}/api/chat/stream`, {
@@ -215,7 +211,10 @@ export default function ChatWindow() {
         body: JSON.stringify({
           query: userQuery,
           top_k: 5,
+          ...(model ? { model } : {}),
+          ...(imageBase64 ? { image_base64: imageBase64 } : {}),
         }),
+        signal: abortController.signal,
         timeout: TIMEOUTS.STREAMING,
       });
 
@@ -274,6 +273,17 @@ export default function ChatWindow() {
                     ...prev,
                     [messageId]: data.data,
                   }));
+                } else if (data.type === 'step' && data.data) {
+                  const step: Step = data.data;
+                  setTaskSteps(prev => {
+                    const idx = prev.findIndex(s => s.id === step.id);
+                    if (idx >= 0) {
+                      const next = [...prev];
+                      next[idx] = step;
+                      return next;
+                    }
+                    return [...prev, step];
+                  });
                 } else if (data.type === 'done') {
                   setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
                   // Save sources to message for persistence
@@ -330,6 +340,14 @@ export default function ChatWindow() {
       }
 
     } catch (error) {
+      // If the user aborted, just clean up without fallback
+      if (error instanceof Error && error.name === 'AbortError') {
+        setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
+        setIsLoading(false);
+        setIsStreaming(false);
+        return;
+      }
+
       console.error('Streaming API error:', error);
 
       try {
@@ -382,7 +400,7 @@ export default function ChatWindow() {
       setIsLoading(false);
       setIsStreaming(false);
     }
-  }, [activeConversationId, input, isLoading, addConversation, addMessage]);
+  }, [activeConversationId, isLoading, conversations, addConversation, addMessage, updateConversationTitle]);
 
   // Handle follow-up question click - directly send the question
   const handleFollowUpClick = useCallback((question: string) => {
@@ -403,13 +421,6 @@ export default function ChatWindow() {
     }
 
     return `您好！針對您的問題「${question}」\n\n我正在查詢車輛維修知識庫中的相關資料。請稍候，我會根據技術文件為您提供專業的維修建議。`;
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
   };
 
   return (
@@ -471,7 +482,7 @@ export default function ChatWindow() {
         <div style={{
           flex: 1,
           overflow: 'auto',
-          padding: '2rem 5rem',
+          padding: '2rem 5rem 140px',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: messages.length === 0 ? 'center' : 'flex-start',
@@ -508,7 +519,7 @@ export default function ChatWindow() {
                 {['EMU900 轉向架維修', '煞車系統檢測', '定期保養週期'].map((q) => (
                   <button
                     key={q}
-                    onClick={() => setInput(q)}
+                    onClick={() => handleSend(q)}
                     style={{
                       padding: '0.5rem 1rem',
                       background: 'var(--bg-secondary)',
@@ -526,12 +537,25 @@ export default function ChatWindow() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              {messages.map((msg) => (
+              {messages.map((msg, msgIdx) => (
                 <div key={msg.id} style={{
                   display: 'flex',
                   gap: '0.75rem',
-                  justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                  flexDirection: 'column',
+                  alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
                 }}>
+                  {/* TaskProgress: show above the last assistant message while loading */}
+                  {msg.role === 'assistant' && msgIdx === messages.length - 1 && taskSteps.length > 0 && (
+                    <div style={{ width: '100%', maxWidth: '70%' }}>
+                      <TaskProgress steps={taskSteps} />
+                    </div>
+                  )}
+                  <div style={{
+                    display: 'flex',
+                    gap: '0.75rem',
+                    justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                    width: '100%',
+                  }}>
                   {msg.role === 'assistant' && (
                     <div style={{
                       width: 36,
@@ -863,6 +887,7 @@ export default function ChatWindow() {
                       U
                     </div>
                   )}
+                  </div>
                 </div>
               ))}
               {isLoading && !isStreaming && (
@@ -897,76 +922,13 @@ export default function ChatWindow() {
           )}
         </div>
 
-        {/* Chat Input */}
-        <div style={{
-          padding: '1.5rem 5rem',
-          background: 'var(--bg-primary)',
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.75rem',
-            padding: '0.5rem 1rem',
-            background: 'var(--bg-secondary)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-lg)',
-          }}>
-            <Chat size={20} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-            <textarea
-              ref={textareaRef}
-              placeholder="輸入您的問題..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onFocus={() => {
-                setTimeout(() => {
-                  if (messagesEndRef?.current) {
-                    messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                  }
-                }, 300);
-              }}
-              rows={1}
-              style={{
-                flex: 1,
-                border: 'none',
-                background: 'transparent',
-                padding: '0.5rem 0',
-                fontSize: '0.9375rem',
-                color: 'var(--text-primary)',
-                resize: 'none',
-                minHeight: 24,
-                maxHeight: 150,
-                outline: 'none',
-              }}
-            />
-            <VoiceInputButton
-              onTranscriptionReceived={(text) => {
-                setInput((prev) => prev ? `${prev} ${text}` : text);
-              }}
-            />
-            <button
-              data-send-button
-              onClick={() => handleSend()}
-              disabled={!input.trim() || isLoading}
-              title="發送"
-              style={{
-                width: 40,
-                height: 40,
-                border: 'none',
-                background: 'var(--primary)',
-                borderRadius: 10,
-                cursor: input.trim() && !isLoading ? 'pointer' : 'not-allowed',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'white',
-                opacity: input.trim() && !isLoading ? 1 : 0.5,
-              }}
-            >
-              <Send size={20} />
-            </button>
-          </div>
-        </div>
+        <ChatInput
+          onSend={handleSend}
+          onStop={handleStop}
+          isLoading={isLoading}
+          selectedModel={selectedModel}
+          onModelChange={setSelectedModel}
+        />
       </div>
     </div>
   );
