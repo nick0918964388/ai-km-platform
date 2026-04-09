@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile
+from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile, maximo
 from app.config import get_settings
 
 # API Key for authentication
@@ -106,6 +106,7 @@ app.include_router(export.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(profile.router)  # Already includes /api/profile prefix
 app.include_router(profile.avatar_router)  # Avatar static files at /api/avatars
+app.include_router(maximo.router, prefix="/api")
 
 
 @app.get("/")

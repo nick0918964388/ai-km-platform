@@ -12,7 +12,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./backend/scripts/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./backend/scripts/maximo_schema.sql:/docker-entrypoint-initdb.d/02_maximo.sql:ro
     environment:
       POSTGRES_USER: aikm
       POSTGRES_PASSWORD: aikm
