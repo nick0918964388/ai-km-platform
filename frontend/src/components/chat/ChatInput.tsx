@@ -79,13 +79,9 @@ export default function ChatInput({
 
   return (
     <div style={{
-      position: 'fixed',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      zIndex: 100,
-      padding: '0.75rem 5rem 1rem',
+      padding: '0.5rem 2rem 1rem',
       background: 'transparent',
+      flexShrink: 0,
     }}>
       <div style={{
         backdropFilter: 'blur(16px)',

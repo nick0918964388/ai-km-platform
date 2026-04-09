@@ -23,7 +23,7 @@ export default function ModelSelector({ selectedModel, onModelChange }: ModelSel
       .then(r => r.json())
       .then(data => {
         if (data.models?.length) setModels(data.models);
-        if (data.current && !selectedModel) onModelChange(data.current);
+        if (data.current) onModelChange(data.current);
       })
       .catch(() => {});
   }, []);

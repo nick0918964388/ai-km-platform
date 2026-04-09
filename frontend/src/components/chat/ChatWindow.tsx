@@ -101,7 +101,7 @@ export default function ChatWindow() {
   const [messageQueries, setMessageQueries] = useState<{ [msgId: string]: string }>({});
   const [expandedSources, setExpandedSources] = useState<{ [key: string]: boolean }>({});
   const [taskSteps, setTaskSteps] = useState<Step[]>([]);
-  const [selectedModel, setSelectedModel] = useState('');
+  const [selectedModel, setSelectedModel] = useState('qwen3-vl:32b');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -482,7 +482,7 @@ export default function ChatWindow() {
         <div style={{
           flex: 1,
           overflow: 'auto',
-          padding: '2rem 5rem 140px',
+          padding: '2rem 5rem 1rem',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: messages.length === 0 ? 'center' : 'flex-start',
