@@ -12,9 +12,10 @@ from PIL import Image
 # Lazy loading for clients
 _openai_client = None
 _jina_api_key = None
+_local_model = None
 
 # Embedding provider configuration
-EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "ollama")  # "openai" or "ollama"
+EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "local")  # "openai", "ollama", or "local"
 
 # OpenAI embedding model
 OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
@@ -24,6 +25,10 @@ OPENAI_EMBEDDING_DIMENSION = 1536
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://192.168.1.161:11434")
 OLLAMA_EMBEDDING_MODEL = os.environ.get("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:latest")
 OLLAMA_EMBEDDING_DIMENSION = 4096  # Qwen3 embedding dimension
+
+# Local sentence-transformers embedding
+LOCAL_EMBEDDING_MODEL = os.environ.get("TEXT_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+LOCAL_EMBEDDING_DIMENSION = 384  # all-MiniLM-L6-v2 dimension
 
 # Jina CLIP model
 JINA_CLIP_MODEL = "jina-clip-v1"
@@ -117,9 +122,31 @@ def embed_texts_openai(texts: list[str]) -> list[list[float]]:
     return [item.embedding for item in sorted_embeddings]
 
 
+def get_local_model():
+    global _local_model
+    if _local_model is None:
+        from sentence_transformers import SentenceTransformer
+        _local_model = SentenceTransformer(LOCAL_EMBEDDING_MODEL)
+    return _local_model
+
+
+def embed_text_local(text: str) -> list[float]:
+    model = get_local_model()
+    return model.encode(text).tolist()
+
+
+def embed_texts_local(texts: list[str]) -> list[list[float]]:
+    if not texts:
+        return []
+    model = get_local_model()
+    return model.encode(texts).tolist()
+
+
 def embed_text(text: str) -> list[float]:
     """Embed text using configured provider."""
-    if EMBEDDING_PROVIDER == "ollama":
+    if EMBEDDING_PROVIDER == "local":
+        return embed_text_local(text)
+    elif EMBEDDING_PROVIDER == "ollama":
         return embed_text_ollama(text)
     else:
         return embed_text_openai(text)
@@ -127,7 +154,9 @@ def embed_text(text: str) -> list[float]:
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """Embed multiple texts using configured provider."""
-    if EMBEDDING_PROVIDER == "ollama":
+    if EMBEDDING_PROVIDER == "local":
+        return embed_texts_local(texts)
+    elif EMBEDDING_PROVIDER == "ollama":
         return embed_texts_ollama(texts)
     else:
         return embed_texts_openai(texts)
@@ -199,7 +228,9 @@ def embed_image_from_bytes(image_bytes: bytes) -> list[float]:
 
 def get_text_embedding_dimension() -> int:
     """Get text embedding dimension based on configured provider."""
-    if EMBEDDING_PROVIDER == "ollama":
+    if EMBEDDING_PROVIDER == "local":
+        return LOCAL_EMBEDDING_DIMENSION  # all-MiniLM-L6-v2
+    elif EMBEDDING_PROVIDER == "ollama":
         return OLLAMA_EMBEDDING_DIMENSION  # Qwen3 embedding
     else:
         return OPENAI_EMBEDDING_DIMENSION  # text-embedding-3-small
