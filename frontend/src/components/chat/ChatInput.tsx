@@ -90,7 +90,6 @@ export default function ChatInput({
         borderRadius: 'var(--radius-lg)',
         border: '1px solid var(--border)',
         boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
-        overflow: 'hidden',
       }}>
         {/* Image preview strip */}
         {imagePreview && (

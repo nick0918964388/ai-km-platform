@@ -88,8 +88,8 @@ services:
       # Cache
       REDIS_URL: redis://redis:6379
       CACHE_TTL: 3600
-      # Embedding Models (using OpenAI for 1536-dim compatibility with existing vectors)
-      EMBEDDING_PROVIDER: openai
+      # Embedding Models
+      EMBEDDING_PROVIDER: ollama
       OLLAMA_URL: https://j2ollama.nickai.cc
       OLLAMA_EMBEDDING_MODEL: qwen3-embedding:latest
       TEXT_EMBEDDING_MODEL: all-MiniLM-L6-v2
