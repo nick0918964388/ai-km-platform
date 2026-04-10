@@ -374,7 +374,7 @@ export default function KnowledgeBasePage() {
           type="file"
           ref={fileInputRef}
           onChange={(e) => handleFileSelect(e.target.files)}
-          accept=".pdf,.docx,.png,.jpg,.jpeg,.webp"
+          accept=".pdf,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg,.webp"
           multiple
           style={{ display: 'none' }}
           disabled={uploading}
