@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Send, DataBase, Code, TableSplit, Renew } from '@carbon/icons-react';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API = '';
 
 const EXAMPLES = [
   '最近立案未結的故障通報有哪些？列出 10 筆',

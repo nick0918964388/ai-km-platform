@@ -124,7 +124,7 @@ export default function Sidebar() {
         {/* Avatar - use profile avatar_url or AccountInitials */}
         {profile?.avatar_url ? (
           <img
-            src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${profile.avatar_url}`}
+            src={profile.avatar_url}
             alt={profile.display_name}
             className="sidebar-user-avatar"
             style={{

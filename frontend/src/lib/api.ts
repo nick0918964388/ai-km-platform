@@ -2,7 +2,11 @@
  * API utility for making authenticated requests to the backend
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Use relative URLs on client side so Next.js rewrites proxy to backend (avoids CORS)
+// On server side (SSR), use the absolute URL
+const API_URL = typeof window !== 'undefined'
+  ? ''
+  : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
 
 /**

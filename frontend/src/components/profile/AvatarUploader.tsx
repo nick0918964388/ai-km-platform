@@ -12,7 +12,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useAvatarUpload } from '@/hooks/useAvatarUpload';
 import AccountInitials from './AccountInitials';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 
 export default function AvatarUploader() {
   const { profile } = useProfile();

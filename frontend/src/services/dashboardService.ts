@@ -9,7 +9,11 @@ import {
   TopTopicsResponse,
 } from '@/types/dashboard';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
+const _BASE = (path: string, params?: Record<string, string>) => {
+  const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+  return `${API_URL}${path}${qs}`;
+};
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
 
 /**
@@ -20,12 +24,8 @@ const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
  */
 export async function getDashboardMetrics(refresh: boolean = false): Promise<DashboardMetrics> {
   try {
-    const url = new URL(`${API_URL}/api/profile/dashboard/metrics`);
-    if (refresh) {
-      url.searchParams.append('refresh', 'true');
-    }
-
-    const response = await fetch(url.toString(), {
+    const url = _BASE('/api/profile/dashboard/metrics', refresh ? { refresh: 'true' } : undefined);
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -61,11 +61,8 @@ export async function getRecentActivity(
   offset: number = 0
 ): Promise<ActivityTimelineResponse> {
   try {
-    const url = new URL(`${API_URL}/api/profile/dashboard/activity`);
-    url.searchParams.append('limit', limit.toString());
-    url.searchParams.append('offset', offset.toString());
-
-    const response = await fetch(url.toString(), {
+    const url = _BASE('/api/profile/dashboard/activity', { limit: limit.toString(), offset: offset.toString() });
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -97,10 +94,8 @@ export async function getRecentActivity(
  */
 export async function getTopTopics(limit: number = 5): Promise<TopTopicsResponse> {
   try {
-    const url = new URL(`${API_URL}/api/profile/dashboard/topics`);
-    url.searchParams.append('limit', limit.toString());
-
-    const response = await fetch(url.toString(), {
+    const url = _BASE('/api/profile/dashboard/topics', { limit: limit.toString() });
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

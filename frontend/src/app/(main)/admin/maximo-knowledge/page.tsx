@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Add, TrashCan, Renew, DataBase, Education, Tag } from '@carbon/icons-react';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API = '';
 
 const TAGS = [
   { value: 'general',      label: '通用',     color: '#6f6f6f' },

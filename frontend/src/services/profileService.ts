@@ -5,7 +5,7 @@
 
 import { UserProfile, ProfileUpdateRequest, AvatarUploadResponse } from '@/types/profile';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
 
 /**
