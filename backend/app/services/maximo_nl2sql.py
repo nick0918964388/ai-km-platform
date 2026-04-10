@@ -187,6 +187,30 @@ class MaximoNL2SQL:
             if not attrs:
                 return ""
 
+            # Load domain values via alndomain join
+            # Chain: maxattribute.domainid → zz_domain.domainid → zz_domain.maxdomainid
+            #        → alndomain._parent_key → alndomain.value / description
+            domain_vals: dict[str, list[tuple[str, str]]] = {}
+            try:
+                drows = await self.db.execute(text(
+                    """
+                    SELECT d.domainid, a.value, a.description
+                    FROM maximo_zz_domain d
+                    JOIN maximo_zz_domain_alndomain a ON d.maxdomainid = a._parent_key
+                    WHERE d.domainid IN (
+                        SELECT DISTINCT domainid FROM maximo_zz_maxattribute
+                        WHERE objectname IN ('ASSET','WORKORDER','SR')
+                          AND domainid IS NOT NULL AND domainid != ''
+                    )
+                      AND a.value IS NOT NULL AND a.value != ''
+                    ORDER BY d.domainid, a.value
+                    """
+                ))
+                for dr in drows.fetchall():
+                    domain_vals.setdefault(dr.domainid, []).append((dr.value, dr.description or ""))
+            except Exception as de:
+                log.warning("Domain value load failed: %s", de)
+
             from collections import defaultdict
             by_obj: dict[str, list] = defaultdict(list)
             for r in attrs:
@@ -200,8 +224,14 @@ class MaximoNL2SQL:
                     attr_upper = a.attributename.upper()
                     col_ref = self._ATTR_COL.get(attr_upper, a.attributename.lower())
                     label   = a.title or a.attributename
-                    domain_hint = f"（domainid: {a.domainid}）" if a.domainid else ""
-                    lines.append(f"- {col_ref} — {label}{domain_hint}")
+                    if a.domainid and a.domainid in domain_vals:
+                        pairs = ", ".join(
+                            f'"{v}"={desc}' if desc else f'"{v}"'
+                            for v, desc in domain_vals[a.domainid][:20]
+                        )
+                        lines.append(f"- {col_ref} — {label}（值域：{pairs}）")
+                    else:
+                        lines.append(f"- {col_ref} — {label}")
 
             return "\n".join(lines)
         except Exception as e:
