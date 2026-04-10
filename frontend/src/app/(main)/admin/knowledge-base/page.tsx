@@ -41,6 +41,7 @@ export default function KnowledgeBasePage() {
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [loadingDocs, setLoadingDocs] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadQueue, setUploadQueue] = useState<{name: string; status: 'pending'|'processing'|'done'|'error'; chunks?: number; error?: string}[]>([]);
 
   // Fetch documents from API on mount
   const fetchDocuments = useCallback(async () => {
@@ -108,9 +109,14 @@ export default function KnowledgeBasePage() {
   const handleFileSelect = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
+    const fileArr = Array.from(files);
     setUploading(true);
+    setUploadQueue(fileArr.map(f => ({ name: f.name, status: 'pending' })));
 
-    for (const file of Array.from(files)) {
+    for (let i = 0; i < fileArr.length; i++) {
+      const file = fileArr[i];
+      setUploadQueue(prev => prev.map((q, idx) => idx === i ? { ...q, status: 'processing' } : q));
+
       const formData = new FormData();
       formData.append('file', file);
 
@@ -128,8 +134,8 @@ export default function KnowledgeBasePage() {
         }
 
         const result = await res.json();
+        setUploadQueue(prev => prev.map((q, idx) => idx === i ? { ...q, status: 'done', chunks: result.chunk_count } : q));
 
-        // Add document to list
         const newDoc: KBDocument = {
           id: result.document_id,
           name: file.name,
@@ -138,30 +144,17 @@ export default function KnowledgeBasePage() {
           uploadedAt: new Date(),
           status: 'ready',
           chunks: result.chunk_count,
-          taskId: result.task_id,
         };
-
         setDocuments(prev => [newDoc, ...prev]);
-
-        // If there's a task ID, track progress via WebSocket
-        if (result.task_id) {
-          setActiveTaskId(result.task_id);
-          // Update doc status to processing
-          setDocuments(prev =>
-            prev.map(doc =>
-              doc.id === result.document_id
-                ? { ...doc, status: 'processing', taskId: result.task_id }
-                : doc
-            )
-          );
-        }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Upload error:', error);
-        // Could add error state to document here
+        setUploadQueue(prev => prev.map((q, idx) => idx === i ? { ...q, status: 'error', error: error.message || '上傳失敗' } : q));
       }
     }
 
     setUploading(false);
+    // 3 秒後清除上傳佇列
+    setTimeout(() => setUploadQueue([]), 3000);
   };
 
   const handleDelete = async (id: string) => {
@@ -220,7 +213,9 @@ export default function KnowledgeBasePage() {
   );
 
   return (
-    <div style={{
+    <div
+      onDragOver={handleDragOver}
+      style={{
       height: '100%',
       overflow: 'auto',
       background: 'var(--bg-primary)',
@@ -403,19 +398,47 @@ export default function KnowledgeBasePage() {
             放開以上傳文件
           </div>
           <div style={{ color: 'var(--text-muted)' }}>
-            支援 PDF、Word、PNG、JPG、WEBP 格式
+            支援 PDF、Word、Excel、PNG、JPG、WEBP 格式
           </div>
         </div>
       )}
 
-      {/* Upload Progress (WebSocket) */}
-      {activeTaskId && (
-        <UploadProgress
-          taskId={activeTaskId}
-          onComplete={handleUploadComplete}
-          onError={handleUploadError}
-          className="mt-4"
-        />
+      {/* Batch Upload Progress */}
+      {uploadQueue.length > 0 && (
+        <div style={{
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-md)', padding: '1rem',
+        }}>
+          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            上傳進度（{uploadQueue.filter(q => q.status === 'done').length} / {uploadQueue.length}）
+          </div>
+          {uploadQueue.map((q, i) => (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              padding: '0.375rem 0', fontSize: '0.8125rem',
+              color: q.status === 'error' ? '#da1e28' : 'var(--text-primary)',
+            }}>
+              <span style={{ width: 18, textAlign: 'center', flexShrink: 0 }}>
+                {q.status === 'done' ? '✓' : q.status === 'error' ? '✗' : q.status === 'processing' ? '⟳' : '○'}
+              </span>
+              <span style={{
+                flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                fontWeight: q.status === 'processing' ? 600 : 400,
+              }}>
+                {q.name}
+              </span>
+              {q.status === 'done' && q.chunks && (
+                <span style={{ fontSize: '0.75rem', color: '#42be65' }}>{q.chunks} chunks</span>
+              )}
+              {q.status === 'error' && (
+                <span style={{ fontSize: '0.75rem', color: '#da1e28' }}>{q.error}</span>
+              )}
+              {q.status === 'processing' && (
+                <span style={{ fontSize: '0.75rem', color: 'var(--accent)' }}>處理中...</span>
+              )}
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Document Table */}
