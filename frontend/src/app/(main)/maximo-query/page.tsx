@@ -5,6 +5,17 @@ import { Send, DataBase, Code, TableSplit, Renew } from '@carbon/icons-react';
 
 const API = '';
 
+const SQL_FRAMES = [
+  '⠋ 解析問題中...',
+  '⠙ 查詢欄位定義...',
+  '⠹ 比對值域映射...',
+  '⠸ 建構 SQL 語句...',
+  '⠼ 驗證查詢邏輯...',
+  '⠴ 最佳化條件...',
+  '⠦ 即將完成...',
+  '⠧ 送出查詢...',
+];
+
 const EXAMPLES = [
   '最近立案未結的故障通報有哪些？列出 10 筆',
   'EMU900 資產有幾筆？',
@@ -29,6 +40,7 @@ export default function MaximoQueryPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [showSQL, setShowSQL] = useState(false);
+  const [frameIdx, setFrameIdx] = useState(0);
 
   const runQuery = async (q: string) => {
     const q2 = q.trim();
@@ -37,6 +49,10 @@ export default function MaximoQueryPage() {
     setLoading(true);
     setResult(null);
     setShowSQL(false);
+    setFrameIdx(0);
+    const timer = setInterval(() => {
+      setFrameIdx(i => (i + 1) % SQL_FRAMES.length);
+    }, 600);
     try {
       const res = await fetch(`${API}/api/maximo/nl2sql`, {
         method: 'POST',
@@ -46,6 +62,7 @@ export default function MaximoQueryPage() {
       const data = await res.json();
       setResult(data);
     } finally {
+      clearInterval(timer);
       setLoading(false);
     }
   };
@@ -118,8 +135,30 @@ export default function MaximoQueryPage() {
 
       {/* Loading */}
       {loading && (
-        <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem', fontSize: '0.875rem' }}>
-          AI 正在產生 SQL...
+        <div style={{ textAlign: 'center', padding: '2rem' }}>
+          <div style={{
+            fontFamily: 'monospace', fontSize: '0.9375rem',
+            color: 'var(--primary)', letterSpacing: '0.04em',
+            transition: 'opacity 0.2s',
+          }}>
+            {SQL_FRAMES[frameIdx]}
+          </div>
+          <div style={{
+            marginTop: '0.75rem', fontSize: '0.75rem',
+            color: 'var(--text-muted)', fontFamily: 'monospace',
+          }}>
+            {['SELECT', 'FROM', 'WHERE', 'JOIN', 'ORDER BY'].map((kw, i) => (
+              <span
+                key={kw}
+                style={{
+                  marginRight: '0.5rem',
+                  opacity: (frameIdx + i) % 5 === 0 ? 1 : 0.2,
+                  transition: 'opacity 0.3s',
+                  color: 'var(--accent)',
+                }}
+              >{kw}</span>
+            ))}
+          </div>
         </div>
       )}
 
