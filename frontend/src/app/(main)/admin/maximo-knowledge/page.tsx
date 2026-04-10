@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Add, TrashCan, Renew, DataBase, Education, Tag } from '@carbon/icons-react';
+import { useState, useEffect, useRef } from 'react';
+import { Add, TrashCan, Renew, DataBase, Education, Tag, Edit, Checkmark, Close } from '@carbon/icons-react';
 
 const API = '';
 
@@ -16,6 +16,7 @@ const tagMeta = (value: string) => TAGS.find(t => t.value === value) ?? TAGS[0];
 
 interface Rule    { id: number; content: string; tag: string; }
 interface Example { id: number; question: string; sql_query: string; verified: boolean; tag: string; }
+interface EditState { id: number; type: 'rule' | 'example'; }
 
 function TagBadge({ tag }: { tag: string }) {
   const m = tagMeta(tag);
@@ -32,16 +33,17 @@ function TagBadge({ tag }: { tag: string }) {
   );
 }
 
-function TagSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function TagSelect({ value, onChange, small }: { value: string; onChange: (v: string) => void; small?: boolean }) {
   return (
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
       style={{
-        padding: '0.5rem 0.625rem', border: '1px solid var(--border)',
+        padding: small ? '0.25rem 0.5rem' : '0.5rem 0.625rem',
+        border: '1px solid var(--border)',
         borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)',
-        color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none',
-        cursor: 'pointer',
+        color: 'var(--text-primary)', fontSize: small ? '0.8125rem' : '0.875rem',
+        outline: 'none', cursor: 'pointer',
       }}
     >
       {TAGS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -62,6 +64,13 @@ export default function MaximoKnowledgePage() {
   const [activeTab, setActiveTab] = useState<'rules' | 'examples'>('rules');
   const [filterTag, setFilterTag] = useState<string>('all');
 
+  // Inline edit state
+  const [editing, setEditing] = useState<EditState | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [editQ, setEditQ]     = useState('');
+  const [editSQL, setEditSQL] = useState('');
+  const [editTag, setEditTag] = useState('general');
+
   const fetchKnowledge = async () => {
     setLoading(true);
     try {
@@ -75,6 +84,53 @@ export default function MaximoKnowledgePage() {
   };
 
   useEffect(() => { fetchKnowledge(); }, []);
+
+  const startEditRule = (r: Rule) => {
+    setEditing({ id: r.id, type: 'rule' });
+    setEditContent(r.content);
+    setEditTag(r.tag);
+  };
+
+  const startEditExample = (ex: Example) => {
+    setEditing({ id: ex.id, type: 'example' });
+    setEditQ(ex.question);
+    setEditSQL(ex.sql_query);
+    setEditTag(ex.tag);
+  };
+
+  const cancelEdit = () => setEditing(null);
+
+  const saveEditRule = async (id: number) => {
+    if (!editContent.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/api/maximo/knowledge/rule/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: editContent, tag: editTag }),
+      });
+      if (res.ok) {
+        setRules(rs => rs.map(r => r.id === id ? { ...r, content: editContent, tag: editTag } : r));
+        setEditing(null);
+      }
+    } finally { setSaving(false); }
+  };
+
+  const saveEditExample = async (id: number) => {
+    if (!editQ.trim() || !editSQL.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/api/maximo/knowledge/example/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: editQ, sql_query: editSQL, tag: editTag }),
+      });
+      if (res.ok) {
+        setExamples(es => es.map(e => e.id === id ? { ...e, question: editQ, sql_query: editSQL, tag: editTag } : e));
+        setEditing(null);
+      }
+    } finally { setSaving(false); }
+  };
 
   const addRule = async () => {
     if (!newRule.trim()) return;
@@ -136,10 +192,15 @@ export default function MaximoKnowledgePage() {
     transition: 'all 0.15s',
   });
 
+  const iconBtnStyle = (color?: string) => ({
+    color: color ?? 'var(--text-muted)', background: 'none', border: 'none',
+    cursor: 'pointer', padding: 4, borderRadius: 4, flexShrink: 0 as const,
+    display: 'flex', alignItems: 'center',
+  });
+
   const filteredRules    = filterTag === 'all' ? rules    : rules.filter(r => r.tag === filterTag);
   const filteredExamples = filterTag === 'all' ? examples : examples.filter(e => e.tag === filterTag);
 
-  // Count per tag for the active tab
   const tagCounts = (items: { tag: string }[]) =>
     TAGS.reduce((acc, t) => ({ ...acc, [t.value]: items.filter(i => i.tag === t.value).length }), {} as Record<string, number>);
 
@@ -190,10 +251,10 @@ export default function MaximoKnowledgePage() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1rem', background: 'var(--bg-secondary)', padding: 4, borderRadius: 'var(--radius-sm)', width: 'fit-content' }}>
-        <button style={tabStyle(activeTab === 'rules')}    onClick={() => { setActiveTab('rules');    setFilterTag('all'); }}>
+        <button style={tabStyle(activeTab === 'rules')}    onClick={() => { setActiveTab('rules');    setFilterTag('all'); setEditing(null); }}>
           領域規則 ({rules.length})
         </button>
-        <button style={tabStyle(activeTab === 'examples')} onClick={() => { setActiveTab('examples'); setFilterTag('all'); }}>
+        <button style={tabStyle(activeTab === 'examples')} onClick={() => { setActiveTab('examples'); setFilterTag('all'); setEditing(null); }}>
           查詢範例 ({examples.length})
         </button>
       </div>
@@ -259,27 +320,65 @@ export default function MaximoKnowledgePage() {
             <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>尚無規則</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: 4 }}>
-              {filteredRules.map(r => (
-                <div key={r.id} style={{
-                  display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
-                  padding: '0.75rem 1rem', background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-                }}>
-                  <span style={{ color: 'var(--accent)', fontSize: '1rem', lineHeight: 1.5 }}>•</span>
-                  <span style={{ flex: 1, fontSize: '0.875rem', color: 'var(--text-primary)', lineHeight: 1.6 }}>
-                    {r.content}
-                  </span>
-                  <TagBadge tag={r.tag} />
-                  <button
-                    onClick={() => deleteRule(r.id)}
-                    style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, flexShrink: 0 }}
-                    onMouseEnter={e => (e.currentTarget.style.color = '#da1e28')}
-                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
-                  >
-                    <TrashCan size={14} />
-                  </button>
-                </div>
-              ))}
+              {filteredRules.map(r => {
+                const isEditing = editing?.id === r.id && editing.type === 'rule';
+                return (
+                  <div key={r.id} style={{
+                    padding: '0.75rem 1rem', background: 'var(--bg-secondary)',
+                    border: `1px solid ${isEditing ? 'var(--primary)' : 'var(--border)'}`,
+                    borderRadius: 'var(--radius-sm)',
+                  }}>
+                    {isEditing ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <TagSelect value={editTag} onChange={setEditTag} small />
+                          <input
+                            autoFocus
+                            value={editContent}
+                            onChange={e => setEditContent(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveEditRule(r.id); if (e.key === 'Escape') cancelEdit(); }}
+                            style={{
+                              flex: 1, padding: '0.375rem 0.625rem', border: '1px solid var(--primary)',
+                              borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)',
+                              color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none',
+                            }}
+                          />
+                          <button onClick={() => saveEditRule(r.id)} disabled={saving} style={{ ...iconBtnStyle('#42be65') }}>
+                            <Checkmark size={16} />
+                          </button>
+                          <button onClick={cancelEdit} style={iconBtnStyle()}>
+                            <Close size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                        <span style={{ color: 'var(--accent)', fontSize: '1rem', lineHeight: 1.5 }}>•</span>
+                        <span style={{ flex: 1, fontSize: '0.875rem', color: 'var(--text-primary)', lineHeight: 1.6 }}>
+                          {r.content}
+                        </span>
+                        <TagBadge tag={r.tag} />
+                        <button
+                          onClick={() => startEditRule(r)}
+                          style={iconBtnStyle()}
+                          onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary)')}
+                          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
+                        >
+                          <Edit size={14} />
+                        </button>
+                        <button
+                          onClick={() => deleteRule(r.id)}
+                          style={iconBtnStyle()}
+                          onMouseEnter={e => (e.currentTarget.style.color = '#da1e28')}
+                          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
+                        >
+                          <TrashCan size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -344,33 +443,88 @@ export default function MaximoKnowledgePage() {
             <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>尚無範例</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', paddingRight: 4 }}>
-              {filteredExamples.map(ex => (
-                <div key={ex.id} style={{
-                  background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-md)', overflow: 'hidden',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.625rem 1rem', borderBottom: '1px solid var(--border)', gap: '0.5rem' }}>
-                    <span style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500, flex: 1 }}>
-                      {ex.question}
-                    </span>
-                    <TagBadge tag={ex.tag} />
-                    <button
-                      onClick={() => deleteExample(ex.id)}
-                      style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 4 }}
-                      onMouseEnter={e => (e.currentTarget.style.color = '#da1e28')}
-                      onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
-                    >
-                      <TrashCan size={14} />
-                    </button>
+              {filteredExamples.map(ex => {
+                const isEditing = editing?.id === ex.id && editing.type === 'example';
+                return (
+                  <div key={ex.id} style={{
+                    background: 'var(--bg-secondary)',
+                    border: `1px solid ${isEditing ? 'var(--primary)' : 'var(--border)'}`,
+                    borderRadius: 'var(--radius-md)', overflow: 'hidden',
+                  }}>
+                    {isEditing ? (
+                      <div style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <TagSelect value={editTag} onChange={setEditTag} small />
+                          <input
+                            autoFocus
+                            value={editQ}
+                            onChange={e => setEditQ(e.target.value)}
+                            style={{
+                              flex: 1, padding: '0.375rem 0.625rem', border: '1px solid var(--primary)',
+                              borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)',
+                              color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none',
+                            }}
+                          />
+                        </div>
+                        <textarea
+                          value={editSQL}
+                          onChange={e => setEditSQL(e.target.value)}
+                          rows={4}
+                          style={{
+                            padding: '0.375rem 0.625rem', border: '1px solid var(--primary)',
+                            borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)',
+                            color: 'var(--text-primary)', fontSize: '0.8125rem', outline: 'none',
+                            resize: 'vertical', fontFamily: 'monospace',
+                          }}
+                        />
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                          <button onClick={cancelEdit} style={{ padding: '0.375rem 0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8125rem' }}>
+                            取消
+                          </button>
+                          <button
+                            onClick={() => saveEditExample(ex.id)}
+                            disabled={saving || !editQ.trim() || !editSQL.trim()}
+                            style={{ padding: '0.375rem 0.875rem', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: 4 }}
+                          >
+                            <Checkmark size={14} /> 儲存
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.625rem 1rem', borderBottom: '1px solid var(--border)', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500, flex: 1 }}>
+                            {ex.question}
+                          </span>
+                          <TagBadge tag={ex.tag} />
+                          <button
+                            onClick={() => startEditExample(ex)}
+                            style={iconBtnStyle()}
+                            onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary)')}
+                            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
+                          >
+                            <Edit size={14} />
+                          </button>
+                          <button
+                            onClick={() => deleteExample(ex.id)}
+                            style={iconBtnStyle()}
+                            onMouseEnter={e => (e.currentTarget.style.color = '#da1e28')}
+                            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
+                          >
+                            <TrashCan size={14} />
+                          </button>
+                        </div>
+                        <pre style={{
+                          margin: 0, padding: '0.625rem 1rem',
+                          fontSize: '0.75rem', color: 'var(--text-secondary)',
+                          fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.6,
+                          background: 'var(--bg-primary)',
+                        }}>{ex.sql_query}</pre>
+                      </>
+                    )}
                   </div>
-                  <pre style={{
-                    margin: 0, padding: '0.625rem 1rem',
-                    fontSize: '0.75rem', color: 'var(--text-secondary)',
-                    fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.6,
-                    background: 'var(--bg-primary)',
-                  }}>{ex.sql_query}</pre>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

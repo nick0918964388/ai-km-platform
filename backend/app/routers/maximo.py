@@ -61,7 +61,16 @@ class AddRuleRequest(BaseModel):
     content: str
     tag: str = "general"
 
+class UpdateRuleRequest(BaseModel):
+    content: str
+    tag: str = "general"
+
 class AddExampleRequest(BaseModel):
+    question: str
+    sql_query: str
+    tag: str = "general"
+
+class UpdateExampleRequest(BaseModel):
     question: str
     sql_query: str
     tag: str = "general"
@@ -119,6 +128,21 @@ async def delete_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
     return {"success": True}
 
 
+@router.patch("/knowledge/rule/{rule_id}", response_model=RuleItem)
+async def update_rule(rule_id: int, req: UpdateRuleRequest, db: AsyncSession = Depends(get_db)):
+    """Update a domain rule."""
+    if not req.content.strip():
+        raise HTTPException(status_code=400, detail="Content cannot be empty")
+    result = await db.execute(text(
+        "UPDATE maximo_field_metadata SET description = :desc, tag = :tag "
+        "WHERE id = :id AND table_name = '_rules' RETURNING id"
+    ), {"desc": req.content.strip(), "tag": req.tag, "id": rule_id})
+    await db.commit()
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return RuleItem(id=rule_id, content=req.content.strip(), tag=req.tag)
+
+
 @router.post("/knowledge/example", response_model=ExampleItem)
 async def add_example(req: AddExampleRequest, db: AsyncSession = Depends(get_db)):
     """Add a NL→SQL example."""
@@ -146,3 +170,20 @@ async def delete_example(example_id: int, db: AsyncSession = Depends(get_db)):
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Example not found")
     return {"success": True}
+
+
+@router.patch("/knowledge/example/{example_id}", response_model=ExampleItem)
+async def update_example(example_id: int, req: UpdateExampleRequest, db: AsyncSession = Depends(get_db)):
+    """Update a SQL example."""
+    if not req.question.strip() or not req.sql_query.strip():
+        raise HTTPException(status_code=400, detail="Question and SQL cannot be empty")
+    if not req.sql_query.strip().lower().startswith("select"):
+        raise HTTPException(status_code=400, detail="Only SELECT queries allowed")
+    result = await db.execute(text(
+        "UPDATE nl_sql_examples SET question = :q, sql_query = :sql, tag = :tag "
+        "WHERE id = :id RETURNING id"
+    ), {"q": req.question.strip(), "sql": req.sql_query.strip(), "tag": req.tag, "id": example_id})
+    await db.commit()
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Example not found")
+    return ExampleItem(id=example_id, question=req.question.strip(), sql_query=req.sql_query.strip(), verified=True, tag=req.tag)
