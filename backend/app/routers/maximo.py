@@ -45,6 +45,17 @@ async def index_schema(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"索引失敗：{str(e)}")
 
 
+@router.post("/schema/discover")
+async def discover_and_index(db: AsyncSession = Depends(get_db)):
+    """自動偵測新的 maximo 表、產生 catalog entry、重新索引。"""
+    try:
+        rag = MaximoSchemaRAG(db)
+        stats = await rag.discover_and_index()
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"偵測/索引失敗：{str(e)}")
+
+
 @router.post("/nl2sql", response_model=NL2SQLResponse)
 async def nl2sql(req: NL2SQLRequest, db: AsyncSession = Depends(get_db)):
     """Convert natural language question to SQL and execute against Maximo tables."""

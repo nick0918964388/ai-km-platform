@@ -29,6 +29,113 @@ class MaximoSchemaRAG:
         self.db = db
         self.qdrant = get_client()
 
+    # ── Auto-discover ─────────────────────────────────────────────────────
+
+    async def discover_new_tables(self) -> list[dict]:
+        """偵測 postgres 中新的 maximo 表，自動產生 catalog entry 並寫入 DB。
+        回傳新增的表清單。
+        """
+        # 1) 取得目前 catalog 已有的表
+        existing = await self.db.execute(text(
+            "SELECT table_name FROM maximo_table_catalog"
+        ))
+        known = {r.table_name for r in existing.fetchall()}
+
+        # 2) 掃描 postgres 中所有 maximo_* 資料表（排除 metadata/domain 表）
+        all_tables = await self.db.execute(text("""
+            SELECT t.table_name,
+                   array_agg(c.column_name ORDER BY c.ordinal_position) AS columns
+            FROM information_schema.tables t
+            JOIN information_schema.columns c
+              ON c.table_name = t.table_name AND c.table_schema = 'public'
+            WHERE t.table_schema = 'public'
+              AND t.table_name LIKE 'maximo_%'
+              AND t.table_name NOT LIKE '%_zz_%'
+              AND t.table_name NOT LIKE '%_attr_metadata'
+              AND t.table_name NOT LIKE '%_field_metadata'
+              AND t.table_name NOT LIKE '%_table_catalog'
+              AND t.table_name NOT LIKE '%_domains'
+            GROUP BY t.table_name
+            ORDER BY t.table_name
+        """))
+
+        new_tables = []
+        for r in all_tables.fetchall():
+            if r.table_name in known:
+                continue
+
+            cols = list(r.columns[:30])
+            # 嘗試從 maximo_zz_maxattribute 找 object_name
+            obj_row = await self.db.execute(text("""
+                SELECT DISTINCT objectname FROM maximo_zz_maxattribute
+                WHERE LOWER(objectname) = REPLACE(:tbl, 'maximo_mx', '')
+                   OR LOWER(objectname) = REPLACE(:tbl, 'maximo_', '')
+                LIMIT 1
+            """), {"tbl": r.table_name})
+            obj_result = obj_row.fetchone()
+            object_name = obj_result.objectname if obj_result else None
+
+            # 嘗試取得 row count
+            try:
+                cnt_row = await self.db.execute(text(
+                    f"SELECT COUNT(*) FROM {r.table_name}"  # table_name from information_schema, safe
+                ))
+                row_count = cnt_row.scalar() or 0
+            except Exception:
+                row_count = 0
+
+            # 自動產生描述（從欄位名推測）
+            col_preview = ", ".join(cols[:10])
+            description = f"Maximo 資料表，包含欄位：{col_preview}"
+
+            # 推測 key columns（PK + 常見 FK）
+            key_cols = []
+            for c in cols:
+                if c in ("assetnum", "wonum", "ticketid", "status", "description"):
+                    key_cols.append(c)
+            if not key_cols and cols:
+                key_cols = cols[:3]
+
+            # 推測 FK（assetnum 常見）
+            fk = {}
+            if "assetnum" in cols and r.table_name != "maximo_mxasset" and r.table_name != "maximo_assets":
+                fk["assetnum"] = "maximo_mxasset.assetnum"
+
+            # 寫入 catalog
+            await self.db.execute(text("""
+                INSERT INTO maximo_table_catalog
+                    (table_name, object_name, description, key_columns, fk_relations, row_count)
+                VALUES (:tbl, :obj, :desc, :keys, :fk::jsonb, :cnt)
+                ON CONFLICT (table_name) DO NOTHING
+            """), {
+                "tbl": r.table_name,
+                "obj": object_name,
+                "desc": description,
+                "keys": key_cols,
+                "fk": __import__("json").dumps(fk, ensure_ascii=False),
+                "cnt": row_count,
+            })
+
+            new_tables.append({
+                "table_name": r.table_name,
+                "object_name": object_name,
+                "columns": len(cols),
+                "row_count": row_count,
+            })
+
+        if new_tables:
+            await self.db.commit()
+
+        return new_tables
+
+    async def discover_and_index(self) -> dict:
+        """自動偵測新表 + 重新索引。一站式呼叫。"""
+        new_tables = await self.discover_new_tables()
+        stats = await self.index_all()
+        stats["new_tables_discovered"] = len(new_tables)
+        stats["new_tables"] = new_tables
+        return stats
+
     # ── Index ────────────────────────────────────────────────────────────────
 
     async def index_all(self) -> dict:
