@@ -105,7 +105,7 @@ class MaximoSchemaRAG:
             await self.db.execute(text("""
                 INSERT INTO maximo_table_catalog
                     (table_name, object_name, description, key_columns, fk_relations, row_count)
-                VALUES (:tbl, :obj, :desc, :keys, :fk::jsonb, :cnt)
+                VALUES (:tbl, :obj, :desc, :keys, CAST(:fk AS jsonb), :cnt)
                 ON CONFLICT (table_name) DO NOTHING
             """), {
                 "tbl": r.table_name,
