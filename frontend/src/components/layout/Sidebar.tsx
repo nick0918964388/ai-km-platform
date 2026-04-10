@@ -22,6 +22,7 @@ const navItems = [
   { href: '/history', label: '查詢紀錄', icon: RecentlyViewed },
   { href: '/admin/dashboard', label: '管理儀表板', icon: Dashboard, adminOnly: true },
   { href: '/admin/knowledge-base', label: '知識庫管理', icon: DataBase, adminOnly: true },
+  { href: '/admin/maximo-knowledge', label: 'Maximo 知識庫', icon: DataBase, adminOnly: true },
 ];
 
 const settingsItems = [
