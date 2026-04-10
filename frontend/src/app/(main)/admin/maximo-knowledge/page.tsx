@@ -87,7 +87,7 @@ export default function MaximoKnowledgePage() {
   });
 
   return (
-    <div style={{ padding: '1.5rem 2rem', maxWidth: 900 }}>
+    <div style={{ padding: '1.5rem 2rem', maxWidth: 900, overflowY: 'auto', height: '100%' }}>
       {/* Header */}
       <div style={{ marginBottom: '1.5rem' }}>
         <h1 style={{ fontSize: '1.375rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
@@ -180,7 +180,7 @@ export default function MaximoKnowledgePage() {
           ) : rules.length === 0 ? (
             <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>尚無規則</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '60vh', overflowY: 'auto', paddingRight: 4 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: 4 }}>
               {rules.map(r => (
                 <div key={r.id} style={{
                   display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
@@ -261,7 +261,7 @@ export default function MaximoKnowledgePage() {
           ) : examples.length === 0 ? (
             <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>尚無範例</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '60vh', overflowY: 'auto', paddingRight: 4 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', paddingRight: 4 }}>
               {examples.map(ex => (
                 <div key={ex.id} style={{
                   background: 'var(--bg-secondary)', border: '1px solid var(--border)',

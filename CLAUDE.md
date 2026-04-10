@@ -1,61 +1,93 @@
-# ai-km-platform Development Guidelines
+# ai-km-platform — Claude 工作手冊
 
-Auto-generated from all feature plans. Last updated: 2026-02-01
+> 三層記憶架構：CLAUDE.md（固定概要）→ memory/MEMORY.md（近期摘要）→ memory/daily/[日期].md（每日開發日誌）
 
-## Active Technologies
-- Python 3.10+ (Backend), TypeScript strict mode (Frontend) + FastAPI, Qdrant, Redis, Cohere SDK (Backend) / Next.js 14, React 18, IBM Carbon (Frontend) (002-document-preview)
-- 本地檔案系統 `./storage/documents/`，Qdrant 向量資料庫 (002-document-preview)
-- PostgreSQL (新增，結構化資料), Qdrant (現有，向量儲存) (003-structured-data-query)
-- Python 3.10+ (Backend), TypeScript 5.x strict mode (Frontend) (004-chat-response-details)
-- PostgreSQL (structured data), Qdrant (vector storage), local filesystem (documents) (004-chat-response-details)
-- TypeScript 5.x strict mode, Next.js 16.1.6, React 19.2.3 + Tailwind CSS v4, @carbon/react v1.100.0, @carbon/icons-react v11.74.0 (006-rwd)
-- N/A (frontend-only changes) (006-rwd)
-- Python 3.10+ (Backend), TypeScript 5.x strict mode (Frontend) + FastAPI 0.109+, Pydantic 2.x, Pillow 10.x (Backend) / React 19, Next.js 16.1, IBM Carbon v1.100, Tailwind CSS v4 (Frontend) (009-profile-dashboard)
-- SQLite (user profiles), Qdrant (activity logs, query history), Local filesystem (avatar images at `./storage/avatars/`) (009-profile-dashboard)
-- Python 3.14 (backend), TypeScript (frontend - 無變更) + FastAPI, sentence-transformers (BGE model), cohere (existing) (010-reranker-integration)
-- N/A (無新增儲存需求，模型快取使用 Hugging Face 預設路徑) (010-reranker-integration)
-- TypeScript 5.x (strict mode), React 19.2.3, Next.js 15.5.11 + Recharts 2.15.4, @carbon/react 1.100.0, Tailwind CSS v4 (011-dashboard-charts)
-- N/A (frontend-only component, no persistence required) (011-dashboard-charts)
+---
 
-- Python 3.10+ (Backend), TypeScript strict mode (Frontend) + FastAPI, Qdrant, Redis, Cohere SDK, Next.js (001-rag-optimization)
+## 專案概要
 
-## Project Structure
+**AI Knowledge Management Platform** — 企業級 AI 知識管理平台。  
+結合 RAG 技術，支援智慧文件問答、多模態輸入、結構化資料查詢（車輛維修管理場景）。
 
-```text
-src/
-tests/
+### 主要功能模組
+| 模組 | 說明 |
+|------|------|
+| Chat / RAG | 文件問答，支援串流 SSE，來源引用 |
+| 知識庫管理 | PDF/Word/Excel/圖片上傳、刪除、備份 |
+| 結構化查詢 | NL→SQL，查詢車輛、故障、維修紀錄 |
+| Dashboard | 統計圖表（Recharts），故障趨勢、費用分布 |
+| Admin 後台 | 使用者、權限、知識庫、分析管理 |
+| 個人資料 | Profile 頁、頭像上傳、查詢歷史 |
+
+### 技術棧
+| 層 | 技術 |
+|----|------|
+| Backend | Python 3.10+, FastAPI, Qdrant, PostgreSQL, Redis |
+| LLM / Reranker | OpenAI GPT-4o, Cohere Reranker, BGE Sentence Transformers |
+| Frontend | Next.js 15.5, React 19, IBM Carbon v1.100, Tailwind CSS v4 |
+| 狀態 / 圖表 | Zustand, NextAuth, Recharts |
+| 儲存 | `./storage/documents/`（文件），`./storage/avatars/`（頭像） |
+
+---
+
+## 測試環境
+
+| 項目 | 值 |
+|------|----|
+| 目標主機 | 192.168.1.11 |
+| API URL | `http://192.168.1.11:8000` |
+| Frontend | `http://192.168.1.11:3000` |
+| 遷移日期 | 2026-04-09（從 Mac Mini 遷移） |
+
+**Mac Mini 上同時運行**：Drone CI (8090)、Maximo Liberty (9080/9443)，停止 aikm 服務時勿影響這些服務。
+
+### Docker 服務清單
+| 服務 | Container | Port |
+|------|-----------|------|
+| Frontend | aikm-frontend | 3000 |
+| Backend | aikm-backend | 8000 |
+| PostgreSQL | aikm-postgres | 5432 |
+| Redis | aikm-redis | 6379 |
+| Qdrant | aikm-qdrant | 6333/6334 |
+
+---
+
+## ⚠️ 強制規則
+
+1. **DOCKER ONLY** — 所有服務必須透過 Docker Compose 運行
+   - ❌ 禁止：`npm run dev`、`uvicorn`、`python main.py`（在 host 執行）
+   - ✅ 允許：`docker compose up -d`
+
+2. **後端異動必須重建容器**
+   - `docker compose up -d --build backend`
+
+### 常用 Docker 指令
+```bash
+docker compose up -d                        # 啟動全部
+docker compose up -d --build backend        # 重建後端
+docker compose up -d --build frontend       # 重建前端
+docker compose logs -f [service_name]       # 看 logs
+docker compose down                         # 停止全部
 ```
 
-## Commands
+---
 
-cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] pytest [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] ruff check .
+## 我的偏好
 
-## Code Style
+- 回應語言：繁體中文
+- 回應風格：簡潔直接，不加過多說明
+- 不加無意義的結尾總結（我看得到 diff）
+- **前端功能改動後，必須自動調用瀏覽器工具（Playwright MCP）進行視覺驗證**
+- 不主動重構、不加多餘 docstring / comment
+- 不新增我沒要求的功能或抽象層
+- Commit 訊息使用 feat/fix/chore + 中文說明
 
-Python 3.10+ (Backend), TypeScript strict mode (Frontend): Follow standard conventions
+---
 
-## Recent Changes
-- 011-dashboard-charts: Added TypeScript 5.x (strict mode), React 19.2.3, Next.js 15.5.11 + Recharts 2.15.4, @carbon/react 1.100.0, Tailwind CSS v4
-- 010-reranker-integration: Added Python 3.14 (backend), TypeScript (frontend - 無變更) + FastAPI, sentence-transformers (BGE model), cohere (existing)
-- 009-profile-dashboard: Added Python 3.10+ (Backend), TypeScript 5.x strict mode (Frontend) + FastAPI 0.109+, Pydantic 2.x, Pillow 10.x (Backend) / React 19, Next.js 16.1, IBM Carbon v1.100, Tailwind CSS v4 (Frontend)
+## 記憶系統說明
 
-
-<!-- MANUAL ADDITIONS START -->
-
-## ⚠️ CRITICAL RULES (MUST FOLLOW)
-1. **DOCKER ONLY**: All services (Backend, Frontend, DB, Redis, Qdrant) MUST be run via Docker Compose.
-   - ❌ **FORBIDDEN**: `npm run dev`, `uvicorn app.main:app`, `python main.py` on host machine.
-   - ✅ **ALLOWED**: `docker compose up -d`, `docker compose logs -f`
-   - **Reason**: Ensure environment consistency and dependency isolation.
-
-2. **REBUILD ON CHANGE**: When backend code changes, you MUST rebuild the container (unless using volume mounts, but current setup requires rebuild).
-   - Command: `docker compose up -d --build backend`
-
-## Docker Commands
-- **Start All**: `docker compose up -d`
-- **Rebuild Backend**: `docker compose up -d --build backend`
-- **Rebuild Frontend**: `docker compose up -d --build frontend`
-- **Logs**: `docker compose logs -f [service_name]`
-- **Stop**: `docker compose down`
-
-<!-- MANUAL ADDITIONS END -->
+| 層級 | 路徑 | 用途 |
+|------|------|------|
+| 固定概要 | `CLAUDE.md`（本檔） | 專案架構、偏好、環境 — 手動維護 |
+| 近期摘要 | `memory/MEMORY.md` | 近期功能變動重點 — 隨開發更新 |
+| 每日日誌 | `memory/daily/YYYY-MM-DD.md` | 每日開發歷程 — 由 `/update-memory` 產生 |
