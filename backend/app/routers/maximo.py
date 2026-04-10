@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from app.db.session import get_db
 from app.services.maximo_nl2sql import MaximoNL2SQL
+from app.services.maximo_schema_rag import MaximoSchemaRAG
 
 router = APIRouter(prefix="/maximo", tags=["Maximo"])
 
@@ -31,6 +32,14 @@ class NL2SQLResponse(BaseModel):
     llm_ms: Optional[float] = None
     model: Optional[str] = None
     error: Optional[str] = None
+
+
+@router.post("/schema/index")
+async def index_schema(db: AsyncSession = Depends(get_db)):
+    """索引 table catalog + attributes 到 Qdrant，供 RAG schema selector 使用。"""
+    rag = MaximoSchemaRAG(db)
+    stats = await rag.index_all()
+    return stats
 
 
 @router.post("/nl2sql", response_model=NL2SQLResponse)

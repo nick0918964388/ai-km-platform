@@ -155,8 +155,22 @@ class MaximoNL2SQL:
         "ZZ_CONFIRM_DATE": "confirm_date", "CLASS": "class_type",
     }
 
+    async def _build_schema_rag(self, question: str) -> tuple[str, set[str]]:
+        """用 RAG 向量搜尋篩選相關表與欄位，減少 prompt 大小。
+        回傳 (schema_text, allowed_tables)，失敗時回傳 ("", set())。
+        """
+        try:
+            from app.services.maximo_schema_rag import MaximoSchemaRAG
+            rag = MaximoSchemaRAG(self.db)
+            schema_text, allowed_tables = await rag.build_schema(question)
+            if schema_text:
+                return schema_text, allowed_tables
+        except Exception as e:
+            log.warning("RAG schema 失敗: %s — 回退到完整 schema", e)
+        return "", set()
+
     async def _build_schema_from_db(self) -> str:
-        """Build schema text from maximo_zz_maxattribute (pushed by maximo-data-extractor).
+        """從 maximo_zz_maxattribute 建立完整 schema（RAG fallback 用）。
 
         Returns empty string if table doesn't exist or is empty (falls back to MAXIMO_SCHEMA).
         """
@@ -306,10 +320,13 @@ class MaximoNL2SQL:
             # Auto-discover actual status values from data tables
             status_lines = ["## 資料庫中實際存在的狀態值（生成 SQL 時必須使用這些精確字串）"]
             status_queries = [
-                ("maximo_pm_workorders", "status", "定期工單狀態"),
-                ("maximo_cm_workorders", "status", "維修工單狀態"),
-                ("maximo_fault_reports", "status", "故障通報狀態"),
-                ("maximo_assets",        "status", "車輛狀態"),
+                ("maximo_mxwo",           "status", "工單狀態（extractor）"),
+                ("maximo_mxsr",           "status", "故障通報狀態（extractor）"),
+                ("maximo_mxasset",        "status", "車輛狀態（extractor）"),
+                ("maximo_pm_workorders",  "status", "定期工單狀態"),
+                ("maximo_cm_workorders",  "status", "維修工單狀態"),
+                ("maximo_fault_reports",  "status", "故障通報狀態"),
+                ("maximo_assets",         "status", "車輛狀態"),
             ]
             for tbl, col, label in status_queries:
                 try:
@@ -349,13 +366,20 @@ class MaximoNL2SQL:
 
     async def generate_sql(self, question: str) -> Dict[str, Any]:
         """Generate SQL from natural language question."""
-        allowed_tables, schema_text = await self._discover_tables()
-        self._allowed_tables = allowed_tables  # store for validate_sql
+        # 優先嘗試 RAG schema（只傳相關表與欄位）
+        rag_schema, rag_tables = await self._build_schema_rag(question)
+        if rag_schema:
+            schema_text = rag_schema
+            allowed_tables = rag_tables
+            log.info("使用 RAG schema（%d 表）", len(rag_tables))
+        else:
+            # Fallback: 完整 schema
+            allowed_tables, schema_text = await self._discover_tables()
+            dynamic_schema = await self._build_schema_from_db()
+            if dynamic_schema:
+                schema_text = dynamic_schema
 
-        # Try dynamic schema from DB first; fall back to static MAXIMO_SCHEMA
-        dynamic_schema = await self._build_schema_from_db()
-        if dynamic_schema:
-            schema_text = dynamic_schema
+        self._allowed_tables = allowed_tables  # store for validate_sql
 
         metadata = await self._load_field_metadata()
         examples = await self._load_examples()
