@@ -180,7 +180,7 @@ export default function MaximoKnowledgePage() {
           ) : rules.length === 0 ? (
             <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>尚無規則</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '60vh', overflowY: 'auto', paddingRight: 4 }}>
               {rules.map(r => (
                 <div key={r.id} style={{
                   display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
@@ -261,7 +261,7 @@ export default function MaximoKnowledgePage() {
           ) : examples.length === 0 ? (
             <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>尚無範例</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '60vh', overflowY: 'auto', paddingRight: 4 }}>
               {examples.map(ex => (
                 <div key={ex.id} style={{
                   background: 'var(--bg-secondary)', border: '1px solid var(--border)',
