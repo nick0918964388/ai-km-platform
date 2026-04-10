@@ -35,6 +35,8 @@ interface QueryResult {
   columns?: string[];
   row_count?: number;
   execution_ms?: number;
+  llm_ms?: number;
+  model?: string;
   error?: string;
 }
 
@@ -44,6 +46,7 @@ export default function MaximoQueryPage() {
   const [result, setResult] = useState<QueryResult | null>(null);
   const [showSQL, setShowSQL] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
+  const [llmInfo, setLlmInfo] = useState<{ model?: string; llm_ms?: number } | null>(null);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const clearTimers = () => {
@@ -59,6 +62,7 @@ export default function MaximoQueryPage() {
     setResult(null);
     setShowSQL(false);
     setActiveStep(0);
+    setLlmInfo(null);
     clearTimers();
 
     // Auto-advance through steps 0-4 on fixed delays
@@ -76,6 +80,7 @@ export default function MaximoQueryPage() {
         body: JSON.stringify({ question: q2 }),
       });
       const data = await res.json();
+      if (data.model || data.llm_ms) setLlmInfo({ model: data.model, llm_ms: data.llm_ms });
       // Quickly complete remaining steps
       setActiveStep(5);
       await new Promise(r => setTimeout(r, 200));
@@ -192,13 +197,19 @@ export default function MaximoQueryPage() {
                   <div style={{
                     fontSize: '0.875rem', fontWeight: active ? 600 : 400,
                     color: done ? 'var(--text-secondary)' : active ? 'var(--text-primary)' : 'var(--text-muted)',
-                    transition: 'color 0.2s',
+                    transition: 'color 0.2s', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
                   }}>
                     {step.label}
+                    {i === 4 && llmInfo?.model && (
+                      <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: 4, background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--accent)', fontWeight: 500, fontFamily: 'monospace' }}>
+                        {llmInfo.model}
+                        {llmInfo.llm_ms && ` · ${(llmInfo.llm_ms / 1000).toFixed(1)}s`}
+                      </span>
+                    )}
                   </div>
                   {(active || done) && (
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 1 }}>
-                      {step.detail}
+                      {i === 4 && active && !llmInfo?.model ? step.detail : i === 4 && llmInfo?.model ? `使用 ${llmInfo.model}` : step.detail}
                     </div>
                   )}
                 </div>

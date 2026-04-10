@@ -391,6 +391,7 @@ class MaximoNL2SQL:
 }}
 """
         try:
+            t_llm = time.monotonic()
             resp = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -400,6 +401,7 @@ class MaximoNL2SQL:
                 temperature=0,
                 timeout=60,
             )
+            self._llm_ms = round((time.monotonic() - t_llm) * 1000, 1)
             content = resp.choices[0].message.content or ""
             # Extract JSON block if wrapped in markdown
             match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
@@ -421,7 +423,10 @@ class MaximoNL2SQL:
                                 break
                     if end != -1:
                         content = content[:end]
-            return json.loads(content)
+            result = json.loads(content)
+            result["_model"] = self.model
+            result["_llm_ms"] = getattr(self, "_llm_ms", None)
+            return result
         except Exception as e:
             return {"error": str(e), "sql": None}
 
@@ -473,6 +478,8 @@ class MaximoNL2SQL:
     async def query(self, question: str) -> Dict[str, Any]:
         """Full pipeline: NL → SQL → execute → return."""
         gen = await self.generate_sql(question)
+        model_name = gen.get("_model", self.model)
+        llm_ms = gen.get("_llm_ms")
 
         if gen.get("error") or not gen.get("sql"):
             return {
@@ -483,6 +490,8 @@ class MaximoNL2SQL:
                 "data": [],
                 "columns": [],
                 "row_count": 0,
+                "model": model_name,
+                "llm_ms": llm_ms,
             }
 
         sql = gen["sql"]
@@ -496,6 +505,8 @@ class MaximoNL2SQL:
                 "data": [],
                 "columns": [],
                 "row_count": 0,
+                "model": model_name,
+                "llm_ms": llm_ms,
             }
 
         result = await self.execute_sql(sql)
@@ -508,6 +519,8 @@ class MaximoNL2SQL:
                 "data": [],
                 "columns": [],
                 "row_count": 0,
+                "model": model_name,
+                "llm_ms": llm_ms,
             }
 
         return {
@@ -518,4 +531,6 @@ class MaximoNL2SQL:
             "columns": result["columns"],
             "row_count": result["row_count"],
             "execution_ms": result.get("execution_ms"),
+            "model": model_name,
+            "llm_ms": llm_ms,
         }

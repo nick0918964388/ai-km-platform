@@ -28,6 +28,8 @@ class NL2SQLResponse(BaseModel):
     columns: List[str] = []
     row_count: int = 0
     execution_ms: Optional[float] = None
+    llm_ms: Optional[float] = None
+    model: Optional[str] = None
     error: Optional[str] = None
 
 
