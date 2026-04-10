@@ -37,9 +37,12 @@ class NL2SQLResponse(BaseModel):
 @router.post("/schema/index")
 async def index_schema(db: AsyncSession = Depends(get_db)):
     """索引 table catalog + attributes 到 Qdrant，供 RAG schema selector 使用。"""
-    rag = MaximoSchemaRAG(db)
-    stats = await rag.index_all()
-    return stats
+    try:
+        rag = MaximoSchemaRAG(db)
+        stats = await rag.index_all()
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"索引失敗：{str(e)}")
 
 
 @router.post("/nl2sql", response_model=NL2SQLResponse)

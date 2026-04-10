@@ -10,7 +10,7 @@ from typing import Optional
 
 from qdrant_client.models import (
     VectorParams, Distance, PointStruct,
-    Filter, FieldCondition, MatchAny,
+    Filter, FieldCondition, MatchValue,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -168,7 +168,7 @@ class MaximoSchemaRAG:
                 collection_name=self.ATTRS_COLLECTION,
                 query=query_emb,
                 query_filter=Filter(
-                    must=[FieldCondition(key="object_name", match=MatchAny(any=[obj]))]
+                    must=[FieldCondition(key="object_name", match=MatchValue(value=obj))]
                 ),
                 limit=top_k_per_table,
             )
