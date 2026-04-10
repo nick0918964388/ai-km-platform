@@ -41,7 +41,7 @@ MAXIMO_SCHEMA = """
 ### maximo_pm_workorders（定期工單）
 - wonum VARCHAR(30) PK
 - description TEXT        — 工單說明（含車型+級別）
-- status VARCHAR(30)      — 工單結案/工單初始/工單核准
+- status VARCHAR(30)      — Maximo 工單狀態代碼：WAPPR=核簽中, APPR=已核准, WMATL=待料, WSCH=待排程, INPRG=作業中, COMP=完成, CLOSE=結案, CAN=取消
 - assetnum VARCHAR(30)    — 車組/車號（JOIN maximo_assets）
 - work_type VARCHAR(10)   — 1A/2A/3A/4A（一級/二級/三級/四級定檢）
 - owner_group VARCHAR(50) — 檢修單位
@@ -58,7 +58,7 @@ MAXIMO_SCHEMA = """
 - wonum VARCHAR(30) PK
 - description TEXT        — 故障說明
 - long_description TEXT   — 故障詳細說明
-- status VARCHAR(30)
+- status VARCHAR(30)      — 同 pm_workorders：WAPPR=核簽中, APPR=已核准, INPRG=作業中, COMP=完成, CLOSE=結案, CAN=取消
 - assetnum VARCHAR(30)    — 車號（JOIN maximo_assets）
 - work_type VARCHAR(10)   — T1=一般臨修, TR=試車, CM=委外維修
 - owner_group VARCHAR(50)
