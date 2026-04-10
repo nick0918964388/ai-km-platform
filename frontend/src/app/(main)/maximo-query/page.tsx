@@ -1,20 +1,23 @@
 'use client';
 
-import { useState } from 'react';
-import { Send, DataBase, Code, TableSplit, Renew } from '@carbon/icons-react';
+import { useState, useRef, useEffect } from 'react';
+import { Send, DataBase, Code, TableSplit, Renew, Checkmark } from '@carbon/icons-react';
 
 const API = '';
 
-const SQL_FRAMES = [
-  '⠋ 解析問題中...',
-  '⠙ 查詢欄位定義...',
-  '⠹ 比對值域映射...',
-  '⠸ 建構 SQL 語句...',
-  '⠼ 驗證查詢邏輯...',
-  '⠴ 最佳化條件...',
-  '⠦ 即將完成...',
-  '⠧ 送出查詢...',
+// Steps reflecting real backend NL→SQL pipeline
+const PIPELINE_STEPS = [
+  { label: '解析問題語意', detail: '理解查詢意圖與關鍵詞' },
+  { label: '載入 Maximo 欄位定義', detail: '讀取 maximo_zz_maxattribute（45,625 筆屬性）' },
+  { label: '比對值域對應', detail: '從 alndomain 展開欄位可用值' },
+  { label: '查詢實際狀態值', detail: 'DISTINCT 查詢工單、故障通報現有狀態' },
+  { label: 'AI 產生 SQL', detail: '呼叫 LLM 將問題轉換為 PostgreSQL 語句' },
+  { label: '驗證 SQL 安全性', detail: '確認為 SELECT 查詢、無禁止關鍵字' },
+  { label: '執行資料庫查詢', detail: '對 Maximo 資料表執行查詢並取回結果' },
 ];
+
+// Each step's auto-advance delay (ms). Step 4 stays until response arrives.
+const STEP_DELAYS = [0, 350, 700, 1050, 1400, null, null] as (number | null)[];
 
 const EXAMPLES = [
   '最近立案未結的故障通報有哪些？列出 10 筆',
@@ -40,7 +43,13 @@ export default function MaximoQueryPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [showSQL, setShowSQL] = useState(false);
-  const [frameIdx, setFrameIdx] = useState(0);
+  const [activeStep, setActiveStep] = useState(0);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const clearTimers = () => {
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+  };
 
   const runQuery = async (q: string) => {
     const q2 = q.trim();
@@ -49,10 +58,17 @@ export default function MaximoQueryPage() {
     setLoading(true);
     setResult(null);
     setShowSQL(false);
-    setFrameIdx(0);
-    const timer = setInterval(() => {
-      setFrameIdx(i => (i + 1) % SQL_FRAMES.length);
-    }, 600);
+    setActiveStep(0);
+    clearTimers();
+
+    // Auto-advance through steps 0-4 on fixed delays
+    STEP_DELAYS.forEach((delay, idx) => {
+      if (delay !== null) {
+        const t = setTimeout(() => setActiveStep(idx), delay);
+        timersRef.current.push(t);
+      }
+    });
+
     try {
       const res = await fetch(`${API}/api/maximo/nl2sql`, {
         method: 'POST',
@@ -60,9 +76,14 @@ export default function MaximoQueryPage() {
         body: JSON.stringify({ question: q2 }),
       });
       const data = await res.json();
+      // Quickly complete remaining steps
+      setActiveStep(5);
+      await new Promise(r => setTimeout(r, 200));
+      setActiveStep(6);
+      await new Promise(r => setTimeout(r, 200));
       setResult(data);
     } finally {
-      clearInterval(timer);
+      clearTimers();
       setLoading(false);
     }
   };
@@ -133,32 +154,57 @@ export default function MaximoQueryPage() {
         </div>
       </div>
 
-      {/* Loading */}
+      {/* Loading — step-by-step pipeline */}
       {loading && (
-        <div style={{ textAlign: 'center', padding: '2rem' }}>
-          <div style={{
-            fontFamily: 'monospace', fontSize: '0.9375rem',
-            color: 'var(--primary)', letterSpacing: '0.04em',
-            transition: 'opacity 0.2s',
-          }}>
-            {SQL_FRAMES[frameIdx]}
+        <div style={{
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-md)', padding: '1.25rem 1.5rem',
+          display: 'flex', flexDirection: 'column', gap: '0.625rem',
+        }}>
+          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.25rem', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            NL → SQL 處理流程
           </div>
-          <div style={{
-            marginTop: '0.75rem', fontSize: '0.75rem',
-            color: 'var(--text-muted)', fontFamily: 'monospace',
-          }}>
-            {['SELECT', 'FROM', 'WHERE', 'JOIN', 'ORDER BY'].map((kw, i) => (
-              <span
-                key={kw}
-                style={{
-                  marginRight: '0.5rem',
-                  opacity: (frameIdx + i) % 5 === 0 ? 1 : 0.2,
-                  transition: 'opacity 0.3s',
-                  color: 'var(--accent)',
-                }}
-              >{kw}</span>
-            ))}
-          </div>
+          {PIPELINE_STEPS.map((step, i) => {
+            const done = i < activeStep;
+            const active = i === activeStep;
+            const pending = i > activeStep;
+            return (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'flex-start', gap: '0.625rem',
+                opacity: pending ? 0.35 : 1,
+                transition: 'opacity 0.3s',
+              }}>
+                {/* Icon */}
+                <div style={{
+                  width: 20, height: 20, flexShrink: 0, marginTop: 1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {done ? (
+                    <Checkmark size={16} style={{ color: '#42be65' }} />
+                  ) : active ? (
+                    <Renew size={16} style={{ color: 'var(--primary)', animation: 'spin 1s linear infinite' }} />
+                  ) : (
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--border)' }} />
+                  )}
+                </div>
+                {/* Text */}
+                <div>
+                  <div style={{
+                    fontSize: '0.875rem', fontWeight: active ? 600 : 400,
+                    color: done ? 'var(--text-secondary)' : active ? 'var(--text-primary)' : 'var(--text-muted)',
+                    transition: 'color 0.2s',
+                  }}>
+                    {step.label}
+                  </div>
+                  {(active || done) && (
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 1 }}>
+                      {step.detail}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
