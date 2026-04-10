@@ -123,6 +123,67 @@ class MaximoNL2SQL:
             self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             self.model = os.getenv("OPENAI_MODEL", "gpt-4o")
 
+    async def _build_schema_from_db(self) -> str:
+        """Build schema text from maximo_attr_metadata + maximo_domains.
+
+        Returns empty string if tables don't exist or are empty (falls back to MAXIMO_SCHEMA).
+        """
+        try:
+            # Check if attr metadata exists and has rows
+            cnt = await self.db.execute(text("SELECT COUNT(*) FROM maximo_attr_metadata"))
+            if cnt.scalar() == 0:
+                return ""
+
+            # Load all attributes grouped by pg_table
+            rows = await self.db.execute(text(
+                "SELECT pg_table, attribute_name, pg_column, display_name, domainid "
+                "FROM maximo_attr_metadata "
+                "WHERE pg_table != '' "
+                "ORDER BY pg_table, attribute_name"
+            ))
+            attrs = rows.fetchall()
+
+            # Gather domainids we need
+            domain_ids = {r.domainid for r in attrs if r.domainid}
+
+            # Load domain values for those domains (cap per domain)
+            domain_map: dict[str, dict[str, str]] = {}
+            if domain_ids:
+                dids_list = list(domain_ids)
+                # Build parameterised IN clause
+                placeholders = ", ".join(f":d{i}" for i in range(len(dids_list)))
+                params = {f"d{i}": v for i, v in enumerate(dids_list)}
+                drows = await self.db.execute(text(
+                    f"SELECT domainid, value, description FROM maximo_domains "
+                    f"WHERE domainid IN ({placeholders}) ORDER BY domainid, value"
+                ), params)
+                for dr in drows.fetchall():
+                    domain_map.setdefault(dr.domainid, {})[dr.value] = dr.description or ""
+
+            # Group attributes by table
+            from collections import defaultdict
+            by_table: dict[str, list] = defaultdict(list)
+            for r in attrs:
+                by_table[r.pg_table].append(r)
+
+            lines = ["## Maximo 資料庫 Schema（自動從 maxattribute 產生）"]
+            for table, tattrs in sorted(by_table.items()):
+                lines.append(f"\n### {table}")
+                for a in tattrs:
+                    col_ref = a.pg_column or a.attribute_name.lower()
+                    label   = a.display_name or a.attribute_name
+                    if a.domainid and a.domainid in domain_map:
+                        vals = domain_map[a.domainid]
+                        pairs = ", ".join(f'"{k}"={v}' for k, v in list(vals.items())[:20])
+                        lines.append(f"- {col_ref} — {label}（值域：{pairs}）")
+                    else:
+                        lines.append(f"- {col_ref} — {label}")
+
+            return "\n".join(lines)
+        except Exception as e:
+            log.warning("Dynamic schema build failed: %s — will use static schema", e)
+            return ""
+
     async def _discover_tables(self) -> tuple[set, str]:
         """
         Discover available Maximo-related tables from PostgreSQL.
@@ -232,6 +293,11 @@ class MaximoNL2SQL:
         """Generate SQL from natural language question."""
         allowed_tables, schema_text = await self._discover_tables()
         self._allowed_tables = allowed_tables  # store for validate_sql
+
+        # Try dynamic schema from DB first; fall back to static MAXIMO_SCHEMA
+        dynamic_schema = await self._build_schema_from_db()
+        if dynamic_schema:
+            schema_text = dynamic_schema
 
         metadata = await self._load_field_metadata()
         examples = await self._load_examples()

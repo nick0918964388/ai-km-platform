@@ -30,18 +30,21 @@
 
 ---
 
-## 測試環境
+## 部署環境
+
+> ⚠️ **重要：Mac Mini 是開發機（寫 code 用），192.168.1.11 Ubuntu 是部署機（所有服務都跑在那邊）**
 
 | 項目 | 值 |
 |------|----|
-| 目標主機 | 192.168.1.11 |
+| **部署主機** | **192.168.1.11（Ubuntu）** |
 | API URL | `http://192.168.1.11:8000` |
 | Frontend | `http://192.168.1.11:3000` |
-| 遷移日期 | 2026-04-09（從 Mac Mini 遷移） |
+| 開發機 | Mac Mini（只寫 code，不跑服務） |
+| 遷移日期 | 2026-04-09（從 Mac Mini 遷移至 Ubuntu） |
 
-**Mac Mini 上同時運行**：Drone CI (8090)、Maximo Liberty (9080/9443)，停止 aikm 服務時勿影響這些服務。
+**192.168.1.11 上同時運行**：Drone CI (8090)、Maximo Liberty (9080/9443)，停止 aikm 服務時勿影響這些服務。
 
-### Docker 服務清單
+### Docker 服務清單（全部在 192.168.1.11 上）
 | 服務 | Container | Port |
 |------|-----------|------|
 | Frontend | aikm-frontend | 3000 |
@@ -49,25 +52,36 @@
 | PostgreSQL | aikm-postgres | 5432 |
 | Redis | aikm-redis | 6379 |
 | Qdrant | aikm-qdrant | 6333/6334 |
+| Maximo Extractor | aikm-maximo-extractor | 8080 |
 
 ---
 
 ## ⚠️ 強制規則
 
-1. **DOCKER ONLY** — 所有服務必須透過 Docker Compose 運行
+1. **部署一律在 192.168.1.11（Ubuntu）上執行**
+   - ❌ 禁止：在 Mac Mini 本機執行 `docker compose up`、`docker exec` 操作生產資料庫
+   - ✅ 正確：SSH 進 192.168.1.11 執行，或透過 Drone CI 部署
+
+2. **DOCKER ONLY** — 所有服務必須透過 Docker Compose 運行
    - ❌ 禁止：`npm run dev`、`uvicorn`、`python main.py`（在 host 執行）
    - ✅ 允許：`docker compose up -d`
 
-2. **後端異動必須重建容器**
+3. **後端異動必須重建容器**
    - `docker compose up -d --build backend`
 
-### 常用 Docker 指令
+### 常用 Docker 指令（在 192.168.1.11 上執行）
 ```bash
+# SSH 進入部署機
+ssh user@192.168.1.11
+
 docker compose up -d                        # 啟動全部
 docker compose up -d --build backend        # 重建後端
 docker compose up -d --build frontend       # 重建前端
 docker compose logs -f [service_name]       # 看 logs
 docker compose down                         # 停止全部
+
+# DB Migration（在部署機上執行）
+docker exec -i aikm-postgres psql -U aikm -d aikm < backend/scripts/migration.sql
 ```
 
 ---

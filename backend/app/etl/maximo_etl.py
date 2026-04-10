@@ -347,51 +347,180 @@ def sync_fnm(conn):
     log.info("Fault reports synced: %d records", len(rows))
 
 
-# ── Domain sync (欄位值域對應 → maximo_field_metadata) ───────────────────────
-DOMAIN_SELECT = "domainid,description,maxvalue,value,description"
+# ── Domain sync (全量 → maximo_domains) ─────────────────────────────────────
 
 def sync_domains(conn):
-    """Pull Maximo domain values and upsert into maximo_field_metadata.value_mapping.
+    """Pull ALL Maximo domain values into maximo_domains table.
 
-    Only updates the domains we care about for NL→SQL.
+    Also backfills maximo_field_metadata.value_mapping for the 4 key domains
+    so the legacy NL→SQL path keeps working.
     """
-    DOMAIN_MAP = {
-        # domainid → (table_name, column_name)
+    import json as _json
+
+    LEGACY_MAP = {
+        # domainid → (table_name, column_name)  — kept for backward compat
         "WOSTATUS":   ("maximo_pm_workorders", "status"),
         "WORKTYPE":   ("maximo_pm_workorders", "work_type"),
         "EQ3":        ("maximo_assets", "vehicle_class"),
         "ASSETNUMEQ": ("maximo_assets", "status"),
     }
 
-    log.info("Syncing domain values...")
+    log.info("Syncing ALL domain values...")
     try:
         records = _get_all("mxdomain", "domainid,value,description")
     except Exception as e:
         log.warning("Domain sync skipped (API error): %s", e)
         return
 
-    # Group by domainid
-    domains: dict = {}
+    rows = []
+    legacy: dict = {}
     for r in records:
         did = r.get("domainid", "")
-        if did not in DOMAIN_MAP:
-            continue
-        val = r.get("value") or r.get("maxvalue")
-        desc = r.get("description", "")
-        if val:
-            domains.setdefault(did, {})[val] = desc
+        val = r.get("value") or r.get("maxvalue", "")
+        desc = r.get("description") or ""
+        if did and val:
+            rows.append((did, val, desc))
+            if did in LEGACY_MAP:
+                legacy.setdefault(did, {})[val] = desc
 
     with conn.cursor() as cur:
-        for domainid, mapping in domains.items():
-            table, col = DOMAIN_MAP[domainid]
+        # Upsert into maximo_domains (full domain store)
+        execute_values(cur, """
+            INSERT INTO maximo_domains (domainid, value, description, synced_at)
+            VALUES %s
+            ON CONFLICT (domainid, value) DO UPDATE
+                SET description = EXCLUDED.description,
+                    synced_at   = EXCLUDED.synced_at
+        """, [(d, v, desc, datetime.now()) for d, v, desc in rows])
+
+        # Backfill legacy field_metadata.value_mapping
+        for domainid, mapping in legacy.items():
+            table, col = LEGACY_MAP[domainid]
             cur.execute("""
                 INSERT INTO maximo_field_metadata (table_name, column_name, value_mapping)
                 VALUES (%s, %s, %s::jsonb)
                 ON CONFLICT (table_name, column_name) DO UPDATE
                     SET value_mapping = EXCLUDED.value_mapping
-            """, (table, col, __import__("json").dumps(mapping, ensure_ascii=False)))
+            """, (table, col, _json.dumps(mapping, ensure_ascii=False)))
+
     conn.commit()
-    log.info("Domain values synced for %d domains", len(domains))
+    log.info("Domain values synced: %d values across domains", len(rows))
+
+
+# ── Attribute sync (欄位定義 → maximo_attr_metadata) ────────────────────────
+
+# Maximo object → our PostgreSQL table(s)
+OBJECT_TABLE_MAP = {
+    "ASSET":     "maximo_assets",
+    "WORKORDER": "maximo_workorders",   # covers both pm & cm; split in NL2SQL
+    "SR":        "maximo_fault_reports",
+}
+
+# Attribute name → PostgreSQL column name overrides (ZZ_ custom fields)
+ATTR_COLUMN_MAP = {
+    # ASSET
+    "EQ24":          "eq24",
+    "EQ4":           "vehicle_type",
+    "EQ3":           "vehicle_class",
+    "EQ11":          "vehicle_category",
+    "EQ1":           "workshop",
+    "EQ2":           "section",
+    "EQ8":           "borrow_section",
+    "STATUS":        "status",
+    "ZZ_CARGROUP":   "car_group",
+    "ZZ_POSITION":   "position",
+    "EQ9":           "record_type",
+    "INSTALLDATE":   "install_date",
+    "EXPECTEDLIFE":  "expected_life",
+    "MANUFACTURER":  "manufacturer",
+    # WORKORDER
+    "WONUM":         "wonum",
+    "DESCRIPTION":   "description",
+    "ASSETNUM":      "assetnum",
+    "WORKTYPE":      "work_type",
+    "OWNERGROUP":    "owner_group",
+    "WOL1":          "maintenance_section",
+    "REPORTDATE":    "report_date",
+    "ACTSTART":      "act_start",
+    "ACTFINISH":     "act_finish",
+    "ZZ_ACTSTART":   "act_start",
+    "ZZ_ACTFINISH":  "act_finish",
+    "ZZ_LASTACTFINISH": "last_act_finish",
+    "ZZ_CARIN":      "car_in_result",
+    "ZZ_CAROUT":     "car_out_result",
+    "TICKETID":      "ticket_id",
+    "ZZ_MAINSECTION": "maintenance_section",
+    "ZZ_TARGSTARTDATE": "target_start_date",
+    "ZZ_TARGCOMPDATE":  "target_comp_date",
+    "FAILURECODE":   "failure_code",
+    "ZZ_REPAIRPROC": "repair_proc",
+    "WORK_HRS":      "work_hours",
+    # SR
+    "ZZ_IMNUM":      "im_num",
+    "ZZ_INCIDENT_NEW": "incident_class",
+    "ZZ_IM_LOCATION": "fault_location",
+    "ZZ_TCMS":       "tcms_code",
+    "ZZ_IM_GRADE":   "grade",
+    "ZZ_URGENCY":    "urgency",
+    "ZZ_RESTRICTED_STATUS": "restricted_status",
+    "ZZ_PERSONBELONG": "report_unit",
+    "ZZ_ENTRYDATE":  "occurrence_date",
+    "ZZ_CONFIRM_BY": "confirm_by",
+    "ZZ_CONFIRM_DATE": "confirm_date",
+    "CLASS":         "class_type",
+    "FR2CODE_LONGDESCRIPTION": "handling_desc",
+}
+
+
+def sync_attributes(conn):
+    """Pull attribute definitions from maxattribute OSLC API.
+
+    Stores into maximo_attr_metadata for dynamic schema generation in NL→SQL.
+    Only imports attributes for the objects we actually query.
+    """
+    target_objects = list(OBJECT_TABLE_MAP.keys())
+    where = "objectname in [" + ",".join(f'"{o}"' for o in target_objects) + "]"
+
+    log.info("Syncing attribute metadata for objects: %s ...", target_objects)
+    try:
+        records = _get_all(
+            "maxattribute",
+            "objectname,attributename,title,domainid,persistent",
+            where=where,
+        )
+    except Exception as e:
+        log.warning("Attribute sync skipped (API error): %s", e)
+        return
+
+    rows = []
+    for r in records:
+        obj  = (r.get("objectname") or "").upper()
+        attr = (r.get("attributename") or "").upper()
+        if not obj or not attr:
+            continue
+        # Skip non-persistent (calculated/virtual) attributes
+        if r.get("persistent") is False:
+            continue
+        pg_table  = OBJECT_TABLE_MAP.get(obj, "")
+        pg_col    = ATTR_COLUMN_MAP.get(attr, attr.lower())
+        disp_name = r.get("title") or attr
+        domain_id = r.get("domainid") or None
+        rows.append((obj, pg_table, attr, pg_col, disp_name, domain_id, datetime.now()))
+
+    with conn.cursor() as cur:
+        execute_values(cur, """
+            INSERT INTO maximo_attr_metadata
+                (object_name, pg_table, attribute_name, pg_column, display_name, domainid, synced_at)
+            VALUES %s
+            ON CONFLICT (object_name, attribute_name) DO UPDATE SET
+                pg_table     = EXCLUDED.pg_table,
+                pg_column    = EXCLUDED.pg_column,
+                display_name = EXCLUDED.display_name,
+                domainid     = EXCLUDED.domainid,
+                synced_at    = EXCLUDED.synced_at
+        """, rows)
+    conn.commit()
+    log.info("Attribute metadata synced: %d attributes", len(rows))
 
 
 # ── Text generation for RAG ──────────────────────────────────────────────────
@@ -475,8 +604,12 @@ def generate_fault_text(row: dict) -> str:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--sync",
-        choices=["assets", "pmwo", "cmwo", "fnm", "domains", "all"],
-        default="all")
+        choices=["assets", "pmwo", "cmwo", "fnm", "domains", "attributes", "meta", "all"],
+        default="all",
+        help=(
+            "meta = domains + attributes only (no data sync); "
+            "all = everything"
+        ))
     args = parser.parse_args()
 
     conn = psycopg2.connect(DATABASE_URL)
@@ -489,8 +622,10 @@ def main():
             sync_cmwo(conn)
         if args.sync in ("fnm", "all"):
             sync_fnm(conn)
-        if args.sync in ("domains", "all"):
+        if args.sync in ("domains", "meta", "all"):
             sync_domains(conn)
+        if args.sync in ("attributes", "meta", "all"):
+            sync_attributes(conn)
     finally:
         conn.close()
 
