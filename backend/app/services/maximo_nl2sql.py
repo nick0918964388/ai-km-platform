@@ -96,7 +96,8 @@ MAXIMO_SCHEMA = """
 - class_type VARCHAR(50)  — 進廠收容等
 """
 
-ALLOWED_TABLES = {
+# Static allowed tables (fallback when no extractor tables found)
+STATIC_ALLOWED_TABLES = {
     "maximo_assets", "maximo_pm_workorders",
     "maximo_cm_workorders", "maximo_fault_reports",
 }
@@ -121,6 +122,45 @@ class MaximoNL2SQL:
         else:
             self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             self.model = os.getenv("OPENAI_MODEL", "gpt-4o")
+
+    async def _discover_tables(self) -> tuple[set, str]:
+        """
+        Discover available Maximo-related tables from PostgreSQL.
+        Returns (allowed_table_names, schema_text).
+        Includes both static maximo_* tables and extractor-created {tenant}_{obj} tables.
+        """
+        try:
+            rows = await self.db.execute(text(
+                """
+                SELECT t.table_name,
+                       array_agg(c.column_name ORDER BY c.ordinal_position) AS columns
+                FROM information_schema.tables t
+                JOIN information_schema.columns c
+                  ON c.table_name = t.table_name AND c.table_schema = 'public'
+                WHERE t.table_schema = 'public'
+                  AND (
+                    t.table_name LIKE 'maximo_%'
+                    OR t.table_name ~ '^[a-z0-9_]+_mx[a-z]+'
+                  )
+                GROUP BY t.table_name
+                ORDER BY t.table_name
+                """
+            ))
+            results = rows.fetchall()
+            if not results:
+                return STATIC_ALLOWED_TABLES, MAXIMO_SCHEMA
+
+            allowed = set()
+            schema_lines = ["## 可用資料表（動態發現）"]
+            for r in results:
+                allowed.add(r.table_name)
+                cols = ", ".join(r.columns[:30])  # cap at 30 cols for prompt size
+                schema_lines.append(f"\n### {r.table_name}\n欄位：{cols}")
+
+            return allowed, "\n".join(schema_lines)
+        except Exception as e:
+            log.warning("Table discovery failed: %s — using static schema", e)
+            return STATIC_ALLOWED_TABLES, MAXIMO_SCHEMA
 
     async def _load_field_metadata(self) -> str:
         """Load value mappings + domain rules from maximo_field_metadata for prompt context."""
@@ -166,13 +206,17 @@ class MaximoNL2SQL:
 
     async def generate_sql(self, question: str) -> Dict[str, Any]:
         """Generate SQL from natural language question."""
+        allowed_tables, schema_text = await self._discover_tables()
+        self._allowed_tables = allowed_tables  # store for validate_sql
+
         metadata = await self._load_field_metadata()
         examples = await self._load_examples()
 
+        table_list = ", ".join(sorted(allowed_tables))
         system_prompt = f"""你是台鐵車輛維修資料庫的 SQL 專家。
 將使用者的自然語言問題轉換為 PostgreSQL SELECT 語句。
 
-{MAXIMO_SCHEMA}
+{schema_text}
 
 {metadata}
 
@@ -180,10 +224,10 @@ class MaximoNL2SQL:
 
 規則：
 1. 只產生 SELECT 查詢（不允許 INSERT/UPDATE/DELETE）
-2. 多表查詢時必須使用正確的 JOIN
-3. 使用 table alias（a=maximo_assets, p=maximo_pm_workorders, c=maximo_cm_workorders, f=maximo_fault_reports）
+2. 只能查詢以下表：{table_list}
+3. 多表查詢時必須使用正確的 JOIN
 4. 預設 LIMIT 50，除非使用者指定
-5. 日期欄位使用 TIMESTAMPTZ 比較
+5. 日期欄位使用標準 SQL 日期比較
 
 只輸出 JSON，格式：
 {{
@@ -247,9 +291,11 @@ class MaximoNL2SQL:
             return "不允許 SQL 注解"
         if ";" in sql.rstrip(";"):
             return "不允許多個語句"
+        # Use dynamic allowed tables (set in generate_sql), fallback to static
+        allowed = getattr(self, '_allowed_tables', STATIC_ALLOWED_TABLES)
         tables = re.findall(r'\b(?:from|join)\s+(\w+)', s)
         for t in tables:
-            if t not in ALLOWED_TABLES and t not in {"lateral", "unnest"}:
+            if t not in allowed and t not in {"lateral", "unnest"}:
                 return f"不允許存取的表：{t}"
         return None
 

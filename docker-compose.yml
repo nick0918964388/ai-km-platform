@@ -128,6 +128,30 @@ services:
     networks:
       - aikm-network
 
+  # ============================================
+  # Maximo ETL 工具（maximo-data-extractor）
+  # ============================================
+
+  maximo-extractor:
+    build:
+      context: ./maximo-extractor
+      dockerfile: Dockerfile
+    container_name: aikm-maximo-extractor
+    ports:
+      - "8080:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - maximo_extractor_data:/app/data
+    environment:
+      RELOAD: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - aikm-network
+
   frontend:
     build:
       context: ./frontend
@@ -163,3 +187,4 @@ volumes:
   postgres_data:
   qdrant_data:
   redis_data:
+  maximo_extractor_data:

@@ -44,12 +44,14 @@ async def nl2sql(req: NL2SQLRequest, db: AsyncSession = Depends(get_db)):
 class RuleItem(BaseModel):
     id: int
     content: str
+    tag: str = "general"
 
 class ExampleItem(BaseModel):
     id: int
     question: str
     sql_query: str
     verified: bool
+    tag: str = "general"
 
 class KnowledgeResponse(BaseModel):
     rules: List[RuleItem]
@@ -57,26 +59,29 @@ class KnowledgeResponse(BaseModel):
 
 class AddRuleRequest(BaseModel):
     content: str
+    tag: str = "general"
 
 class AddExampleRequest(BaseModel):
     question: str
     sql_query: str
+    tag: str = "general"
 
 
 @router.get("/knowledge", response_model=KnowledgeResponse)
 async def get_knowledge(db: AsyncSession = Depends(get_db)):
     """Get all domain rules and SQL examples."""
     rules_result = await db.execute(text(
-        "SELECT id, description FROM maximo_field_metadata "
-        "WHERE table_name = '_rules' ORDER BY id"
+        "SELECT id, description, COALESCE(tag, 'general') as tag FROM maximo_field_metadata "
+        "WHERE table_name = '_rules' ORDER BY tag, id"
     ))
-    rules = [RuleItem(id=r.id, content=r.description) for r in rules_result.fetchall()]
+    rules = [RuleItem(id=r.id, content=r.description, tag=r.tag) for r in rules_result.fetchall()]
 
     examples_result = await db.execute(text(
-        "SELECT id, question, sql_query, verified FROM nl_sql_examples ORDER BY id"
+        "SELECT id, question, sql_query, verified, COALESCE(tag, 'general') as tag "
+        "FROM nl_sql_examples ORDER BY tag, id"
     ))
     examples = [
-        ExampleItem(id=r.id, question=r.question, sql_query=r.sql_query, verified=r.verified)
+        ExampleItem(id=r.id, question=r.question, sql_query=r.sql_query, verified=r.verified, tag=r.tag)
         for r in examples_result.fetchall()
     ]
 
@@ -97,12 +102,12 @@ async def add_rule(req: AddRuleRequest, db: AsyncSession = Depends(get_db)):
     col_name = f"rule_{count + 1}"
 
     result = await db.execute(text(
-        "INSERT INTO maximo_field_metadata (table_name, column_name, display_name, description) "
-        "VALUES ('_rules', :col, '查詢規則', :desc) RETURNING id"
-    ), {"col": col_name, "desc": req.content.strip()})
+        "INSERT INTO maximo_field_metadata (table_name, column_name, display_name, description, tag) "
+        "VALUES ('_rules', :col, '查詢規則', :desc, :tag) RETURNING id"
+    ), {"col": col_name, "desc": req.content.strip(), "tag": req.tag})
     await db.commit()
     new_id = result.scalar()
-    return RuleItem(id=new_id, content=req.content.strip())
+    return RuleItem(id=new_id, content=req.content.strip(), tag=req.tag)
 
 
 @router.delete("/knowledge/rule/{rule_id}")
@@ -126,12 +131,12 @@ async def add_example(req: AddExampleRequest, db: AsyncSession = Depends(get_db)
         raise HTTPException(status_code=400, detail="Only SELECT queries allowed")
 
     result = await db.execute(text(
-        "INSERT INTO nl_sql_examples (question, sql_query, verified) "
-        "VALUES (:q, :sql, true) RETURNING id"
-    ), {"q": req.question.strip(), "sql": req.sql_query.strip()})
+        "INSERT INTO nl_sql_examples (question, sql_query, verified, tag) "
+        "VALUES (:q, :sql, true, :tag) RETURNING id"
+    ), {"q": req.question.strip(), "sql": req.sql_query.strip(), "tag": req.tag})
     await db.commit()
     new_id = result.scalar()
-    return ExampleItem(id=new_id, question=req.question.strip(), sql_query=req.sql_query.strip(), verified=True)
+    return ExampleItem(id=new_id, question=req.question.strip(), sql_query=req.sql_query.strip(), verified=True, tag=req.tag)
 
 
 @router.delete("/knowledge/example/{example_id}")

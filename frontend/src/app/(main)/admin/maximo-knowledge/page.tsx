@@ -1,27 +1,71 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Add, TrashCan, Renew, DataBase, Education } from '@carbon/icons-react';
+import { Add, TrashCan, Renew, DataBase, Education, Tag } from '@carbon/icons-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-interface Rule { id: number; content: string; }
-interface Example { id: number; question: string; sql_query: string; verified: boolean; }
+const TAGS = [
+  { value: 'general',      label: '通用',     color: '#6f6f6f' },
+  { value: 'asset',        label: '資產',     color: '#0f62fe' },
+  { value: 'workorder',    label: '工單',     color: '#42be65' },
+  { value: 'fault_report', label: '故障報告', color: '#ff832b' },
+];
+
+const tagMeta = (value: string) => TAGS.find(t => t.value === value) ?? TAGS[0];
+
+interface Rule    { id: number; content: string; tag: string; }
+interface Example { id: number; question: string; sql_query: string; verified: boolean; tag: string; }
+
+function TagBadge({ tag }: { tag: string }) {
+  const m = tagMeta(tag);
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 3,
+      padding: '1px 8px', borderRadius: 99,
+      fontSize: '0.6875rem', fontWeight: 600,
+      background: `${m.color}18`, color: m.color,
+      flexShrink: 0,
+    }}>
+      {m.label}
+    </span>
+  );
+}
+
+function TagSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      style={{
+        padding: '0.5rem 0.625rem', border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)',
+        color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none',
+        cursor: 'pointer',
+      }}
+    >
+      {TAGS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+    </select>
+  );
+}
 
 export default function MaximoKnowledgePage() {
-  const [rules, setRules] = useState<Rule[]>([]);
+  const [rules, setRules]       = useState<Rule[]>([]);
   const [examples, setExamples] = useState<Example[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [newRule, setNewRule] = useState('');
-  const [newQ, setNewQ] = useState('');
-  const [newSQL, setNewSQL] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading]   = useState(true);
+  const [newRule, setNewRule]   = useState('');
+  const [newRuleTag, setNewRuleTag] = useState('general');
+  const [newQ, setNewQ]         = useState('');
+  const [newSQL, setNewSQL]     = useState('');
+  const [newExTag, setNewExTag] = useState('general');
+  const [saving, setSaving]     = useState(false);
   const [activeTab, setActiveTab] = useState<'rules' | 'examples'>('rules');
+  const [filterTag, setFilterTag] = useState<string>('all');
 
   const fetchKnowledge = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/maximo/knowledge`);
+      const res  = await fetch(`${API}/api/maximo/knowledge`);
       const data = await res.json();
       setRules(data.rules || []);
       setExamples(data.examples || []);
@@ -39,12 +83,9 @@ export default function MaximoKnowledgePage() {
       const res = await fetch(`${API}/api/maximo/knowledge/rule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: newRule }),
+        body: JSON.stringify({ content: newRule, tag: newRuleTag }),
       });
-      if (res.ok) {
-        setNewRule('');
-        await fetchKnowledge();
-      }
+      if (res.ok) { setNewRule(''); await fetchKnowledge(); }
     } finally { setSaving(false); }
   };
 
@@ -60,12 +101,9 @@ export default function MaximoKnowledgePage() {
       const res = await fetch(`${API}/api/maximo/knowledge/example`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: newQ, sql_query: newSQL }),
+        body: JSON.stringify({ question: newQ, sql_query: newSQL, tag: newExTag }),
       });
-      if (res.ok) {
-        setNewQ(''); setNewSQL('');
-        await fetchKnowledge();
-      }
+      if (res.ok) { setNewQ(''); setNewSQL(''); await fetchKnowledge(); }
     } finally { setSaving(false); }
   };
 
@@ -86,6 +124,28 @@ export default function MaximoKnowledgePage() {
     transition: 'all 0.15s',
   });
 
+  const chipStyle = (active: boolean, color?: string) => ({
+    padding: '0.25rem 0.875rem',
+    borderRadius: 99,
+    border: `1px solid ${active ? (color ?? 'var(--primary)') : 'var(--border)'}`,
+    cursor: 'pointer',
+    fontSize: '0.8125rem',
+    fontWeight: active ? 600 : 400,
+    background: active ? `${color ?? 'var(--primary)'}18` : 'transparent',
+    color: active ? (color ?? 'var(--primary)') : 'var(--text-muted)',
+    transition: 'all 0.15s',
+  });
+
+  const filteredRules    = filterTag === 'all' ? rules    : rules.filter(r => r.tag === filterTag);
+  const filteredExamples = filterTag === 'all' ? examples : examples.filter(e => e.tag === filterTag);
+
+  // Count per tag for the active tab
+  const tagCounts = (items: { tag: string }[]) =>
+    TAGS.reduce((acc, t) => ({ ...acc, [t.value]: items.filter(i => i.tag === t.value).length }), {} as Record<string, number>);
+
+  const currentItems  = activeTab === 'rules' ? rules : examples;
+  const counts        = tagCounts(currentItems);
+
   return (
     <div style={{ padding: '1.5rem 2rem', overflowY: 'auto', height: '100%' }}>
       {/* Header */}
@@ -101,8 +161,8 @@ export default function MaximoKnowledgePage() {
       {/* Stats */}
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
         {[
-          { icon: Education, label: '領域規則', count: rules.length, color: '#0f62fe' },
-          { icon: DataBase, label: '查詢範例', count: examples.length, color: '#42be65' },
+          { icon: Education, label: '領域規則', count: rules.length,    color: '#0f62fe' },
+          { icon: DataBase,  label: '查詢範例', count: examples.length, color: '#42be65' },
         ].map(({ icon: Icon, label, count, color }) => (
           <div key={label} style={{
             flex: 1, padding: '1rem 1.25rem',
@@ -129,13 +189,30 @@ export default function MaximoKnowledgePage() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.25rem', background: 'var(--bg-secondary)', padding: 4, borderRadius: 'var(--radius-sm)', width: 'fit-content' }}>
-        <button style={tabStyle(activeTab === 'rules')} onClick={() => setActiveTab('rules')}>
+      <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1rem', background: 'var(--bg-secondary)', padding: 4, borderRadius: 'var(--radius-sm)', width: 'fit-content' }}>
+        <button style={tabStyle(activeTab === 'rules')}    onClick={() => { setActiveTab('rules');    setFilterTag('all'); }}>
           領域規則 ({rules.length})
         </button>
-        <button style={tabStyle(activeTab === 'examples')} onClick={() => setActiveTab('examples')}>
+        <button style={tabStyle(activeTab === 'examples')} onClick={() => { setActiveTab('examples'); setFilterTag('all'); }}>
           查詢範例 ({examples.length})
         </button>
+      </div>
+
+      {/* Tag Filter Chips */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <Tag size={14} style={{ color: 'var(--text-muted)' }} />
+        <button style={chipStyle(filterTag === 'all')} onClick={() => setFilterTag('all')}>
+          全部 ({currentItems.length})
+        </button>
+        {TAGS.map(t => (
+          <button
+            key={t.value}
+            style={chipStyle(filterTag === t.value, t.color)}
+            onClick={() => setFilterTag(filterTag === t.value ? 'all' : t.value)}
+          >
+            {t.label} {counts[t.value] > 0 ? `(${counts[t.value]})` : ''}
+          </button>
+        ))}
       </div>
 
       {/* Rules Tab */}
@@ -148,6 +225,7 @@ export default function MaximoKnowledgePage() {
           }}>
             <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>新增領域規則</div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <TagSelect value={newRuleTag} onChange={setNewRuleTag} />
               <input
                 value={newRule}
                 onChange={e => setNewRule(e.target.value)}
@@ -177,11 +255,11 @@ export default function MaximoKnowledgePage() {
           {/* Rules List */}
           {loading ? (
             <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>載入中...</div>
-          ) : rules.length === 0 ? (
+          ) : filteredRules.length === 0 ? (
             <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>尚無規則</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: 4 }}>
-              {rules.map(r => (
+              {filteredRules.map(r => (
                 <div key={r.id} style={{
                   display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
                   padding: '0.75rem 1rem', background: 'var(--bg-secondary)',
@@ -191,6 +269,7 @@ export default function MaximoKnowledgePage() {
                   <span style={{ flex: 1, fontSize: '0.875rem', color: 'var(--text-primary)', lineHeight: 1.6 }}>
                     {r.content}
                   </span>
+                  <TagBadge tag={r.tag} />
                   <button
                     onClick={() => deleteRule(r.id)}
                     style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, flexShrink: 0 }}
@@ -216,16 +295,19 @@ export default function MaximoKnowledgePage() {
           }}>
             <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>新增查詢範例</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <input
-                value={newQ}
-                onChange={e => setNewQ(e.target.value)}
-                placeholder='問：EMU900 有幾組車組？'
-                style={{
-                  padding: '0.5rem 0.75rem', border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)',
-                  color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none',
-                }}
-              />
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <TagSelect value={newExTag} onChange={setNewExTag} />
+                <input
+                  value={newQ}
+                  onChange={e => setNewQ(e.target.value)}
+                  placeholder='問：EMU900 有幾組車組？'
+                  style={{
+                    flex: 1, padding: '0.5rem 0.75rem', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none',
+                  }}
+                />
+              </div>
               <textarea
                 value={newSQL}
                 onChange={e => setNewSQL(e.target.value)}
@@ -258,19 +340,20 @@ export default function MaximoKnowledgePage() {
           {/* Examples List */}
           {loading ? (
             <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>載入中...</div>
-          ) : examples.length === 0 ? (
+          ) : filteredExamples.length === 0 ? (
             <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>尚無範例</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', paddingRight: 4 }}>
-              {examples.map(ex => (
+              {filteredExamples.map(ex => (
                 <div key={ex.id} style={{
                   background: 'var(--bg-secondary)', border: '1px solid var(--border)',
                   borderRadius: 'var(--radius-md)', overflow: 'hidden',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.625rem 1rem', borderBottom: '1px solid var(--border)' }}>
-                    <span style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.625rem 1rem', borderBottom: '1px solid var(--border)', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500, flex: 1 }}>
                       {ex.question}
                     </span>
+                    <TagBadge tag={ex.tag} />
                     <button
                       onClick={() => deleteExample(ex.id)}
                       style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 4 }}

@@ -65,6 +65,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ PostgreSQL not available: {e}")
 
+    # Maximo tag column migration
+    try:
+        from app.db.session import get_db_context
+        from sqlalchemy import text
+        async with get_db_context() as db:
+            await db.execute(text(
+                "ALTER TABLE maximo_field_metadata ADD COLUMN IF NOT EXISTS tag VARCHAR(50) DEFAULT 'general'"
+            ))
+            await db.execute(text(
+                "ALTER TABLE nl_sql_examples ADD COLUMN IF NOT EXISTS tag VARCHAR(50) DEFAULT 'general'"
+            ))
+        print("✅ Maximo tag columns ensured")
+    except Exception as e:
+        print(f"⚠️ Maximo tag migration skipped: {e}")
+
     yield
 
     # Shutdown
