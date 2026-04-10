@@ -87,7 +87,7 @@ export default function MaximoKnowledgePage() {
   });
 
   return (
-    <div style={{ padding: '1.5rem 2rem', maxWidth: 900, overflowY: 'auto', height: '100%' }}>
+    <div style={{ padding: '1.5rem 2rem', overflowY: 'auto', height: '100%' }}>
       {/* Header */}
       <div style={{ marginBottom: '1.5rem' }}>
         <h1 style={{ fontSize: '1.375rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
