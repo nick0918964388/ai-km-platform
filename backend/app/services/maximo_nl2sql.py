@@ -123,61 +123,85 @@ class MaximoNL2SQL:
             self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             self.model = os.getenv("OPENAI_MODEL", "gpt-4o")
 
-    async def _build_schema_from_db(self) -> str:
-        """Build schema text from maximo_attr_metadata + maximo_domains.
+    # Maximo objectname → our PostgreSQL table name
+    _OBJ_TABLE = {
+        "ASSET":     "maximo_mxasset",
+        "WORKORDER": "maximo_mxwo",
+        "SR":        "maximo_mxsr",
+    }
 
-        Returns empty string if tables don't exist or are empty (falls back to MAXIMO_SCHEMA).
+    # Maximo attribute name → our PG column name (where they differ)
+    _ATTR_COL = {
+        "EQ24": "eq24", "EQ4": "vehicle_type", "EQ3": "vehicle_class",
+        "EQ11": "vehicle_category", "EQ1": "workshop", "EQ2": "section",
+        "EQ8": "borrow_section", "STATUS": "status", "ZZ_CARGROUP": "car_group",
+        "ZZ_POSITION": "position", "EQ9": "record_type", "INSTALLDATE": "install_date",
+        "EXPECTEDLIFE": "expected_life", "MANUFACTURER": "manufacturer",
+        "WONUM": "wonum", "DESCRIPTION": "description", "ASSETNUM": "assetnum",
+        "WORKTYPE": "work_type", "OWNERGROUP": "owner_group",
+        "WOL1": "maintenance_section", "REPORTDATE": "report_date",
+        "ACTSTART": "act_start", "ACTFINISH": "act_finish",
+        "ZZ_ACTSTART": "act_start", "ZZ_ACTFINISH": "act_finish",
+        "ZZ_LASTACTFINISH": "last_act_finish", "ZZ_CARIN": "car_in_result",
+        "ZZ_CAROUT": "car_out_result", "TICKETID": "ticket_id",
+        "ZZ_MAINSECTION": "maintenance_section",
+        "ZZ_TARGSTARTDATE": "target_start_date", "ZZ_TARGCOMPDATE": "target_comp_date",
+        "FAILURECODE": "failure_code", "ZZ_REPAIRPROC": "repair_proc",
+        "WORK_HRS": "work_hours", "ZZ_IMNUM": "im_num",
+        "ZZ_INCIDENT_NEW": "incident_class", "ZZ_IM_LOCATION": "fault_location",
+        "ZZ_TCMS": "tcms_code", "ZZ_IM_GRADE": "grade", "ZZ_URGENCY": "urgency",
+        "ZZ_RESTRICTED_STATUS": "restricted_status", "ZZ_PERSONBELONG": "report_unit",
+        "ZZ_ENTRYDATE": "occurrence_date", "ZZ_CONFIRM_BY": "confirm_by",
+        "ZZ_CONFIRM_DATE": "confirm_date", "CLASS": "class_type",
+    }
+
+    async def _build_schema_from_db(self) -> str:
+        """Build schema text from maximo_zz_maxattribute (pushed by maximo-data-extractor).
+
+        Returns empty string if table doesn't exist or is empty (falls back to MAXIMO_SCHEMA).
         """
         try:
-            # Check if attr metadata exists and has rows
-            cnt = await self.db.execute(text("SELECT COUNT(*) FROM maximo_attr_metadata"))
+            # Check if extractor attribute table exists and has rows
+            cnt = await self.db.execute(text(
+                "SELECT COUNT(*) FROM information_schema.tables "
+                "WHERE table_schema='public' AND table_name='maximo_zz_maxattribute'"
+            ))
             if cnt.scalar() == 0:
                 return ""
+            cnt2 = await self.db.execute(text("SELECT COUNT(*) FROM maximo_zz_maxattribute"))
+            if cnt2.scalar() == 0:
+                return ""
 
-            # Load all attributes grouped by pg_table
+            target_objs = list(self._OBJ_TABLE.keys())
+            placeholders = ", ".join(f":o{i}" for i in range(len(target_objs)))
+            params = {f"o{i}": v for i, v in enumerate(target_objs)}
+
             rows = await self.db.execute(text(
-                "SELECT pg_table, attribute_name, pg_column, display_name, domainid "
-                "FROM maximo_attr_metadata "
-                "WHERE pg_table != '' "
-                "ORDER BY pg_table, attribute_name"
-            ))
+                f"SELECT objectname, attributename, title, domainid "
+                f"FROM maximo_zz_maxattribute "
+                f"WHERE objectname IN ({placeholders}) "
+                f"AND persistent = 'True' "
+                f"ORDER BY objectname, attributename"
+            ), params)
             attrs = rows.fetchall()
+            if not attrs:
+                return ""
 
-            # Gather domainids we need
-            domain_ids = {r.domainid for r in attrs if r.domainid}
-
-            # Load domain values for those domains (cap per domain)
-            domain_map: dict[str, dict[str, str]] = {}
-            if domain_ids:
-                dids_list = list(domain_ids)
-                # Build parameterised IN clause
-                placeholders = ", ".join(f":d{i}" for i in range(len(dids_list)))
-                params = {f"d{i}": v for i, v in enumerate(dids_list)}
-                drows = await self.db.execute(text(
-                    f"SELECT domainid, value, description FROM maximo_domains "
-                    f"WHERE domainid IN ({placeholders}) ORDER BY domainid, value"
-                ), params)
-                for dr in drows.fetchall():
-                    domain_map.setdefault(dr.domainid, {})[dr.value] = dr.description or ""
-
-            # Group attributes by table
             from collections import defaultdict
-            by_table: dict[str, list] = defaultdict(list)
+            by_obj: dict[str, list] = defaultdict(list)
             for r in attrs:
-                by_table[r.pg_table].append(r)
+                by_obj[r.objectname].append(r)
 
-            lines = ["## Maximo 資料庫 Schema（自動從 maxattribute 產生）"]
-            for table, tattrs in sorted(by_table.items()):
-                lines.append(f"\n### {table}")
+            lines = ["## Maximo 資料庫 Schema（從 maximo_zz_maxattribute 動態產生）"]
+            for obj, tattrs in sorted(by_obj.items()):
+                pg_table = self._OBJ_TABLE.get(obj, obj.lower())
+                lines.append(f"\n### {pg_table}（Maximo {obj}）")
                 for a in tattrs:
-                    col_ref = a.pg_column or a.attribute_name.lower()
-                    label   = a.display_name or a.attribute_name
-                    if a.domainid and a.domainid in domain_map:
-                        vals = domain_map[a.domainid]
-                        pairs = ", ".join(f'"{k}"={v}' for k, v in list(vals.items())[:20])
-                        lines.append(f"- {col_ref} — {label}（值域：{pairs}）")
-                    else:
-                        lines.append(f"- {col_ref} — {label}")
+                    attr_upper = a.attributename.upper()
+                    col_ref = self._ATTR_COL.get(attr_upper, a.attributename.lower())
+                    label   = a.title or a.attributename
+                    domain_hint = f"（domainid: {a.domainid}）" if a.domainid else ""
+                    lines.append(f"- {col_ref} — {label}{domain_hint}")
 
             return "\n".join(lines)
         except Exception as e:
@@ -203,6 +227,10 @@ class MaximoNL2SQL:
                     t.table_name LIKE 'maximo_%'
                     OR t.table_name ~ '^[a-z0-9_]+_mx[a-z]+'
                   )
+                  AND t.table_name NOT LIKE '%_zz_max%'
+                  AND t.table_name NOT LIKE '%_zz_domain%'
+                  AND t.table_name NOT LIKE '%_attr_metadata'
+                  AND t.table_name NOT LIKE '%_field_metadata'
                 GROUP BY t.table_name
                 ORDER BY t.table_name
                 """
