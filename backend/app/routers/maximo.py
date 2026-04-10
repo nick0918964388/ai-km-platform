@@ -94,12 +94,9 @@ async def add_rule(req: AddRuleRequest, db: AsyncSession = Depends(get_db)):
     if not req.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty")
 
-    # Auto-generate column name
-    count_result = await db.execute(text(
-        "SELECT COUNT(*) FROM maximo_field_metadata WHERE table_name = '_rules'"
-    ))
-    count = count_result.scalar()
-    col_name = f"rule_{count + 1}"
+    # Auto-generate unique column name using timestamp
+    import time
+    col_name = f"rule_{int(time.time() * 1000)}"
 
     result = await db.execute(text(
         "INSERT INTO maximo_field_metadata (table_name, column_name, display_name, description, tag) "
