@@ -123,19 +123,27 @@ class MaximoNL2SQL:
             self.model = os.getenv("OPENAI_MODEL", "gpt-4o")
 
     async def _load_field_metadata(self) -> str:
-        """Load value mappings from maximo_field_metadata for prompt context."""
+        """Load value mappings + domain rules from maximo_field_metadata for prompt context."""
         try:
             rows = await self.db.execute(text(
                 "SELECT table_name, column_name, display_name, description, value_mapping "
-                "FROM maximo_field_metadata WHERE value_mapping IS NOT NULL"
+                "FROM maximo_field_metadata"
             ))
-            lines = ["## 欄位值域對應（重要：生成 SQL 時使用這些值）"]
+            mapping_lines = ["## 欄位值域對應（重要：生成 SQL 時使用這些值）"]
+            rule_lines = ["## 業務查詢規則（必須遵守）"]
             for r in rows.fetchall():
-                mapping = r.value_mapping if isinstance(r.value_mapping, dict) else {}
-                if mapping:
-                    pairs = ", ".join(f'"{k}"={v}' for k, v in mapping.items())
-                    lines.append(f"- {r.table_name}.{r.column_name}（{r.display_name}）：{pairs}")
-            return "\n".join(lines)
+                if r.table_name == "_rules":
+                    # Domain knowledge rules
+                    if r.description:
+                        rule_lines.append(f"- {r.description}")
+                else:
+                    mapping = r.value_mapping if isinstance(r.value_mapping, dict) else {}
+                    if mapping:
+                        pairs = ", ".join(f'"{k}"={v}' for k, v in mapping.items())
+                        mapping_lines.append(f"- {r.table_name}.{r.column_name}（{r.display_name}）：{pairs}")
+                    elif r.description:
+                        mapping_lines.append(f"- {r.table_name}.{r.column_name}（{r.display_name or r.column_name}）：{r.description}")
+            return "\n".join(rule_lines) + "\n\n" + "\n".join(mapping_lines)
         except Exception as e:
             log.warning("Failed to load field metadata: %s", e)
             return ""

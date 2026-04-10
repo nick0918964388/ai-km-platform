@@ -1,49 +1,36 @@
-# /maximo-learn — 匯入 Maximo 查詢技巧
+# /maximo-learn — 匯入 Maximo 查詢知識
 
-從指定的 Markdown 檔案中解析查詢問答對，批次匯入 `nl_sql_examples` 資料表。
+讀取 `docs/maximo-query-patterns.md`，解析兩種內容並分別匯入 DB：
 
-## 使用方式
-
-```
-/maximo-learn [檔案路徑]
-```
-
-若未指定路徑，預設讀取 `docs/maximo-query-patterns.md`。
-
-## Markdown 格式規範
-
-檔案中每個查詢技巧用以下格式撰寫：
-
-```markdown
-## 問題描述
-
-**問：** 自然語言問題
-
-**SQL：**
-```sql
-SELECT ...
-```
-
-**說明：** （選填）解釋這個查詢的重點或注意事項
-```
+1. **領域規則** → 存入 `maximo_field_metadata`（table=_rules, column=rule_N），注入 NL→SQL 的 system prompt
+2. **查詢範例** → 存入 `nl_sql_examples`（few-shot 範例）
 
 ## 執行流程
 
-1. 讀取指定的 md 檔案
-2. 解析所有「問：」+ 「SQL：」配對
-3. 顯示解析到的問答數量，列出清單讓使用者確認
-4. 使用 SSH 連到 192.168.1.11，執行以下 SQL 批次插入：
-   ```sql
-   INSERT INTO nl_sql_examples (question, sql_query, verified)
-   VALUES (...)
-   ON CONFLICT DO NOTHING;
-   ```
-5. 回報成功匯入幾條、略過幾條（已存在）
+### Step 1 — 讀取檔案
+讀取 `docs/maximo-query-patterns.md`
 
-## 注意事項
+### Step 2 — 解析領域規則
+從 `## 領域規則` 區塊解析每一條 `- ` 開頭的筆記，存入：
+```sql
+INSERT INTO maximo_field_metadata (table_name, column_name, display_name, description)
+VALUES ('_rules', 'rule_<序號>', '查詢規則', '<規則內容>')
+ON CONFLICT (table_name, column_name) DO UPDATE SET description = EXCLUDED.description;
+```
 
-- SQL 必須是 SELECT 語句，非 SELECT 的跳過並警告
-- 重複問題（ON CONFLICT DO NOTHING）自動略過
-- 匯入後建議執行一條測試 NL→SQL 驗證效果
+### Step 3 — 解析查詢範例
+從 `## 查詢範例` 區塊解析每個 `**問：**` + SQL code block 配對，存入：
+```sql
+INSERT INTO nl_sql_examples (question, sql_query, verified)
+VALUES ('<問題>', '<SQL>', true)
+ON CONFLICT DO NOTHING;
+```
 
-## ARGUMENTS: 檔案路徑
+### Step 4 — 執行
+透過 SSH 連到 192.168.1.11，在 aikm-postgres container 執行以上 SQL
+
+### Step 5 — 回報
+- ✅ 匯入 N 條規則
+- ✅ 匯入 N 條範例（略過 N 條已存在）
+
+## ARGUMENTS: （無，固定讀 docs/maximo-query-patterns.md）
