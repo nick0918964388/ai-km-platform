@@ -41,7 +41,7 @@ MAXIMO_SCHEMA = """
 ### maximo_pm_workorders（定期工單）
 - wonum VARCHAR(30) PK
 - description TEXT        — 工單說明（含車型+級別）
-- status VARCHAR(30)      — Maximo 工單狀態代碼：WAPPR=核簽中, APPR=已核准, WMATL=待料, WSCH=待排程, INPRG=作業中, COMP=完成, CLOSE=結案, CAN=取消
+- status VARCHAR(30)      — 工單結案/工單初始/工單核准
 - assetnum VARCHAR(30)    — 車組/車號（JOIN maximo_assets）
 - work_type VARCHAR(10)   — 1A/2A/3A/4A（一級/二級/三級/四級定檢）
 - owner_group VARCHAR(50) — 檢修單位
@@ -58,7 +58,7 @@ MAXIMO_SCHEMA = """
 - wonum VARCHAR(30) PK
 - description TEXT        — 故障說明
 - long_description TEXT   — 故障詳細說明
-- status VARCHAR(30)      — 同 pm_workorders：WAPPR=核簽中, APPR=已核准, INPRG=作業中, COMP=完成, CLOSE=結案, CAN=取消
+- status VARCHAR(30)
 - assetnum VARCHAR(30)    — 車號（JOIN maximo_assets）
 - work_type VARCHAR(10)   — T1=一般臨修, TR=試車, CM=委外維修
 - owner_group VARCHAR(50)
@@ -163,7 +163,8 @@ class MaximoNL2SQL:
             return STATIC_ALLOWED_TABLES, MAXIMO_SCHEMA
 
     async def _load_field_metadata(self) -> str:
-        """Load value mappings + domain rules from maximo_field_metadata for prompt context."""
+        """Load value mappings + domain rules from maximo_field_metadata for prompt context.
+        Also auto-discovers DISTINCT status values from actual data tables."""
         try:
             rows = await self.db.execute(text(
                 "SELECT table_name, column_name, display_name, description, value_mapping "
@@ -173,7 +174,6 @@ class MaximoNL2SQL:
             rule_lines = ["## 業務查詢規則（必須遵守）"]
             for r in rows.fetchall():
                 if r.table_name == "_rules":
-                    # Domain knowledge rules
                     if r.description:
                         rule_lines.append(f"- {r.description}")
                 else:
@@ -183,7 +183,31 @@ class MaximoNL2SQL:
                         mapping_lines.append(f"- {r.table_name}.{r.column_name}（{r.display_name}）：{pairs}")
                     elif r.description:
                         mapping_lines.append(f"- {r.table_name}.{r.column_name}（{r.display_name or r.column_name}）：{r.description}")
-            return "\n".join(rule_lines) + "\n\n" + "\n".join(mapping_lines)
+
+            # Auto-discover actual status values from data tables
+            status_lines = ["## 資料庫中實際存在的狀態值（生成 SQL 時必須使用這些精確字串）"]
+            status_queries = [
+                ("maximo_pm_workorders", "status", "定期工單狀態"),
+                ("maximo_cm_workorders", "status", "維修工單狀態"),
+                ("maximo_fault_reports", "status", "故障通報狀態"),
+                ("maximo_assets",        "status", "車輛狀態"),
+            ]
+            for tbl, col, label in status_queries:
+                try:
+                    res = await self.db.execute(text(
+                        f"SELECT DISTINCT {col} FROM {tbl} WHERE {col} IS NOT NULL ORDER BY {col} LIMIT 20"
+                    ))
+                    vals = [str(r[0]) for r in res.fetchall() if r[0]]
+                    if vals:
+                        status_lines.append(f"- {tbl}.{col}（{label}）：{', '.join(repr(v) for v in vals)}")
+                except Exception:
+                    pass  # table may not exist yet
+
+            return (
+                "\n".join(rule_lines) + "\n\n" +
+                "\n".join(status_lines) + "\n\n" +
+                "\n".join(mapping_lines)
+            )
         except Exception as e:
             log.warning("Failed to load field metadata: %s", e)
             return ""
