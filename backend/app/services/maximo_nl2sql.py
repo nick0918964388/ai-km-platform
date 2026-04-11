@@ -593,21 +593,49 @@ class MaximoNL2SQL:
         """Full pipeline with optional verification loop.
         mode: 'fast' (no verification) or 'accurate' (with verification loop)
         """
-        # Check Redis cache first
-        cache_key = f"nl2sql:{hashlib.md5(question.encode()).hexdigest()}"
+        # Check Redis cache for SQL (only caches the generated SQL, not data)
+        cache_key = f"nl2sql_sql:{hashlib.md5(question.encode()).hexdigest()}"
         redis_conn = None
+        cached_sql = None
         try:
             import redis.asyncio as aioredis
             redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
             redis_conn = aioredis.from_url(redis_url)
-            cached = await redis_conn.get(cache_key)
-            if cached:
-                result = json.loads(cached)
-                result["cached"] = True
-                await redis_conn.aclose()
-                return result
+            cached_raw = await redis_conn.get(cache_key)
+            if cached_raw:
+                cached_sql = json.loads(cached_raw)  # {"sql": "...", "explanation": "...", "model": "..."}
         except Exception:
             pass
+
+        # If cached SQL exists, skip LLM generation and execute directly
+        if cached_sql and cached_sql.get("sql"):
+            sql = cached_sql["sql"]
+            err = self.validate_sql(sql)
+            if not err:
+                result = await self.execute_sql(sql)
+                if not result.get("error"):
+                    final = {
+                        "success": True,
+                        "sql": sql,
+                        "explanation": cached_sql.get("explanation"),
+                        "data": result["rows"],
+                        "columns": result["columns"],
+                        "row_count": result["row_count"],
+                        "execution_ms": result.get("execution_ms"),
+                        "llm_ms": None,
+                        "verify_ms": None,
+                        "model": cached_sql.get("model"),
+                        "iterations": 0,
+                        "confidence": cached_sql.get("confidence"),
+                        "verification_history": [],
+                        "mode": mode,
+                        "cached": True,
+                        "query_plan": None,
+                    }
+                    if redis_conn:
+                        try: await redis_conn.aclose()
+                        except Exception: pass
+                    return final
 
         max_iter = 3 if mode == "accurate" else 1
         history: List[Dict[str, Any]] = []
@@ -748,11 +776,16 @@ class MaximoNL2SQL:
                 "query_plan": self._query_plan,
             }
 
-        # Cache successful results (TTL 1 hour)
-        if last_result.get("success") and redis_conn:
+        # Cache SQL permanently (no TTL) — only stores SQL + metadata, not data
+        if last_result.get("success") and last_result.get("sql") and redis_conn:
             try:
-                cache_data = {k: v for k, v in last_result.items() if k != "verification_history"}
-                await redis_conn.setex(cache_key, 3600, json.dumps(cache_data, ensure_ascii=False, default=str))
+                cache_data = {
+                    "sql": last_result["sql"],
+                    "explanation": last_result.get("explanation"),
+                    "model": last_result.get("model"),
+                    "confidence": last_result.get("confidence"),
+                }
+                await redis_conn.set(cache_key, json.dumps(cache_data, ensure_ascii=False))
             except Exception:
                 pass
 
