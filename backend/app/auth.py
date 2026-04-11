@@ -81,6 +81,16 @@ async def get_current_user(
     }
 
 
+async def require_auth(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Require valid JWT token. No guest fallback."""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="請先登入")
+    return await get_current_user(credentials, db)
+
+
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:
     """Require admin role."""
     if user.get("role") != "admin":

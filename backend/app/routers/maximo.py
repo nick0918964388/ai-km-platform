@@ -11,7 +11,7 @@ from sqlalchemy import text
 from app.db.session import get_db
 from app.services.maximo_nl2sql import MaximoNL2SQL
 from app.services.maximo_schema_rag import MaximoSchemaRAG
-from app.auth import get_current_user
+from app.auth import get_current_user, require_auth, require_admin
 
 router = APIRouter(prefix="/maximo", tags=["Maximo"])
 
@@ -44,7 +44,7 @@ class NL2SQLResponse(BaseModel):
 
 
 @router.post("/schema/index")
-async def index_schema(db: AsyncSession = Depends(get_db)):
+async def index_schema(db: AsyncSession = Depends(get_db), admin: dict = Depends(require_admin)):
     """索引 table catalog + attributes 到 Qdrant，供 RAG schema selector 使用。"""
     try:
         rag = MaximoSchemaRAG(db)
@@ -55,7 +55,7 @@ async def index_schema(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/schema/discover")
-async def discover_and_index(db: AsyncSession = Depends(get_db)):
+async def discover_and_index(db: AsyncSession = Depends(get_db), admin: dict = Depends(require_admin)):
     """自動偵測新的 maximo 表、產生 catalog entry、重新索引。"""
     try:
         rag = MaximoSchemaRAG(db)
@@ -66,7 +66,7 @@ async def discover_and_index(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/nl2sql", response_model=NL2SQLResponse)
-async def nl2sql(req: NL2SQLRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
+async def nl2sql(req: NL2SQLRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(require_auth)):
     """Convert natural language question to SQL and execute against Maximo tables."""
     service = MaximoNL2SQL(db)
     result = await service.query(req.question, mode=req.mode, user_context=user)
@@ -132,7 +132,7 @@ async def get_knowledge(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/knowledge/rule", response_model=RuleItem)
-async def add_rule(req: AddRuleRequest, db: AsyncSession = Depends(get_db)):
+async def add_rule(req: AddRuleRequest, db: AsyncSession = Depends(get_db), admin: dict = Depends(require_admin)):
     """Add a domain knowledge rule."""
     if not req.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty")
@@ -151,7 +151,7 @@ async def add_rule(req: AddRuleRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/knowledge/rule/{rule_id}")
-async def delete_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_rule(rule_id: int, db: AsyncSession = Depends(get_db), admin: dict = Depends(require_admin)):
     """Delete a domain rule."""
     result = await db.execute(text(
         "DELETE FROM maximo_field_metadata WHERE id = :id AND table_name = '_rules'"
@@ -163,7 +163,7 @@ async def delete_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/knowledge/rule/{rule_id}", response_model=RuleItem)
-async def update_rule(rule_id: int, req: UpdateRuleRequest, db: AsyncSession = Depends(get_db)):
+async def update_rule(rule_id: int, req: UpdateRuleRequest, db: AsyncSession = Depends(get_db), admin: dict = Depends(require_admin)):
     """Update a domain rule."""
     if not req.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty")
@@ -178,7 +178,7 @@ async def update_rule(rule_id: int, req: UpdateRuleRequest, db: AsyncSession = D
 
 
 @router.post("/knowledge/example", response_model=ExampleItem)
-async def add_example(req: AddExampleRequest, db: AsyncSession = Depends(get_db)):
+async def add_example(req: AddExampleRequest, db: AsyncSession = Depends(get_db), admin: dict = Depends(require_admin)):
     """Add a NL→SQL example."""
     if not req.question.strip() or not req.sql_query.strip():
         raise HTTPException(status_code=400, detail="Question and SQL cannot be empty")
@@ -195,7 +195,7 @@ async def add_example(req: AddExampleRequest, db: AsyncSession = Depends(get_db)
 
 
 @router.delete("/knowledge/example/{example_id}")
-async def delete_example(example_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_example(example_id: int, db: AsyncSession = Depends(get_db), admin: dict = Depends(require_admin)):
     """Delete a SQL example."""
     result = await db.execute(text(
         "DELETE FROM nl_sql_examples WHERE id = :id"
@@ -207,7 +207,7 @@ async def delete_example(example_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/knowledge/example/{example_id}", response_model=ExampleItem)
-async def update_example(example_id: int, req: UpdateExampleRequest, db: AsyncSession = Depends(get_db)):
+async def update_example(example_id: int, req: UpdateExampleRequest, db: AsyncSession = Depends(get_db), admin: dict = Depends(require_admin)):
     """Update a SQL example."""
     if not req.question.strip() or not req.sql_query.strip():
         raise HTTPException(status_code=400, detail="Question and SQL cannot be empty")
@@ -221,3 +221,23 @@ async def update_example(example_id: int, req: UpdateExampleRequest, db: AsyncSe
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Example not found")
     return ExampleItem(id=example_id, question=req.question.strip(), sql_query=req.sql_query.strip(), verified=True, tag=req.tag)
+
+
+@router.get("/audit")
+async def get_audit_log(db: AsyncSession = Depends(get_db), admin: dict = Depends(require_admin)):
+    """Get recent NL→SQL query audit log. Requires admin."""
+    result = await db.execute(text(
+        "SELECT user_email, question, sql_generated, tables_accessed, row_count, created_at "
+        "FROM query_audit_log ORDER BY created_at DESC LIMIT 50"
+    ))
+    logs = []
+    for r in result.fetchall():
+        logs.append({
+            "user_email": r.user_email,
+            "question": r.question,
+            "sql": r.sql_generated,
+            "tables": r.tables_accessed,
+            "row_count": r.row_count,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        })
+    return {"logs": logs}

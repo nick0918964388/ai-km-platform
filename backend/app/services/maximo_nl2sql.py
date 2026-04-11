@@ -492,11 +492,11 @@ class MaximoNL2SQL:
                 return f"不允許存取的表：{t}"
         return None
 
-    async def execute_sql(self, sql: str) -> Dict[str, Any]:
+    async def execute_sql(self, sql: str, params: dict = None) -> Dict[str, Any]:
         """Execute SQL and return rows + columns."""
         t0 = time.monotonic()
         try:
-            result = await self.db.execute(text(sql))
+            result = await self.db.execute(text(sql), params or {})
             cols = list(result.keys())
             rows = [dict(zip(cols, row)) for row in result.fetchall()]
             # Serialize non-JSON-serializable types
@@ -611,7 +611,7 @@ class MaximoNL2SQL:
             row = None
 
         if not row:
-            return {"allow_freeform": True, "allowed_tables": set(), "row_filters": {}, "max_results": 100}
+            return {"allow_freeform": False, "allowed_tables": set(), "row_filters": {}, "max_results": 20, "section": "", "workshop": ""}
 
         return {
             "allow_freeform": row.allow_freeform,
@@ -623,18 +623,34 @@ class MaximoNL2SQL:
             "workshop": row.workshop or "",
         }
 
-    def _inject_row_filters(self, sql: str, filters: dict, user_context: dict) -> str:
-        """Inject row-level security WHERE clauses."""
+    def _inject_row_filters(self, sql: str, filters: dict, user_context: dict) -> tuple[str, dict]:
+        """Inject row-level security WHERE clauses using parameterized approach.
+        Returns (modified_sql, extra_params)."""
         section = (user_context or {}).get("section", "")
         workshop = (user_context or {}).get("workshop", "")
 
-        for table, condition in filters.items():
+        if not section and not workshop:
+            return sql, {}
+
+        conditions = []
+        params = {}
+        for table, condition_template in filters.items():
             if table.lower() in sql.lower():
-                cond = condition.replace("{section}", section).replace("{workshop}", workshop)
-                if cond and section:
-                    sql = f"SELECT * FROM ({sql}) _filtered WHERE {cond}"
-                    break
-        return sql
+                if "{section}" in condition_template and section:
+                    safe_cond = condition_template.replace("'{section}'", ":_perm_section")
+                    params["_perm_section"] = section
+                    conditions.append(safe_cond)
+                if "{workshop}" in condition_template and workshop:
+                    safe_cond = condition_template.replace("'{workshop}'", ":_perm_workshop")
+                    params["_perm_workshop"] = workshop
+                    conditions.append(safe_cond)
+                break  # Only apply first matching filter
+
+        if conditions and params:
+            filter_clause = " AND ".join(conditions)
+            sql = f"SELECT * FROM ({sql}) AS _filtered WHERE {filter_clause}"
+
+        return sql, params
 
     async def _write_audit_log(self, user_context: dict, question: str, sql: str, result: dict):
         """Write query to audit log."""
@@ -764,11 +780,12 @@ class MaximoNL2SQL:
                     continue
 
             # 2c. Inject row filters
+            row_filter_params: dict = {}
             if perm.get("row_filters"):
-                sql = self._inject_row_filters(sql, perm["row_filters"], user_context)
+                sql, row_filter_params = self._inject_row_filters(sql, perm["row_filters"], user_context)
 
             # 3. Execute SQL
-            result = await self.execute_sql(sql)
+            result = await self.execute_sql(sql, row_filter_params)
             if result.get("error"):
                 history.append({
                     "attempt": attempt + 1,
