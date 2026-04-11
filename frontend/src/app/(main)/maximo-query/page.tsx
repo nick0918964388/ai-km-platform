@@ -83,6 +83,7 @@ export default function MaximoQueryPage() {
   const [llmInfo, setLlmInfo] = useState<{ model?: string; llm_ms?: number } | null>(null);
   const [mode, setMode] = useState<'fast' | 'accurate'>('accurate');
   const [viewMode, setViewMode] = useState<'table' | 'chart'>('table');
+  const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>('bar');
   const [feedbackSent, setFeedbackSent] = useState<string | null>(null);
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
   const [correctedSQL, setCorrectedSQL] = useState('');
@@ -119,38 +120,43 @@ export default function MaximoQueryPage() {
   };
 
   const renderChart = (r: QueryResult) => {
-    const cs = r.chart_suggestion!;
+    const cs = r.chart_suggestion;
     const data = r.data || [];
+    const cols = r.columns || [];
 
-    if (cs.type === 'bar') {
+    // Auto-detect x/y keys: use suggestion if available, otherwise guess from columns
+    const xKey = cs?.x_key || cs?.name_key || cols[0] || 'x';
+    const yKey = cs?.y_key || cs?.value_key || cols[1] || 'y';
+
+    if (chartType === 'bar') {
       return (
         <BarChart data={data}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey={cs.x_key} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
+          <XAxis dataKey={xKey} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
           <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
           <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
-          <Bar dataKey={cs.y_key} fill="#0f62fe" radius={[4, 4, 0, 0]} />
+          <Bar dataKey={yKey} fill="#0f62fe" radius={[4, 4, 0, 0]} />
         </BarChart>
       );
     }
 
-    if (cs.type === 'line') {
+    if (chartType === 'line') {
       return (
         <LineChart data={data}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey={cs.x_key} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
+          <XAxis dataKey={xKey} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
           <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
           <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
-          <Line type="monotone" dataKey={cs.y_key} stroke="#0f62fe" strokeWidth={2} dot={{ fill: '#0f62fe' }} />
+          <Line type="monotone" dataKey={yKey} stroke="#0f62fe" strokeWidth={2} dot={{ fill: '#0f62fe' }} />
         </LineChart>
       );
     }
 
-    if (cs.type === 'pie') {
+    if (chartType === 'pie') {
       return (
         <PieChart>
-          <Pie data={data} dataKey={cs.value_key} nameKey={cs.name_key} cx="50%" cy="50%" outerRadius={100} label={({ name, percent }: { name: string; percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-            {data.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+          <Pie data={data} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%" outerRadius={100} label={({ name, percent }: { name: string; percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+            {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
           </Pie>
           <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
           <Legend />
@@ -207,6 +213,7 @@ export default function MaximoQueryPage() {
       }
       setFeedbackSent(null);
       setViewMode(data.chart_suggestion ? 'chart' : 'table');
+      if (data.chart_suggestion?.type) setChartType(data.chart_suggestion.type);
     } finally {
       clearTimers();
       setLoading(false);
@@ -499,9 +506,9 @@ export default function MaximoQueryPage() {
           )}
 
           {/* View mode toggle + Chart */}
-          {result.success && result.chart_suggestion && result.data && result.data.length > 0 && (
+          {result.success && result.data && result.data.length > 0 && result.columns && result.columns.length >= 2 && (
             <>
-              <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.8125rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.8125rem', alignItems: 'center' }}>
                 <button
                   onClick={() => setViewMode('table')}
                   style={{
@@ -526,6 +533,26 @@ export default function MaximoQueryPage() {
                 >
                   圖表
                 </button>
+                {viewMode === 'chart' && (
+                  <>
+                    <span style={{ color: 'var(--border)', margin: '0 0.25rem' }}>|</span>
+                    {(['bar', 'line', 'pie'] as const).map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setChartType(t)}
+                        style={{
+                          padding: '0.2rem 0.5rem', borderRadius: 4,
+                          border: `1px solid ${chartType === t ? 'var(--accent)' : 'var(--border)'}`,
+                          background: chartType === t ? 'rgba(80,144,211,0.15)' : 'transparent',
+                          color: chartType === t ? 'var(--accent)' : 'var(--text-muted)',
+                          cursor: 'pointer', fontSize: '0.75rem',
+                        }}
+                      >
+                        {t === 'bar' ? '長條圖' : t === 'line' ? '折線圖' : '圓餅圖'}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
 
               {viewMode === 'chart' && (
@@ -533,7 +560,7 @@ export default function MaximoQueryPage() {
                   background: 'var(--bg-secondary)', border: '1px solid var(--border)',
                   borderRadius: 'var(--radius-md)', padding: '1.25rem',
                 }}>
-                  {result.chart_suggestion.title && (
+                  {result.chart_suggestion?.title && (
                     <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', textAlign: 'center' }}>
                       {result.chart_suggestion.title}
                     </div>
