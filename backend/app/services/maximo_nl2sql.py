@@ -608,12 +608,11 @@ class MaximoNL2SQL:
             pass
 
         # If cached SQL exists, skip LLM generation and execute directly
+        # (SQL was already validated when first cached, skip re-validation)
         if cached_sql and cached_sql.get("sql"):
             sql = cached_sql["sql"]
-            err = self.validate_sql(sql)
-            if not err:
-                result = await self.execute_sql(sql)
-                if not result.get("error"):
+            result = await self.execute_sql(sql)
+            if not result.get("error"):
                     final = {
                         "success": True,
                         "sql": sql,
