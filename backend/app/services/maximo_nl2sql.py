@@ -370,7 +370,7 @@ class MaximoNL2SQL:
             log.warning("Failed to load examples: %s", e)
             return ""
 
-    async def generate_sql(self, question: str, feedback: str = None) -> Dict[str, Any]:
+    async def generate_sql(self, question: str, feedback: str = None, history: list = None) -> Dict[str, Any]:
         """Generate SQL from natural language question."""
         # 優先嘗試 RAG schema（只傳相關表與欄位）
         rag_schema, rag_tables = await self._build_schema_rag(question)
@@ -427,8 +427,17 @@ class MaximoNL2SQL:
 """
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": question},
         ]
+
+        # Add conversation history as context
+        if history:
+            for h in history[-3:]:  # Last 3 turns max
+                messages.append({"role": "user", "content": h.get("question", "")})
+                if h.get("sql"):
+                    messages.append({"role": "assistant", "content": json.dumps({"sql": h["sql"], "explanation": "前一個查詢"}, ensure_ascii=False)})
+
+        messages.append({"role": "user", "content": question})
+
         if feedback:
             messages.append({"role": "assistant", "content": "我上次產生的 SQL 有問題。"})
             messages.append({"role": "user", "content": f"上次的問題：{feedback}\n請重新產生正確的 SQL。"})
@@ -670,7 +679,61 @@ class MaximoNL2SQL:
         except Exception as e:
             log.warning("寫入稽核日誌失敗: %s", e)
 
-    async def query(self, question: str, mode: str = "accurate", user_context: dict = None) -> Dict[str, Any]:
+    def _suggest_chart(self, question: str, sql: str, result: Dict) -> Optional[Dict]:
+        """Analyze SQL + result to suggest chart type. Returns None if table is best."""
+        if not result.get("columns") or result.get("row_count", 0) == 0:
+            return None
+
+        cols = result["columns"]
+        rows = result.get("rows", [])
+        s = sql.lower()
+        q = question.lower()
+
+        # Detect aggregation queries
+        has_count = "count(" in s or "count(*)" in s
+        has_sum = "sum(" in s
+        has_avg = "avg(" in s
+        has_group_by = "group by" in s
+        has_order_by = "order by" in s
+
+        # Detect date columns
+        date_cols = [c for c in cols if any(kw in c.lower() for kw in ["date", "time", "month", "year", "日期", "時間"])]
+
+        # Detect numeric columns (check first row values)
+        numeric_cols = []
+        text_cols = []
+        if rows:
+            for c in cols:
+                val = rows[0].get(c)
+                if isinstance(val, (int, float)):
+                    numeric_cols.append(c)
+                elif val is not None:
+                    text_cols.append(c)
+
+        # Rule 1: GROUP BY + COUNT/SUM → Bar chart
+        if has_group_by and (has_count or has_sum or has_avg):
+            x_col = text_cols[0] if text_cols else cols[0]
+            y_col = numeric_cols[0] if numeric_cols else cols[-1]
+
+            # If only 2-5 categories → Pie chart might be better
+            if result["row_count"] <= 5 and has_count:
+                return {"type": "pie", "name_key": x_col, "value_key": y_col, "title": f"{x_col} 分布"}
+
+            return {"type": "bar", "x_key": x_col, "y_key": y_col, "title": f"{x_col} 統計"}
+
+        # Rule 2: Date column + numeric → Line chart
+        if date_cols and numeric_cols and has_order_by:
+            return {"type": "line", "x_key": date_cols[0], "y_key": numeric_cols[0], "title": f"{numeric_cols[0]} 趨勢"}
+
+        # Rule 3: Date in question keywords → suggest line if date + count
+        if any(kw in q for kw in ["趨勢", "變化", "走勢", "歷史"]) and date_cols:
+            y = numeric_cols[0] if numeric_cols else "count"
+            return {"type": "line", "x_key": date_cols[0], "y_key": y, "title": "趨勢圖"}
+
+        # Default: no chart suggestion (use table)
+        return None
+
+    async def query(self, question: str, mode: str = "accurate", user_context: dict = None, conversation_history: list = None) -> Dict[str, Any]:
         """Full pipeline with optional verification loop.
         mode: 'fast' (no verification) or 'accurate' (with verification loop)
         """
@@ -736,7 +799,7 @@ class MaximoNL2SQL:
             feedback = history[-1].get("feedback") if history else None
 
             # 1. Generate SQL
-            gen = await self.generate_sql(question, feedback=feedback)
+            gen = await self.generate_sql(question, feedback=feedback, history=conversation_history)
             model_name = gen.get("_model", self.model)
             llm_ms = gen.get("_llm_ms")
 
@@ -846,6 +909,9 @@ class MaximoNL2SQL:
                 "passed": True,
             })
 
+            # Chart suggestion (rule-based, no LLM)
+            chart_suggestion = self._suggest_chart(question, sql, result)
+
             last_result = {
                 "success": True,
                 "sql": sql,
@@ -863,6 +929,7 @@ class MaximoNL2SQL:
                 "mode": mode,
                 "cached": False,
                 "query_plan": self._query_plan,
+                "chart_suggestion": chart_suggestion,
             }
             break
 

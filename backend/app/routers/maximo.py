@@ -4,7 +4,7 @@ Maximo API Routes — NL→SQL structured query + knowledge base management.
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List, Any
+from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
@@ -21,6 +21,7 @@ router = APIRouter(prefix="/maximo", tags=["Maximo"])
 class NL2SQLRequest(BaseModel):
     question: str
     mode: str = "accurate"  # "fast" or "accurate"
+    history: List[Dict[str, str]] = []  # [{"question": "...", "sql": "..."}, ...]
 
 
 class NL2SQLResponse(BaseModel):
@@ -41,6 +42,7 @@ class NL2SQLResponse(BaseModel):
     mode: str = "accurate"
     cached: bool = False
     query_plan: Optional[Any] = None
+    chart_suggestion: Optional[Any] = None
 
 
 @router.post("/schema/index")
@@ -69,8 +71,57 @@ async def discover_and_index(db: AsyncSession = Depends(get_db), admin: dict = D
 async def nl2sql(req: NL2SQLRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(require_auth)):
     """Convert natural language question to SQL and execute against Maximo tables."""
     service = MaximoNL2SQL(db)
-    result = await service.query(req.question, mode=req.mode, user_context=user)
+    result = await service.query(req.question, mode=req.mode, user_context=user, conversation_history=req.history)
     return NL2SQLResponse(**result)
+
+
+# ── Feedback ─────────────────────────────────────────────────────────────────
+
+class FeedbackRequest(BaseModel):
+    question: str
+    sql: str
+    rating: str  # "up" or "down"
+    corrected_sql: Optional[str] = None
+
+
+@router.post("/feedback")
+async def submit_feedback(req: FeedbackRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(require_auth)):
+    """Submit feedback on NL→SQL result. 👍 auto-saves as verified example."""
+    if req.rating == "up":
+        # Save as verified few-shot example
+        await db.execute(text("""
+            INSERT INTO nl_sql_examples (question, sql_query, verified, tag)
+            VALUES (:q, :sql, true, 'user_feedback')
+            ON CONFLICT DO NOTHING
+        """), {"q": req.question.strip(), "sql": req.sql.strip()})
+        await db.commit()
+        return {"success": True, "message": "已加入查詢範例庫"}
+
+    elif req.rating == "down":
+        if req.corrected_sql:
+            # Validate corrected SQL is SELECT only
+            if not req.corrected_sql.strip().lower().startswith("select"):
+                raise HTTPException(status_code=400, detail="修正 SQL 必須是 SELECT 查詢")
+            # Save corrected version
+            await db.execute(text("""
+                INSERT INTO nl_sql_examples (question, sql_query, verified, tag)
+                VALUES (:q, :sql, true, 'user_corrected')
+            """), {"q": req.question.strip(), "sql": req.corrected_sql.strip()})
+            await db.commit()
+            return {"success": True, "message": "已儲存修正的 SQL"}
+
+        # Just record negative feedback (for analytics)
+        await db.execute(text("""
+            INSERT INTO query_audit_log (user_id, user_email, question, sql_generated, mode)
+            VALUES (:uid, :email, :q, :sql, 'feedback_negative')
+        """), {
+            "uid": user.get("id", ""), "email": user.get("email", ""),
+            "q": req.question, "sql": req.sql,
+        })
+        await db.commit()
+        return {"success": True, "message": "已記錄回饋"}
+
+    raise HTTPException(status_code=400, detail="rating 必須是 up 或 down")
 
 
 # ── Knowledge Base Management ─────────────────────────────────────────────────

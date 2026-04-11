@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { Send, DataBase, Code, TableSplit, Renew, Checkmark } from '@carbon/icons-react';
+import { useState, useRef } from 'react';
+import { Send, DataBase, Code, TableSplit, Renew, Checkmark, Chat } from '@carbon/icons-react';
+import { ThumbsUp, ThumbsDown } from '@carbon/icons-react';
+import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const API = '';
 
@@ -38,6 +40,8 @@ const EXAMPLES = [
   '最近 10 筆工單是哪些車？',
 ];
 
+const CHART_COLORS = ['#0f62fe', '#42be65', '#f1c21b', '#da1e28', '#a56eff', '#ff832b', '#08bdba', '#ba4e00'];
+
 interface QueryResult {
   success: boolean;
   sql?: string;
@@ -60,6 +64,14 @@ interface QueryResult {
   }>;
   cached?: boolean;
   mode?: string;
+  chart_suggestion?: {
+    type: 'bar' | 'line' | 'pie';
+    x_key?: string;
+    y_key?: string;
+    name_key?: string;
+    value_key?: string;
+    title?: string;
+  };
 }
 
 export default function MaximoQueryPage() {
@@ -70,11 +82,83 @@ export default function MaximoQueryPage() {
   const [activeStep, setActiveStep] = useState(0);
   const [llmInfo, setLlmInfo] = useState<{ model?: string; llm_ms?: number } | null>(null);
   const [mode, setMode] = useState<'fast' | 'accurate'>('accurate');
+  const [viewMode, setViewMode] = useState<'table' | 'chart'>('table');
+  const [feedbackSent, setFeedbackSent] = useState<string | null>(null);
+  const [showCorrectionModal, setShowCorrectionModal] = useState(false);
+  const [correctedSQL, setCorrectedSQL] = useState('');
+  const [queryHistory, setQueryHistory] = useState<Array<{question: string; sql: string}>>([]);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const clearTimers = () => {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
+  };
+
+  const handleFeedback = async (rating: 'up' | 'down', corrected?: string) => {
+    if (!result?.sql) return;
+    const token = localStorage.getItem('auth_token');
+    try {
+      await fetch(`${API}/api/maximo/feedback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          question,
+          sql: result.sql,
+          rating,
+          corrected_sql: corrected || undefined,
+        }),
+      });
+      setFeedbackSent(rating);
+      setShowCorrectionModal(false);
+    } catch (e) {
+      console.error('Feedback error:', e);
+    }
+  };
+
+  const renderChart = (r: QueryResult) => {
+    const cs = r.chart_suggestion!;
+    const data = r.data || [];
+
+    if (cs.type === 'bar') {
+      return (
+        <BarChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+          <XAxis dataKey={cs.x_key} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
+          <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
+          <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
+          <Bar dataKey={cs.y_key} fill="#0f62fe" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      );
+    }
+
+    if (cs.type === 'line') {
+      return (
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+          <XAxis dataKey={cs.x_key} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
+          <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
+          <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
+          <Line type="monotone" dataKey={cs.y_key} stroke="#0f62fe" strokeWidth={2} dot={{ fill: '#0f62fe' }} />
+        </LineChart>
+      );
+    }
+
+    if (cs.type === 'pie') {
+      return (
+        <PieChart>
+          <Pie data={data} dataKey={cs.value_key} nameKey={cs.name_key} cx="50%" cy="50%" outerRadius={100} label={({ name, percent }: { name: string; percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+            {data.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+          </Pie>
+          <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
+          <Legend />
+        </PieChart>
+      );
+    }
+
+    return <div>不支援的圖表類型</div>;
   };
 
   const runQuery = async (q: string) => {
@@ -107,7 +191,7 @@ export default function MaximoQueryPage() {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ question: q2, mode }),
+        body: JSON.stringify({ question: q2, mode, history: queryHistory }),
       });
       const data = await res.json();
       if (data.model || data.llm_ms) setLlmInfo({ model: data.model, llm_ms: data.llm_ms });
@@ -118,6 +202,11 @@ export default function MaximoQueryPage() {
       setActiveStep(steps.length - 1);
       await new Promise(r => setTimeout(r, 200));
       setResult(data);
+      if (data.success && data.sql) {
+        setQueryHistory(prev => [...prev.slice(-4), { question: q2, sql: data.sql }]);
+      }
+      setFeedbackSent(null);
+      setViewMode(data.chart_suggestion ? 'chart' : 'table');
     } finally {
       clearTimers();
       setLoading(false);
@@ -157,6 +246,19 @@ export default function MaximoQueryPage() {
               fontSize: '0.9375rem', outline: 'none',
             }}
           />
+          {queryHistory.length > 0 && (
+            <button
+              onClick={() => { setQueryHistory([]); setResult(null); setQuestion(''); }}
+              title="新對話"
+              style={{
+                padding: '0.625rem', background: 'transparent', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--text-muted)',
+                display: 'flex', alignItems: 'center',
+              }}
+            >
+              <Renew size={16} />
+            </button>
+          )}
           <button
             onClick={() => runQuery(question)}
             disabled={!question.trim() || loading}
@@ -171,6 +273,12 @@ export default function MaximoQueryPage() {
             查詢
           </button>
         </div>
+
+        {queryHistory.length > 0 && (
+          <div style={{ fontSize: '0.75rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4, marginTop: '0.25rem' }}>
+            <Chat size={12} /> 對話模式（{queryHistory.length} 輪上下文）
+          </div>
+        )}
 
         {/* Example chips */}
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
@@ -320,6 +428,22 @@ export default function MaximoQueryPage() {
                 快取
               </span>
             )}
+            {/* Feedback buttons */}
+            {result.success && !feedbackSent && (
+              <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.5rem' }}>
+                <button onClick={() => handleFeedback('up')} title="查詢正確" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.125rem 0.375rem', borderRadius: 4, color: 'var(--text-muted)' }}>
+                  <ThumbsUp size={14} />
+                </button>
+                <button onClick={() => { setShowCorrectionModal(true); setCorrectedSQL(result.sql || ''); }} title="查詢有誤" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.125rem 0.375rem', borderRadius: 4, color: 'var(--text-muted)' }}>
+                  <ThumbsDown size={14} />
+                </button>
+              </div>
+            )}
+            {feedbackSent && (
+              <span style={{ fontSize: '0.75rem', color: '#42be65', marginLeft: '0.5rem' }}>
+                {feedbackSent === 'up' ? '✓ 已標記為正確' : '✓ 已提交回饋'}
+              </span>
+            )}
             {result.sql && (
               <button
                 onClick={() => setShowSQL(v => !v)}
@@ -374,8 +498,56 @@ export default function MaximoQueryPage() {
             </details>
           )}
 
+          {/* View mode toggle + Chart */}
+          {result.success && result.chart_suggestion && result.data && result.data.length > 0 && (
+            <>
+              <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.8125rem' }}>
+                <button
+                  onClick={() => setViewMode('table')}
+                  style={{
+                    padding: '0.25rem 0.75rem', borderRadius: 99,
+                    border: `1px solid ${viewMode === 'table' ? 'var(--primary)' : 'var(--border)'}`,
+                    background: viewMode === 'table' ? 'var(--primary)' : 'transparent',
+                    color: viewMode === 'table' ? 'white' : 'var(--text-muted)',
+                    cursor: 'pointer', fontWeight: 500,
+                  }}
+                >
+                  表格
+                </button>
+                <button
+                  onClick={() => setViewMode('chart')}
+                  style={{
+                    padding: '0.25rem 0.75rem', borderRadius: 99,
+                    border: `1px solid ${viewMode === 'chart' ? 'var(--accent)' : 'var(--border)'}`,
+                    background: viewMode === 'chart' ? 'var(--accent)' : 'transparent',
+                    color: viewMode === 'chart' ? 'white' : 'var(--text-muted)',
+                    cursor: 'pointer', fontWeight: 500,
+                  }}
+                >
+                  圖表
+                </button>
+              </div>
+
+              {viewMode === 'chart' && (
+                <div style={{
+                  background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)', padding: '1.25rem',
+                }}>
+                  {result.chart_suggestion.title && (
+                    <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', textAlign: 'center' }}>
+                      {result.chart_suggestion.title}
+                    </div>
+                  )}
+                  <ResponsiveContainer width="100%" height={300}>
+                    {renderChart(result)}
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </>
+          )}
+
           {/* Table */}
-          {result.success && result.data && result.data.length > 0 && (
+          {viewMode === 'table' && result.success && result.data && result.data.length > 0 && (
             <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.625rem 1rem', borderBottom: '1px solid var(--border)', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
                 <TableSplit size={14} />
@@ -418,6 +590,52 @@ export default function MaximoQueryPage() {
               查無結果
             </div>
           )}
+        </div>
+      )}
+
+      {/* SQL Correction Modal */}
+      {showCorrectionModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }} onClick={() => setShowCorrectionModal(false)}>
+          <div style={{
+            background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)',
+            padding: '1.5rem', width: '90%', maxWidth: 600,
+            border: '1px solid var(--border)',
+          }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 1rem', fontSize: '1rem', color: 'var(--text-primary)' }}>修正 SQL</h3>
+            <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
+              請修正下方 SQL，修正後會加入範例庫提升未來查詢品質：
+            </p>
+            <textarea
+              value={correctedSQL}
+              onChange={e => setCorrectedSQL(e.target.value)}
+              style={{
+                width: '100%', minHeight: 120, padding: '0.75rem',
+                fontFamily: 'monospace', fontSize: '0.8125rem',
+                background: 'var(--bg-primary)', color: 'var(--text-primary)',
+                border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                resize: 'vertical',
+                boxSizing: 'border-box',
+              }}
+            />
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+              <button onClick={() => { handleFeedback('down'); }} style={{
+                padding: '0.5rem 1rem', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)', background: 'transparent',
+                color: 'var(--text-muted)', cursor: 'pointer',
+              }}>
+                不修正，僅回報問題
+              </button>
+              <button onClick={() => { handleFeedback('down', correctedSQL); }} style={{
+                padding: '0.5rem 1rem', background: 'var(--primary)', color: 'white',
+                border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600,
+              }}>
+                提交修正
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
