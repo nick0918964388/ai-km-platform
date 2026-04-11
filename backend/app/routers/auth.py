@@ -6,7 +6,7 @@ from sqlalchemy import text
 import uuid
 
 from app.db.session import get_db
-from app.auth import hash_password, verify_password, create_access_token, get_current_user
+from app.auth import hash_password, verify_password, create_access_token, get_current_user, require_admin
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -20,7 +20,6 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     display_name: str = ""
-    role: str = "user"
 
 
 class AuthResponse(BaseModel):
@@ -65,8 +64,8 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/register", response_model=AuthResponse)
-async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    """Register a new user."""
+async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db), admin: dict = Depends(require_admin)):
+    """Register a new user. Requires admin token."""
     exists = await db.execute(text(
         "SELECT id FROM users WHERE email = :email"
     ), {"email": req.email})

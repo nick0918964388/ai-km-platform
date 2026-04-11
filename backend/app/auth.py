@@ -13,6 +13,9 @@ from sqlalchemy import text
 from app.db.session import get_db
 
 SECRET_KEY = os.getenv("JWT_SECRET", "aikm-secret-key-change-in-production")
+if SECRET_KEY == "aikm-secret-key-change-in-production":
+    import logging
+    logging.getLogger(__name__).warning("JWT_SECRET 使用預設值，請在生產環境設定 JWT_SECRET 環境變數！")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24 * 7  # 7 days
 
@@ -74,7 +77,7 @@ async def get_current_user(
         "id": user.id,
         "email": user.email,
         "display_name": user.display_name,
-        "role": payload.get("role", "user"),
+        "role": user.account_level or payload.get("role", "user"),
     }
 
 
