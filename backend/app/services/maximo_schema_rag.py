@@ -28,6 +28,7 @@ class MaximoSchemaRAG:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.qdrant = get_client()
+        self._query_plan: Optional[dict] = None
 
     # ── Auto-discover ─────────────────────────────────────────────────────
 
@@ -101,11 +102,26 @@ class MaximoSchemaRAG:
             if "assetnum" in cols and r.table_name != "maximo_mxasset" and r.table_name != "maximo_assets":
                 fk["assetnum"] = "maximo_mxasset.assetnum"
 
+            # Auto-assign domain_group based on table name and object_name
+            domain_group = "general"
+            tbl_lower = r.table_name.lower()
+            obj_lower = (object_name or "").lower()
+            if obj_lower == "workorder" or "wo" in tbl_lower or "workorder" in tbl_lower:
+                domain_group = "workorder"
+            elif obj_lower == "asset" or "asset" in tbl_lower:
+                domain_group = "asset"
+            elif obj_lower == "sr" or "fault" in tbl_lower or "_sr" in tbl_lower:
+                domain_group = "fault"
+            elif "inventory" in tbl_lower or "inv" in tbl_lower:
+                domain_group = "inventory"
+            elif "procurement" in tbl_lower or "po" in tbl_lower or "pr" in tbl_lower:
+                domain_group = "procurement"
+
             # 寫入 catalog
             await self.db.execute(text("""
                 INSERT INTO maximo_table_catalog
-                    (table_name, object_name, description, key_columns, fk_relations, row_count)
-                VALUES (:tbl, :obj, :desc, :keys, CAST(:fk AS jsonb), :cnt)
+                    (table_name, object_name, description, key_columns, fk_relations, row_count, domain_group)
+                VALUES (:tbl, :obj, :desc, :keys, CAST(:fk AS jsonb), :cnt, :dg)
                 ON CONFLICT (table_name) DO NOTHING
             """), {
                 "tbl": r.table_name,
@@ -114,6 +130,7 @@ class MaximoSchemaRAG:
                 "keys": key_cols,
                 "fk": __import__("json").dumps(fk, ensure_ascii=False),
                 "cnt": row_count,
+                "dg": domain_group,
             })
 
             new_tables.append({
@@ -427,6 +444,17 @@ class MaximoSchemaRAG:
             allowed_tables.add(t.table_name)
 
         schema_text = "\n".join(lines)
+
+        # Capture query plan for debugging/display
+        self._query_plan = {
+            "selected_tables": [t["table_name"] for t in tables],
+            "selected_columns": {
+                obj: [c["attribute_name"] for c in cols]
+                for obj, cols in columns_by_obj.items()
+            },
+            "schema_source": "rag",
+        }
+
         return schema_text, allowed_tables
 
     def _collection_ready(self) -> bool:

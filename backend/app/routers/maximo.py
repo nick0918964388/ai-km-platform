@@ -19,6 +19,7 @@ router = APIRouter(prefix="/maximo", tags=["Maximo"])
 
 class NL2SQLRequest(BaseModel):
     question: str
+    mode: str = "accurate"  # "fast" or "accurate"
 
 
 class NL2SQLResponse(BaseModel):
@@ -30,8 +31,15 @@ class NL2SQLResponse(BaseModel):
     row_count: int = 0
     execution_ms: Optional[float] = None
     llm_ms: Optional[float] = None
+    verify_ms: Optional[float] = None
     model: Optional[str] = None
     error: Optional[str] = None
+    iterations: int = 1
+    confidence: Optional[float] = None
+    verification_history: List[Any] = []
+    mode: str = "accurate"
+    cached: bool = False
+    query_plan: Optional[Any] = None
 
 
 @router.post("/schema/index")
@@ -60,7 +68,7 @@ async def discover_and_index(db: AsyncSession = Depends(get_db)):
 async def nl2sql(req: NL2SQLRequest, db: AsyncSession = Depends(get_db)):
     """Convert natural language question to SQL and execute against Maximo tables."""
     service = MaximoNL2SQL(db)
-    result = await service.query(req.question)
+    result = await service.query(req.question, mode=req.mode)
     return NL2SQLResponse(**result)
 
 

@@ -6,18 +6,29 @@ import { Send, DataBase, Code, TableSplit, Renew, Checkmark } from '@carbon/icon
 const API = '';
 
 // Steps reflecting real backend NL→SQL pipeline
-const PIPELINE_STEPS = [
+const STEPS_FAST = [
   { label: '解析問題語意', detail: '理解查詢意圖與關鍵詞' },
-  { label: '載入 Maximo 欄位定義', detail: '讀取 maximo_zz_maxattribute（45,625 筆屬性）' },
+  { label: '載入 Maximo 欄位定義', detail: '讀取 maximo_zz_maxattribute' },
   { label: '比對值域對應', detail: '從 alndomain 展開欄位可用值' },
-  { label: '查詢實際狀態值', detail: 'DISTINCT 查詢工單、故障通報現有狀態' },
-  { label: 'AI 產生 SQL', detail: '呼叫 LLM 將問題轉換為 PostgreSQL 語句' },
+  { label: '查詢實際狀態值', detail: 'DISTINCT 查詢現有狀態' },
+  { label: 'AI 產生 SQL', detail: '呼叫 LLM 將問題轉換為 SQL' },
   { label: '驗證 SQL 安全性', detail: '確認為 SELECT 查詢、無禁止關鍵字' },
-  { label: '執行資料庫查詢', detail: '對 Maximo 資料表執行查詢並取回結果' },
+  { label: '執行資料庫查詢', detail: '對 Maximo 資料表執行查詢' },
 ];
 
-// Each step's auto-advance delay (ms). Step 4 stays until response arrives.
-const STEP_DELAYS = [0, 350, 700, 1050, 1400, null, null] as (number | null)[];
+const STEPS_ACCURATE = [
+  { label: '解析問題語意', detail: '理解查詢意圖與關鍵詞' },
+  { label: '載入 Maximo 欄位定義', detail: '讀取 maximo_zz_maxattribute' },
+  { label: '比對值域對應', detail: '從 alndomain 展開欄位可用值' },
+  { label: '查詢實際狀態值', detail: 'DISTINCT 查詢現有狀態' },
+  { label: 'AI 產生 SQL', detail: '呼叫 LLM 將問題轉換為 SQL' },
+  { label: '規則驗證', detail: '檢查結果合理性（數量、日期、排序）' },
+  { label: 'AI 驗證答案', detail: '由 AI 確認查詢邏輯與結果正確性' },
+  { label: '執行資料庫查詢', detail: '對 Maximo 資料表執行查詢' },
+];
+
+const DELAYS_FAST = [0, 350, 700, 1050, 1400, null, null] as (number | null)[];
+const DELAYS_ACCURATE = [0, 350, 700, 1050, 1400, null, null, null] as (number | null)[];
 
 const EXAMPLES = [
   '最近立案未結的故障通報有哪些？列出 10 筆',
@@ -38,6 +49,17 @@ interface QueryResult {
   llm_ms?: number;
   model?: string;
   error?: string;
+  // New fields
+  iterations?: number;
+  confidence?: number;
+  verification_history?: Array<{
+    attempt: number;
+    sql?: string;
+    feedback?: string;
+    issues?: string[];
+  }>;
+  cached?: boolean;
+  mode?: string;
 }
 
 export default function MaximoQueryPage() {
@@ -47,6 +69,7 @@ export default function MaximoQueryPage() {
   const [showSQL, setShowSQL] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
   const [llmInfo, setLlmInfo] = useState<{ model?: string; llm_ms?: number } | null>(null);
+  const [mode, setMode] = useState<'fast' | 'accurate'>('accurate');
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const clearTimers = () => {
@@ -65,8 +88,11 @@ export default function MaximoQueryPage() {
     setLlmInfo(null);
     clearTimers();
 
-    // Auto-advance through steps 0-4 on fixed delays
-    STEP_DELAYS.forEach((delay, idx) => {
+    const steps = mode === 'accurate' ? STEPS_ACCURATE : STEPS_FAST;
+    const delays = mode === 'accurate' ? DELAYS_ACCURATE : DELAYS_FAST;
+
+    // Auto-advance through steps on fixed delays
+    delays.forEach((delay, idx) => {
       if (delay !== null) {
         const t = setTimeout(() => setActiveStep(idx), delay);
         timersRef.current.push(t);
@@ -77,14 +103,15 @@ export default function MaximoQueryPage() {
       const res = await fetch(`${API}/api/maximo/nl2sql`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q2 }),
+        body: JSON.stringify({ question: q2, mode }),
       });
       const data = await res.json();
       if (data.model || data.llm_ms) setLlmInfo({ model: data.model, llm_ms: data.llm_ms });
       // Quickly complete remaining steps
-      setActiveStep(5);
+      const lastStep = steps.length - 2;
+      setActiveStep(lastStep);
       await new Promise(r => setTimeout(r, 200));
-      setActiveStep(6);
+      setActiveStep(steps.length - 1);
       await new Promise(r => setTimeout(r, 200));
       setResult(data);
     } finally {
@@ -92,6 +119,9 @@ export default function MaximoQueryPage() {
       setLoading(false);
     }
   };
+
+  const steps = mode === 'accurate' ? STEPS_ACCURATE : STEPS_FAST;
+  const aiStepIndex = 4; // index of "AI 產生 SQL" step
 
   return (
     <div style={{ padding: '1.5rem 2rem', overflowY: 'auto', height: '100%', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -157,6 +187,35 @@ export default function MaximoQueryPage() {
             </button>
           ))}
         </div>
+
+        {/* Mode toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', fontSize: '0.8125rem' }}>
+          <span style={{ color: 'var(--text-muted)' }}>查詢模式：</span>
+          <button
+            onClick={() => setMode(m => m === 'fast' ? 'accurate' : 'fast')}
+            style={{
+              padding: '0.25rem 0.75rem', borderRadius: 99,
+              border: `1px solid ${mode === 'accurate' ? 'var(--primary)' : 'var(--border)'}`,
+              background: mode === 'accurate' ? 'var(--primary)' : 'transparent',
+              color: mode === 'accurate' ? 'white' : 'var(--text-muted)',
+              cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 500,
+            }}
+          >
+            🎯 精確模式
+          </button>
+          <button
+            onClick={() => setMode(m => m === 'fast' ? 'accurate' : 'fast')}
+            style={{
+              padding: '0.25rem 0.75rem', borderRadius: 99,
+              border: `1px solid ${mode === 'fast' ? 'var(--accent)' : 'var(--border)'}`,
+              background: mode === 'fast' ? 'var(--accent)' : 'transparent',
+              color: mode === 'fast' ? 'white' : 'var(--text-muted)',
+              cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 500,
+            }}
+          >
+            ⚡ 快速模式
+          </button>
+        </div>
       </div>
 
       {/* Loading — step-by-step pipeline */}
@@ -169,7 +228,7 @@ export default function MaximoQueryPage() {
           <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.25rem', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
             NL → SQL 處理流程
           </div>
-          {PIPELINE_STEPS.map((step, i) => {
+          {steps.map((step, i) => {
             const done = i < activeStep;
             const active = i === activeStep;
             const pending = i > activeStep;
@@ -200,7 +259,7 @@ export default function MaximoQueryPage() {
                     transition: 'color 0.2s', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
                   }}>
                     {step.label}
-                    {i === 4 && llmInfo?.model && (
+                    {i === aiStepIndex && llmInfo?.model && (
                       <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: 4, background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--accent)', fontWeight: 500, fontFamily: 'monospace' }}>
                         {llmInfo.model}
                         {llmInfo.llm_ms && ` · ${(llmInfo.llm_ms / 1000).toFixed(1)}s`}
@@ -209,7 +268,7 @@ export default function MaximoQueryPage() {
                   </div>
                   {(active || done) && (
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 1 }}>
-                      {i === 4 && active && !llmInfo?.model ? step.detail : i === 4 && llmInfo?.model ? `使用 ${llmInfo.model}` : step.detail}
+                      {i === aiStepIndex && active && !llmInfo?.model ? step.detail : i === aiStepIndex && llmInfo?.model ? `使用 ${llmInfo.model}` : step.detail}
                     </div>
                   )}
                 </div>
@@ -232,6 +291,30 @@ export default function MaximoQueryPage() {
               </>
             ) : (
               <span style={{ color: '#da1e28', fontWeight: 600 }}>✗ {result.error}</span>
+            )}
+            {result.confidence !== undefined && result.confidence !== null && (
+              <span style={{
+                padding: '0.125rem 0.5rem', borderRadius: 99,
+                background: result.confidence >= 0.8 ? 'rgba(66, 190, 101, 0.15)' : result.confidence >= 0.5 ? 'rgba(241, 194, 50, 0.15)' : 'rgba(218, 30, 40, 0.15)',
+                color: result.confidence >= 0.8 ? '#42be65' : result.confidence >= 0.5 ? '#f1c232' : '#da1e28',
+                fontSize: '0.75rem', fontWeight: 600,
+              }}>
+                信心度 {Math.round(result.confidence * 100)}%
+              </span>
+            )}
+            {result.iterations && result.iterations > 1 && (
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                經 {result.iterations} 次迭代
+              </span>
+            )}
+            {result.cached && (
+              <span style={{
+                padding: '0.125rem 0.5rem', borderRadius: 99,
+                background: 'rgba(80, 144, 211, 0.15)',
+                color: 'var(--accent)', fontSize: '0.75rem', fontWeight: 500,
+              }}>
+                快取
+              </span>
             )}
             {result.sql && (
               <button
@@ -259,6 +342,32 @@ export default function MaximoQueryPage() {
               fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.6,
               overflowX: 'auto',
             }}>{result.sql}</pre>
+          )}
+
+          {/* Verification history */}
+          {result.verification_history && result.verification_history.length > 0 && (
+            <details style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+              <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
+                查詢迭代記錄（{result.verification_history.length} 次嘗試）
+              </summary>
+              <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {result.verification_history.map((h: any, i: number) => (
+                  <div key={i} style={{
+                    padding: '0.5rem 0.75rem',
+                    background: 'var(--bg-primary)',
+                    borderRadius: 'var(--radius-sm)',
+                    borderLeft: '3px solid var(--border)',
+                  }}>
+                    <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>第 {h.attempt} 次</div>
+                    {h.sql && <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', marginBottom: '0.25rem' }}>{h.sql}</div>}
+                    {h.feedback && <div style={{ color: '#da1e28' }}>問題：{h.feedback}</div>}
+                    {h.issues && h.issues.map((issue: string, j: number) => (
+                      <div key={j} style={{ color: '#da1e28' }}>• {issue}</div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
 
           {/* Table */}

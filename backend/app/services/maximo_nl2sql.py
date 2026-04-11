@@ -2,12 +2,14 @@
 Maximo NL→SQL Service
 Converts natural language to SQL targeting maximo_* tables.
 Uses field metadata + few-shot examples from PostgreSQL for better accuracy.
+Supports agentic self-verification loop (generate → validate → execute → verify).
 """
 
 import os
 import re
 import json
 import time
+import hashlib
 import logging
 from typing import Optional, List, Dict, Any
 
@@ -123,6 +125,8 @@ class MaximoNL2SQL:
             self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             self.model = os.getenv("OPENAI_MODEL", "gpt-4o")
 
+        self._query_plan: Optional[Dict[str, Any]] = None
+
     # Maximo objectname → our PostgreSQL table name
     _OBJ_TABLE = {
         "ASSET":     "maximo_mxasset",
@@ -164,6 +168,8 @@ class MaximoNL2SQL:
             rag = MaximoSchemaRAG(self.db)
             schema_text, allowed_tables = await rag.build_schema(question)
             if schema_text:
+                # Capture query plan from RAG
+                self._query_plan = getattr(rag, '_query_plan', None)
                 return schema_text, allowed_tables
         except Exception as e:
             log.warning("RAG schema 失敗: %s — 回退到完整 schema", e)
@@ -364,7 +370,7 @@ class MaximoNL2SQL:
             log.warning("Failed to load examples: %s", e)
             return ""
 
-    async def generate_sql(self, question: str) -> Dict[str, Any]:
+    async def generate_sql(self, question: str, feedback: str = None) -> Dict[str, Any]:
         """Generate SQL from natural language question."""
         # 優先嘗試 RAG schema（只傳相關表與欄位）
         rag_schema, rag_tables = await self._build_schema_rag(question)
@@ -378,6 +384,11 @@ class MaximoNL2SQL:
             dynamic_schema = await self._build_schema_from_db()
             if dynamic_schema:
                 schema_text = dynamic_schema
+            self._query_plan = {
+                "selected_tables": sorted(allowed_tables),
+                "selected_columns": {},
+                "schema_source": "full_dump",
+            }
 
         self._allowed_tables = allowed_tables  # store for validate_sql
 
@@ -414,14 +425,19 @@ class MaximoNL2SQL:
   "sql": null
 }}
 """
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": question},
+        ]
+        if feedback:
+            messages.append({"role": "assistant", "content": "我上次產生的 SQL 有問題。"})
+            messages.append({"role": "user", "content": f"上次的問題：{feedback}\n請重新產生正確的 SQL。"})
+
         try:
             t_llm = time.monotonic()
             resp = await self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": question},
-                ],
+                messages=messages,
                 temperature=0,
                 timeout=60,
             )
@@ -499,62 +515,251 @@ class MaximoNL2SQL:
         except Exception as e:
             return {"error": str(e), "rows": [], "columns": [], "row_count": 0}
 
-    async def query(self, question: str) -> Dict[str, Any]:
-        """Full pipeline: NL → SQL → execute → return."""
-        gen = await self.generate_sql(question)
-        model_name = gen.get("_model", self.model)
-        llm_ms = gen.get("_llm_ms")
+    def _rule_validate(self, question: str, sql: str, result: Dict) -> list[str]:
+        """Rule-based validation. Returns list of issues (empty = pass)."""
+        issues = []
+        q = question.lower()
+        s = sql.lower()
 
-        if gen.get("error") or not gen.get("sql"):
-            return {
+        # Question asks for count but SQL doesn't use COUNT
+        if any(kw in q for kw in ["幾筆", "幾台", "幾張", "多少", "數量", "統計"]):
+            if "count" not in s and "count(*)" not in s:
+                issues.append("問題要求統計數量，但 SQL 未使用 COUNT 函數")
+
+        # 0 rows might indicate wrong table or condition
+        if result.get("row_count", 0) == 0:
+            issues.append("查詢結果為 0 筆，可能查錯表或 WHERE 條件有誤，請檢查狀態值是否正確")
+
+        # Question mentions time but SQL has no date filter
+        if any(kw in q for kw in ["最近", "今年", "上月", "去年", "本月", "上週"]):
+            if not any(kw in s for kw in ["date", "time", "now()", "interval", "current_", "extract"]):
+                issues.append("問題涉及時間範圍，但 SQL 未包含日期條件")
+
+        # Question asks for ranking/top but no ORDER BY + LIMIT
+        if any(kw in q for kw in ["最多", "最常", "排名", "前幾", "top"]):
+            if "order by" not in s:
+                issues.append("問題要求排名/排序，但 SQL 未使用 ORDER BY")
+
+        return issues
+
+    async def _llm_verify(self, question: str, sql: str, result: Dict) -> Dict:
+        """LLM-based verification. Returns {passed, confidence, issues, feedback}."""
+        sample_data = result.get("rows", [])[:5]
+
+        verify_prompt = f"""你是 SQL 查詢結果的驗證專家。請驗證以下查詢是否正確回答了使用者的問題。
+
+原始問題：{question}
+產生的 SQL：{sql}
+結果筆數：{result.get('row_count', 0)}
+結果欄位：{result.get('columns', [])}
+前 5 筆資料：{json.dumps(sample_data, ensure_ascii=False, default=str)[:1500]}
+
+請檢查：
+1. SQL 是否查了正確的表？
+2. WHERE 條件是否正確對應問題？
+3. 結果欄位是否涵蓋問題所需的資訊？
+4. 結果數據是否看起來合理？
+
+只回覆 JSON（不要其他文字）：
+{{"passed": true, "confidence": 0.95, "issues": [], "feedback": ""}}
+或
+{{"passed": false, "confidence": 0.3, "issues": ["問題描述"], "feedback": "具體修改建議"}}"""
+
+        try:
+            t_verify = time.monotonic()
+            resp = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": verify_prompt}],
+                temperature=0,
+                timeout=30,
+            )
+            self._verify_ms = round((time.monotonic() - t_verify) * 1000, 1)
+            content = resp.choices[0].message.content or ""
+            # Parse JSON (same extraction logic as generate_sql)
+            match = re.search(r'\{.*\}', content, re.DOTALL)
+            if match:
+                parsed = json.loads(match.group())
+                parsed.setdefault("passed", True)
+                parsed.setdefault("confidence", 0.5)
+                parsed.setdefault("issues", [])
+                parsed.setdefault("feedback", "")
+                return parsed
+            return {"passed": True, "confidence": 0.5, "issues": ["無法解析驗證結果"], "feedback": ""}
+        except Exception as e:
+            log.warning("LLM 驗證失敗: %s", e)
+            return {"passed": True, "confidence": 0.5, "issues": [], "feedback": ""}
+
+    async def query(self, question: str, mode: str = "accurate") -> Dict[str, Any]:
+        """Full pipeline with optional verification loop.
+        mode: 'fast' (no verification) or 'accurate' (with verification loop)
+        """
+        # Check Redis cache first
+        cache_key = f"nl2sql:{hashlib.md5(question.encode()).hexdigest()}"
+        redis_conn = None
+        try:
+            import redis.asyncio as aioredis
+            redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
+            redis_conn = aioredis.from_url(redis_url)
+            cached = await redis_conn.get(cache_key)
+            if cached:
+                result = json.loads(cached)
+                result["cached"] = True
+                await redis_conn.aclose()
+                return result
+        except Exception:
+            pass
+
+        max_iter = 3 if mode == "accurate" else 1
+        history: List[Dict[str, Any]] = []
+        last_result: Optional[Dict[str, Any]] = None
+        final_confidence = None
+
+        for attempt in range(max_iter):
+            feedback = history[-1].get("feedback") if history else None
+
+            # 1. Generate SQL
+            gen = await self.generate_sql(question, feedback=feedback)
+            model_name = gen.get("_model", self.model)
+            llm_ms = gen.get("_llm_ms")
+
+            if gen.get("error") or not gen.get("sql"):
+                history.append({
+                    "attempt": attempt + 1,
+                    "sql": None,
+                    "error": gen.get("error", "無法產生 SQL"),
+                    "feedback": gen.get("error", "無法產生 SQL"),
+                })
+                continue
+
+            sql = gen["sql"]
+
+            # 2. Validate SQL
+            err = self.validate_sql(sql)
+            if err:
+                history.append({
+                    "attempt": attempt + 1,
+                    "sql": sql,
+                    "error": f"SQL 驗證失敗：{err}",
+                    "feedback": f"SQL 驗證失敗：{err}",
+                })
+                continue
+
+            # 3. Execute SQL
+            result = await self.execute_sql(sql)
+            if result.get("error"):
+                history.append({
+                    "attempt": attempt + 1,
+                    "sql": sql,
+                    "error": result["error"],
+                    "feedback": f"SQL 執行錯誤：{result['error']}",
+                })
+                continue
+
+            # 4. Rule-based validation
+            rule_issues = self._rule_validate(question, sql, result)
+            if rule_issues and attempt < max_iter - 1:
+                feedback_text = "；".join(rule_issues)
+                history.append({
+                    "attempt": attempt + 1,
+                    "sql": sql,
+                    "row_count": result.get("row_count", 0),
+                    "rule_issues": rule_issues,
+                    "feedback": feedback_text,
+                })
+                continue
+
+            # 5. LLM verification (only in accurate mode, skip on last attempt)
+            verify_result = None
+            if mode == "accurate" and attempt < max_iter - 1:
+                verify_result = await self._llm_verify(question, sql, result)
+                if not verify_result.get("passed", True) and verify_result.get("feedback"):
+                    all_issues = rule_issues + verify_result.get("issues", [])
+                    feedback_text = verify_result["feedback"]
+                    if rule_issues:
+                        feedback_text = "；".join(rule_issues) + "；" + feedback_text
+                    history.append({
+                        "attempt": attempt + 1,
+                        "sql": sql,
+                        "row_count": result.get("row_count", 0),
+                        "rule_issues": rule_issues,
+                        "llm_verify": verify_result,
+                        "verify_ms": getattr(self, "_verify_ms", None),
+                        "feedback": feedback_text,
+                    })
+                    continue
+
+            # All passed — build final result
+            if verify_result:
+                final_confidence = verify_result.get("confidence", 0.8)
+            elif rule_issues:
+                final_confidence = 0.6
+            else:
+                final_confidence = 0.85 if mode == "fast" else 0.9
+
+            history.append({
+                "attempt": attempt + 1,
+                "sql": sql,
+                "row_count": result.get("row_count", 0),
+                "rule_issues": rule_issues,
+                "llm_verify": verify_result,
+                "verify_ms": getattr(self, "_verify_ms", None),
+                "passed": True,
+            })
+
+            last_result = {
+                "success": True,
+                "sql": sql,
+                "explanation": gen.get("explanation"),
+                "data": result["rows"],
+                "columns": result["columns"],
+                "row_count": result["row_count"],
+                "execution_ms": result.get("execution_ms"),
+                "model": model_name,
+                "llm_ms": llm_ms,
+                "verify_ms": getattr(self, "_verify_ms", None),
+                "iterations": len(history),
+                "confidence": final_confidence,
+                "verification_history": history,
+                "mode": mode,
+                "cached": False,
+                "query_plan": self._query_plan,
+            }
+            break
+
+        # If loop exhausted without success, return last error
+        if last_result is None:
+            last_error = history[-1] if history else {}
+            last_result = {
                 "success": False,
-                "error": gen.get("error", "無法產生 SQL"),
-                "sql": None,
+                "error": last_error.get("error", "所有重試均失敗"),
+                "sql": last_error.get("sql"),
                 "explanation": None,
                 "data": [],
                 "columns": [],
                 "row_count": 0,
-                "model": model_name,
-                "llm_ms": llm_ms,
+                "model": self.model,
+                "llm_ms": None,
+                "verify_ms": None,
+                "iterations": len(history),
+                "confidence": 0.0,
+                "verification_history": history,
+                "mode": mode,
+                "cached": False,
+                "query_plan": self._query_plan,
             }
 
-        sql = gen["sql"]
-        err = self.validate_sql(sql)
-        if err:
-            return {
-                "success": False,
-                "error": f"SQL 驗證失敗：{err}",
-                "sql": sql,
-                "explanation": gen.get("explanation"),
-                "data": [],
-                "columns": [],
-                "row_count": 0,
-                "model": model_name,
-                "llm_ms": llm_ms,
-            }
+        # Cache successful results (TTL 1 hour)
+        if last_result.get("success") and redis_conn:
+            try:
+                cache_data = {k: v for k, v in last_result.items() if k != "verification_history"}
+                await redis_conn.setex(cache_key, 3600, json.dumps(cache_data, ensure_ascii=False, default=str))
+            except Exception:
+                pass
 
-        result = await self.execute_sql(sql)
-        if result.get("error"):
-            return {
-                "success": False,
-                "error": result["error"],
-                "sql": sql,
-                "explanation": gen.get("explanation"),
-                "data": [],
-                "columns": [],
-                "row_count": 0,
-                "model": model_name,
-                "llm_ms": llm_ms,
-            }
+        if redis_conn:
+            try:
+                await redis_conn.aclose()
+            except Exception:
+                pass
 
-        return {
-            "success": True,
-            "sql": sql,
-            "explanation": gen.get("explanation"),
-            "data": result["rows"],
-            "columns": result["columns"],
-            "row_count": result["row_count"],
-            "execution_ms": result.get("execution_ms"),
-            "model": model_name,
-            "llm_ms": llm_ms,
-        }
+        return last_result
