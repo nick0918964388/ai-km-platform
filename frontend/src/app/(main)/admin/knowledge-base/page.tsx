@@ -46,8 +46,12 @@ export default function KnowledgeBasePage() {
   // Fetch documents from API on mount
   const fetchDocuments = useCallback(async () => {
     try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+      const headers: Record<string, string> = {};
+      if (API_KEY) headers['X-API-Key'] = API_KEY;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetchWithTimeout(`${API_BASE}/api/kb/documents`, {
-        headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
+        headers,
         timeout: TIMEOUTS.DEFAULT,
       });
       if (res.ok) {
@@ -121,9 +125,13 @@ export default function KnowledgeBasePage() {
       formData.append('file', file);
 
       try {
+        const uploadToken = localStorage.getItem('auth_token');
+        const uploadHeaders: Record<string, string> = {};
+        if (API_KEY) uploadHeaders['X-API-Key'] = API_KEY;
+        if (uploadToken) uploadHeaders['Authorization'] = `Bearer ${uploadToken}`;
         const res = await fetchWithTimeout(`${API_BASE}/api/kb/upload`, {
           method: 'POST',
-          headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
+          headers: uploadHeaders,
           body: formData,
           timeout: TIMEOUTS.UPLOAD,
         });
@@ -160,9 +168,13 @@ export default function KnowledgeBasePage() {
   const handleDelete = async (id: string) => {
     if (confirm('確定要刪除此文件？相關的知識庫內容也會被移除。')) {
       try {
+        const deleteToken = localStorage.getItem('auth_token');
+        const deleteHeaders: Record<string, string> = {};
+        if (API_KEY) deleteHeaders['X-API-Key'] = API_KEY;
+        if (deleteToken) deleteHeaders['Authorization'] = `Bearer ${deleteToken}`;
         const res = await fetchWithTimeout(`${API_BASE}/api/kb/documents/${id}`, {
           method: 'DELETE',
-          headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
+          headers: deleteHeaders,
           timeout: TIMEOUTS.DEFAULT,
         });
         if (res.ok) {

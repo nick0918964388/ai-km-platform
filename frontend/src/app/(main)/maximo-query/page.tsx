@@ -100,9 +100,13 @@ export default function MaximoQueryPage() {
     });
 
     try {
+      const token = localStorage.getItem('auth_token');
       const res = await fetch(`${API}/api/maximo/nl2sql`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ question: q2, mode }),
       });
       const data = await res.json();

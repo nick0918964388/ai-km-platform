@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile, maximo
+from app.routers.auth import router as auth_router
 from app.config import get_settings
 
 # API Key for authentication
@@ -27,10 +28,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     
     # Endpoints that don't require API key
     PUBLIC_PATHS = ["/", "/health", "/docs", "/openapi.json", "/redoc"]
-    
+
     async def dispatch(self, request: Request, call_next):
         # Skip API key check for public paths
-        if request.url.path in self.PUBLIC_PATHS:
+        if request.url.path in self.PUBLIC_PATHS or request.url.path.startswith("/api/auth/"):
             return await call_next(request)
         
         # Skip if no API key is configured (development mode)
@@ -80,6 +81,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Maximo tag migration skipped: {e}")
 
+    # Permission tables migration
+    try:
+        from app.db.session import get_db_context
+        from sqlalchemy import text as _text
+        import pathlib
+        migration_path = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "maximo_migrate_005_permissions.sql"
+        if migration_path.exists():
+            sql_content = migration_path.read_text()
+            async with get_db_context() as db:
+                for stmt in sql_content.split(";"):
+                    stmt = stmt.strip()
+                    if stmt:
+                        await db.execute(_text(stmt))
+            print("✅ Permission tables ensured")
+    except Exception as e:
+        print(f"⚠️ Permission migration skipped: {e}")
+
     yield
 
     # Shutdown
@@ -122,6 +140,7 @@ app.include_router(dashboard.router, prefix="/api")
 app.include_router(profile.router)  # Already includes /api/profile prefix
 app.include_router(profile.avatar_router)  # Avatar static files at /api/avatars
 app.include_router(maximo.router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
 
 
 @app.get("/")

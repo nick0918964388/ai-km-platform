@@ -589,12 +589,87 @@ class MaximoNL2SQL:
             log.warning("LLM 驗證失敗: %s", e)
             return {"passed": True, "confidence": 0.5, "issues": [], "feedback": ""}
 
-    async def query(self, question: str, mode: str = "accurate") -> Dict[str, Any]:
+    async def _load_user_permissions(self, user_context: dict) -> dict:
+        """Load permission group settings for the current user."""
+        if not user_context or user_context.get("role") == "admin":
+            return {"allow_freeform": True, "allowed_tables": set(), "row_filters": {}, "max_results": 500}
+
+        user_id = user_context.get("id", "guest")
+        try:
+            result = await self.db.execute(text("""
+                SELECT pg.allowed_tables, pg.row_filters, pg.hidden_columns,
+                       pg.allow_freeform, pg.max_results,
+                       up.section, up.workshop
+                FROM user_permissions up
+                JOIN permission_groups pg ON pg.id = up.group_id
+                WHERE up.user_id = :uid
+                LIMIT 1
+            """), {"uid": user_id})
+            row = result.fetchone()
+        except Exception as e:
+            log.warning("載入使用者權限失敗: %s", e)
+            row = None
+
+        if not row:
+            return {"allow_freeform": True, "allowed_tables": set(), "row_filters": {}, "max_results": 100}
+
+        return {
+            "allow_freeform": row.allow_freeform,
+            "allowed_tables": set(row.allowed_tables) if row.allowed_tables else set(),
+            "row_filters": row.row_filters or {},
+            "hidden_columns": row.hidden_columns or {},
+            "max_results": row.max_results or 100,
+            "section": row.section or "",
+            "workshop": row.workshop or "",
+        }
+
+    def _inject_row_filters(self, sql: str, filters: dict, user_context: dict) -> str:
+        """Inject row-level security WHERE clauses."""
+        section = (user_context or {}).get("section", "")
+        workshop = (user_context or {}).get("workshop", "")
+
+        for table, condition in filters.items():
+            if table.lower() in sql.lower():
+                cond = condition.replace("{section}", section).replace("{workshop}", workshop)
+                if cond and section:
+                    sql = f"SELECT * FROM ({sql}) _filtered WHERE {cond}"
+                    break
+        return sql
+
+    async def _write_audit_log(self, user_context: dict, question: str, sql: str, result: dict):
+        """Write query to audit log."""
+        try:
+            user_id = (user_context or {}).get("id", "guest")
+            user_email = (user_context or {}).get("email", "")
+            tables = re.findall(r'\b(?:from|join)\s+(\w+)', (sql or "").lower())
+            await self.db.execute(text("""
+                INSERT INTO query_audit_log (user_id, user_email, question, sql_generated, tables_accessed, row_count, mode)
+                VALUES (:uid, :email, :q, :sql, :tables, :rows, :mode)
+            """), {
+                "uid": user_id, "email": user_email, "q": question,
+                "sql": sql, "tables": list(set(tables)),
+                "rows": result.get("row_count", 0), "mode": "nl2sql",
+            })
+            await self.db.commit()
+        except Exception as e:
+            log.warning("寫入稽核日誌失敗: %s", e)
+
+    async def query(self, question: str, mode: str = "accurate", user_context: dict = None) -> Dict[str, Any]:
         """Full pipeline with optional verification loop.
         mode: 'fast' (no verification) or 'accurate' (with verification loop)
         """
+        # Permission check
+        perm = await self._load_user_permissions(user_context)
+        if not perm.get("allow_freeform", True):
+            return {"success": False, "error": "您的帳戶不允許自由查詢，請使用範例查詢",
+                    "sql": None, "explanation": None, "data": [], "columns": [],
+                    "row_count": 0, "model": self.model, "llm_ms": None, "verify_ms": None,
+                    "iterations": 0, "confidence": 0.0, "verification_history": [],
+                    "mode": mode, "cached": False, "query_plan": None}
+
         # Check Redis cache for SQL (only caches the generated SQL, not data)
-        cache_key = f"nl2sql_sql:{hashlib.md5(question.encode()).hexdigest()}"
+        role = (user_context or {}).get("role", "guest")
+        cache_key = f"nl2sql_sql:{role}:{hashlib.md5(question.encode()).hexdigest()}"
         redis_conn = None
         cached_sql = None
         try:
@@ -670,6 +745,27 @@ class MaximoNL2SQL:
                     "feedback": f"SQL 驗證失敗：{err}",
                 })
                 continue
+
+            # 2b. Permission-based table access check
+            if perm.get("allowed_tables"):
+                tables_in_sql = re.findall(r'\b(?:from|join)\s+(\w+)', sql.lower())
+                for t in tables_in_sql:
+                    if t not in perm["allowed_tables"] and t not in {"lateral", "unnest"}:
+                        history.append({
+                            "attempt": attempt + 1,
+                            "sql": sql,
+                            "error": f"您沒有權限查詢 {t}",
+                            "feedback": f"權限不足：無法查詢 {t}",
+                        })
+                        break
+                else:
+                    pass  # all tables allowed
+                if history and history[-1].get("attempt") == attempt + 1 and "權限" in history[-1].get("error", ""):
+                    continue
+
+            # 2c. Inject row filters
+            if perm.get("row_filters"):
+                sql = self._inject_row_filters(sql, perm["row_filters"], user_context)
 
             # 3. Execute SQL
             result = await self.execute_sql(sql)
@@ -793,5 +889,16 @@ class MaximoNL2SQL:
                 await redis_conn.aclose()
             except Exception:
                 pass
+
+        # Enforce max_results
+        max_results = perm.get("max_results", 500)
+        if last_result.get("success") and last_result.get("data"):
+            if len(last_result["data"]) > max_results:
+                last_result["data"] = last_result["data"][:max_results]
+                last_result["row_count"] = max_results
+
+        # Write audit log
+        if last_result.get("sql"):
+            await self._write_audit_log(user_context, question, last_result.get("sql"), last_result)
 
         return last_result

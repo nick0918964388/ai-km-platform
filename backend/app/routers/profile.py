@@ -11,25 +11,17 @@ from app.models.profile import UserProfile, ProfileUpdateRequest, AvatarUploadRe
 from app.services.profile import get_user_profile, update_profile, update_avatar_url
 from app.services.avatar import process_avatar, delete_avatar, get_avatar_path
 from app.services.dashboard import get_metrics, get_recent_activity, get_top_topics
+from app.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/profile", tags=["Profile"])
 
 
-# TODO: Replace with JWT authentication middleware
-def get_current_user_id() -> str:
-    """
-    Placeholder for authentication.
-    In production, this should extract user_id from JWT token.
-    """
-    return "demo-user-123"
-
-
 @router.get("", response_model=UserProfile)
 async def get_profile(
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
+    user: dict = Depends(get_current_user)
 ):
     """
     Retrieve the authenticated user's profile information.
@@ -41,19 +33,19 @@ async def get_profile(
         HTTPException: 404 if user not found
     """
     try:
-        profile = await get_user_profile(db, user_id)
+        profile = await get_user_profile(db, user["id"])
 
         if not profile:
             raise HTTPException(
                 status_code=404,
-                detail=f"User profile not found for user_id: {user_id}"
+                detail=f"User profile not found for user_id: {user['id']}"
             )
 
         return profile
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error retrieving profile for user {user_id}: {e}")
+        logger.error(f"Error retrieving profile for user {user['id']}: {e}")
         raise HTTPException(
             status_code=500,
             detail="Internal server error while retrieving profile"
@@ -64,7 +56,7 @@ async def get_profile(
 async def update_user_profile(
     profile_update: ProfileUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
+    user: dict = Depends(get_current_user)
 ):
     """
     Update the authenticated user's profile display name.
@@ -79,12 +71,12 @@ async def update_user_profile(
         HTTPException: 404 if user not found, 422 if validation fails
     """
     try:
-        updated_profile = await update_profile(db, user_id, profile_update)
+        updated_profile = await update_profile(db, user["id"], profile_update)
 
         if not updated_profile:
             raise HTTPException(
                 status_code=404,
-                detail=f"User profile not found for user_id: {user_id}"
+                detail=f"User profile not found for user_id: {user['id']}"
             )
 
         return updated_profile
@@ -94,7 +86,7 @@ async def update_user_profile(
         # Pydantic validation errors
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.error(f"Error updating profile for user {user_id}: {e}")
+        logger.error(f"Error updating profile for user {user['id']}: {e}")
         raise HTTPException(
             status_code=500,
             detail="Internal server error while updating profile"
@@ -105,7 +97,7 @@ async def update_user_profile(
 async def upload_avatar(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
+    user: dict = Depends(get_current_user)
 ):
     """
     Upload a new avatar image for the authenticated user.
@@ -128,21 +120,21 @@ async def upload_avatar(
 
         # Process and save avatar
         avatar_url, filename = await process_avatar(
-            user_id=user_id,
+            user_id=user["id"],
             file_content=file_content,
             filename=file.filename or "avatar.jpg"
         )
 
         # Get user's current avatar to delete old one
-        current_profile = await get_user_profile(db, user_id)
+        current_profile = await get_user_profile(db, user["id"])
         if current_profile and current_profile.avatar_url:
             # Delete old avatar (don't fail if deletion fails)
             await delete_avatar(current_profile.avatar_url)
 
         # Update user's avatar URL in database
-        await update_avatar_url(db, user_id, avatar_url)
+        await update_avatar_url(db, user["id"], avatar_url)
 
-        logger.info(f"Avatar uploaded successfully for user {user_id}")
+        logger.info(f"Avatar uploaded successfully for user {user['id']}")
         return AvatarUploadResponse(
             avatar_url=avatar_url,
             message="Avatar uploaded successfully"
@@ -155,7 +147,7 @@ async def upload_avatar(
         # File processing errors
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Error uploading avatar for user {user_id}: {e}")
+        logger.error(f"Error uploading avatar for user {user['id']}: {e}")
         raise HTTPException(
             status_code=500,
             detail="Internal server error while uploading avatar"
@@ -165,7 +157,7 @@ async def upload_avatar(
 @router.delete("/avatar")
 async def remove_avatar(
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
+    user: dict = Depends(get_current_user)
 ):
     """
     Remove the authenticated user's custom avatar and revert to account initials display.
@@ -178,12 +170,12 @@ async def remove_avatar(
     """
     try:
         # Get user's current avatar
-        current_profile = await get_user_profile(db, user_id)
+        current_profile = await get_user_profile(db, user["id"])
 
         if not current_profile:
             raise HTTPException(
                 status_code=404,
-                detail=f"User profile not found for user_id: {user_id}"
+                detail=f"User profile not found for user_id: {user['id']}"
             )
 
         if current_profile.avatar_url:
@@ -191,9 +183,9 @@ async def remove_avatar(
             await delete_avatar(current_profile.avatar_url)
 
             # Update database to remove avatar URL
-            await update_avatar_url(db, user_id, None)
+            await update_avatar_url(db, user["id"], None)
 
-            logger.info(f"Avatar removed for user {user_id}")
+            logger.info(f"Avatar removed for user {user['id']}")
             return {"message": "Avatar removed successfully"}
         else:
             return {"message": "No avatar to remove"}
@@ -201,7 +193,7 @@ async def remove_avatar(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error removing avatar for user {user_id}: {e}")
+        logger.error(f"Error removing avatar for user {user['id']}: {e}")
         raise HTTPException(
             status_code=500,
             detail="Internal server error while removing avatar"
@@ -213,7 +205,7 @@ async def remove_avatar(
 async def get_dashboard_metrics(
     refresh: bool = Query(False, description="Bypass cache and fetch fresh data"),
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
+    user: dict = Depends(get_current_user)
 ):
     """
     Get complete dashboard metrics for the authenticated user.
@@ -237,13 +229,13 @@ async def get_dashboard_metrics(
         HTTPException: 404 if user not found, 500 on server error
     """
     try:
-        metrics = await get_metrics(db, user_id, refresh=refresh)
+        metrics = await get_metrics(db, user["id"], refresh=refresh)
         return metrics
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.error(f"Error fetching dashboard metrics for user {user_id}: {e}")
+        logger.error(f"Error fetching dashboard metrics for user {user['id']}: {e}")
         raise HTTPException(
             status_code=500,
             detail="Internal server error while fetching dashboard metrics"
@@ -254,7 +246,7 @@ async def get_dashboard_metrics(
 async def get_dashboard_activity(
     limit: int = Query(20, ge=1, le=100, description="Number of activity entries to return"),
     offset: int = Query(0, ge=0, description="Number of entries to skip"),
-    user_id: str = Depends(get_current_user_id)
+    user: dict = Depends(get_current_user)
 ):
     """
     Get recent activity entries for the authenticated user with pagination.
@@ -271,7 +263,7 @@ async def get_dashboard_activity(
     """
     try:
         # Fetch activity (offset + limit to support pagination)
-        all_activities = await get_recent_activity(user_id, limit=offset + limit)
+        all_activities = await get_recent_activity(user["id"], limit=offset + limit)
 
         # Apply offset
         activities = all_activities[offset:offset + limit]
@@ -284,7 +276,7 @@ async def get_dashboard_activity(
         }
 
     except Exception as e:
-        logger.error(f"Error fetching activity for user {user_id}: {e}")
+        logger.error(f"Error fetching activity for user {user['id']}: {e}")
         raise HTTPException(
             status_code=500,
             detail="Internal server error while fetching activity"
@@ -295,7 +287,7 @@ async def get_dashboard_activity(
 async def get_dashboard_topics(
     limit: int = Query(5, ge=1, le=20, description="Number of top topics to return"),
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
+    user: dict = Depends(get_current_user)
 ):
     """
     Get top searched topics for the authenticated user.
@@ -310,7 +302,7 @@ async def get_dashboard_topics(
         HTTPException: 500 on server error
     """
     try:
-        topics = await get_top_topics(db, user_id, limit=limit)
+        topics = await get_top_topics(db, user["id"], limit=limit)
 
         return {
             "topics": topics,
@@ -318,7 +310,7 @@ async def get_dashboard_topics(
         }
 
     except Exception as e:
-        logger.error(f"Error fetching top topics for user {user_id}: {e}")
+        logger.error(f"Error fetching top topics for user {user['id']}: {e}")
         raise HTTPException(
             status_code=500,
             detail="Internal server error while fetching top topics"

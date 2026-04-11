@@ -24,31 +24,39 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
 
-    // Demo login - will be replaced with actual auth
-    setTimeout(() => {
-      if (email === 'admin@example.com' && password === 'admin') {
-        setUser({
-          id: '1',
-          name: '管理員',
-          email: 'admin@example.com',
-          role: 'admin',
-          createdAt: new Date(),
-        });
-        router.push('/chat');
-      } else if (email && password) {
-        setUser({
-          id: '2',
-          name: email.split('@')[0],
-          email: email,
-          role: 'user',
-          createdAt: new Date(),
-        });
-        router.push('/chat');
-      } else {
-        setError('請輸入帳號密碼');
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        setError(err.detail || '登入失敗');
+        setLoading(false);
+        return;
       }
+
+      const data = await res.json();
+
+      // Store JWT token
+      localStorage.setItem('auth_token', data.token);
+
+      // Store user in Zustand
+      setUser({
+        id: data.user.id,
+        name: data.user.name,
+        email: data.user.email,
+        role: data.user.role as 'admin' | 'user' | 'guest',
+        createdAt: new Date(),
+      });
+
+      router.push('/chat');
+    } catch (err) {
+      setError('無法連線到伺服器');
       setLoading(false);
-    }, 500);
+    }
   };
 
   return (

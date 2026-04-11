@@ -11,6 +11,7 @@ from sqlalchemy import text
 from app.db.session import get_db
 from app.services.maximo_nl2sql import MaximoNL2SQL
 from app.services.maximo_schema_rag import MaximoSchemaRAG
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/maximo", tags=["Maximo"])
 
@@ -65,10 +66,10 @@ async def discover_and_index(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/nl2sql", response_model=NL2SQLResponse)
-async def nl2sql(req: NL2SQLRequest, db: AsyncSession = Depends(get_db)):
+async def nl2sql(req: NL2SQLRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
     """Convert natural language question to SQL and execute against Maximo tables."""
     service = MaximoNL2SQL(db)
-    result = await service.query(req.question, mode=req.mode)
+    result = await service.query(req.question, mode=req.mode, user_context=user)
     return NL2SQLResponse(**result)
 
 

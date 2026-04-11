@@ -168,6 +168,10 @@ export const useStore = create<AppState>((set, get) => ({
       const activeConversationId = loadActiveConversationId(user.id);
       set({ conversations, activeConversationId });
     } else {
+      // Clear JWT token on logout
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token');
+      }
       set({ conversations: [], activeConversationId: null });
     }
   },

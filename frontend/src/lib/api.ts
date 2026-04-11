@@ -208,6 +208,11 @@ export async function apiRequest<T>(
     headers.set('X-API-Key', API_KEY);
   }
 
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
   const response = await fetchWithTimeout(`${API_URL}${endpoint}`, {
     ...fetchOptions,
     headers,
@@ -216,6 +221,14 @@ export async function apiRequest<T>(
     signal,
     onRetry,
   });
+
+  if (response.status === 401) {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('user_session');
+      window.location.href = '/login';
+    }
+  }
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -294,6 +307,11 @@ export async function apiUpload<T>(
     headers.set('X-API-Key', API_KEY);
   }
 
+  const uploadToken = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  if (uploadToken) {
+    headers.set('Authorization', `Bearer ${uploadToken}`);
+  }
+
   const response = await fetchWithTimeout(`${API_URL}${endpoint}`, {
     method: 'POST',
     body: formData,
@@ -339,14 +357,19 @@ export function getErrorMessage(error: unknown): string {
  * Get base headers with API key
  */
 export function getApiHeaders(): HeadersInit {
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  
+
   if (API_KEY) {
     headers['X-API-Key'] = API_KEY;
   }
-  
+
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   return headers;
 }
 
