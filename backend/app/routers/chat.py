@@ -105,29 +105,26 @@ async def chat_stream(request: ChatRequest):
                 yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'sql_generate', 'label': '產生 SQL 查詢', 'status': 'done'}}, ensure_ascii=False)}\n\n"
 
                 if sql_result.get("success"):
-                    # Format result as markdown table
-                    md_lines = []
-                    if sql_result.get("explanation"):
-                        md_lines.append(f"**{sql_result['explanation']}**\n")
+                    # Send brief explanation as content (for message text)
+                    explanation = sql_result.get("explanation", "查詢完成")
+                    yield f"data: {json.dumps({'type': 'content', 'data': explanation}, ensure_ascii=False)}\n\n"
 
-                    cols = sql_result.get("columns", [])
-                    data = sql_result.get("data", [])
-                    if cols and data:
-                        md_lines.append(f"共 {sql_result.get('row_count', 0)} 筆結果：\n")
-                        md_lines.append("| " + " | ".join(cols) + " |")
-                        md_lines.append("| " + " | ".join(["---"] * len(cols)) + " |")
-                        for row in data[:20]:
-                            values = [str(row.get(c, "—")) for c in cols]
-                            md_lines.append("| " + " | ".join(values) + " |")
-                        if len(data) > 20:
-                            md_lines.append(f"\n*（僅顯示前 20 筆，共 {len(data)} 筆）*")
-
-                    content = "\n".join(md_lines)
-                    yield f"data: {json.dumps({'type': 'content', 'data': content}, ensure_ascii=False)}\n\n"
-
-                    # Emit chart suggestion if available
-                    if sql_result.get("chart_suggestion"):
-                        yield f"data: {json.dumps({'type': 'chart', 'data': {'suggestion': sql_result['chart_suggestion'], 'chart_data': data[:50], 'columns': cols}}, ensure_ascii=False)}\n\n"
+                    # Send full structured result for rich rendering
+                    sql_event_data = {
+                        "success": True,
+                        "sql": sql_result.get("sql"),
+                        "explanation": sql_result.get("explanation"),
+                        "columns": sql_result.get("columns", []),
+                        "data": sql_result.get("data", [])[:50],
+                        "row_count": sql_result.get("row_count", 0),
+                        "execution_ms": sql_result.get("execution_ms"),
+                        "llm_ms": sql_result.get("llm_ms"),
+                        "model": sql_result.get("model"),
+                        "confidence": sql_result.get("confidence"),
+                        "chart_suggestion": sql_result.get("chart_suggestion"),
+                        "cached": sql_result.get("cached", False),
+                    }
+                    yield f"data: {json.dumps({'type': 'sql_result', 'data': sql_event_data}, ensure_ascii=False)}\n\n"
 
                     # Metadata
                     yield f"data: {json.dumps({'type': 'metadata', 'data': {'model': sql_result.get('model', 'nl2sql'), 'duration_ms': sql_result.get('llm_ms', 0), 'sql': sql_result.get('sql'), 'intent': intent_result}}, ensure_ascii=False)}\n\n"

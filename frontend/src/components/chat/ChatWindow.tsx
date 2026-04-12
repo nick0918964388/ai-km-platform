@@ -10,7 +10,7 @@ import {
 } from '@carbon/icons-react';
 import ReactMarkdown from 'react-markdown';
 import { useStore } from '@/store/useStore';
-import ChartRenderer from '@/components/maximo/ChartRenderer';
+import SqlResultCard from '@/components/maximo/SqlResultCard';
 import { Message, SearchResult } from '@/types';
 import SourcePreview from './SourcePreview';
 import { getApiHeaders, API_URL, TIMEOUTS, fetchWithTimeout, TimeoutError, getErrorMessage } from '@/lib/api';
@@ -45,16 +45,6 @@ interface ExpandedInfoMap {
 
 interface MessageFollowUps {
   [messageId: string]: string[];
-}
-
-interface ChartInfo {
-  suggestion: { type: string; x_key?: string; y_key?: string; name_key?: string; value_key?: string; title?: string };
-  data: any[];
-  columns: string[];
-}
-
-interface ChartDataMap {
-  [messageId: string]: ChartInfo;
 }
 
 // Helper: get score color based on similarity value
@@ -115,7 +105,7 @@ export default function ChatWindow() {
   const [messageQueries, setMessageQueries] = useState<{ [msgId: string]: string }>({});
   const [expandedSources, setExpandedSources] = useState<{ [key: string]: boolean }>({});
   const [taskSteps, setTaskSteps] = useState<Step[]>([]);
-  const [chartDataMap, setChartDataMap] = useState<ChartDataMap>({});
+  const [messageSqlResults, setMessageSqlResults] = useState<Record<string, any>>({});
   const [selectedModel, setSelectedModel] = useState('qwen3-vl:32b');
   const [historyOpen, setHistoryOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -169,6 +159,7 @@ export default function ChatWindow() {
       // Reset when no messages
       setMessageSources({});
       setMessageQueries({});
+      setMessageSqlResults({});
     }
   }, [activeConversationId, messages]);
 
@@ -313,15 +304,8 @@ export default function ChatWindow() {
                     }
                     return [...prev, step];
                   });
-                } else if (data.type === 'chart' && data.data) {
-                  setChartDataMap(prev => ({
-                    ...prev,
-                    [messageId]: {
-                      suggestion: data.data.suggestion,
-                      data: data.data.chart_data,
-                      columns: data.data.columns,
-                    },
-                  }));
+                } else if (data.type === 'sql_result' && data.data) {
+                  setMessageSqlResults(prev => ({ ...prev, [messageId]: data.data }));
                 } else if (data.type === 'done') {
                   setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
                   // Save sources to message for persistence
@@ -825,17 +809,12 @@ export default function ChatWindow() {
                         </p>
                       ))
                     )}
-                    {/* Chart from Maximo data query */}
-                    {msg.role === 'assistant' && chartDataMap[msg.id] && !messageStreamingStatus[msg.id] && (
-                      <div style={{ marginTop: '0.75rem' }}>
-                        <ChartRenderer
-                          data={chartDataMap[msg.id].data}
-                          columns={chartDataMap[msg.id].columns}
-                          chartSuggestion={chartDataMap[msg.id].suggestion as any}
-                          showControls={true}
-                          height={250}
-                        />
-                      </div>
+                    {/* SQL Result Card */}
+                    {msg.role === 'assistant' && messageSqlResults[msg.id] && !messageStreamingStatus[msg.id] && (
+                      <SqlResultCard
+                        result={messageSqlResults[msg.id]}
+                        question={messageQueries[msg.id] || ''}
+                      />
                     )}
                     {/* 來源文件 - 只在 streaming 完成後且 AI 回答引用了來源時顯示 */}
                     {msg.role === 'assistant' && 
