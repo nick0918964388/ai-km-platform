@@ -93,6 +93,25 @@ export default function MaximoQueryPage() {
     timersRef.current = [];
   };
 
+  const exportExcel = async (q: string) => {
+    const token = localStorage.getItem('auth_token');
+    try {
+      const res = await fetch(`/api/maximo/export?question=${encodeURIComponent(q)}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `maximo_export.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Export error:', e);
+    }
+  };
+
   const runQuery = async (q: string) => {
     const q2 = q.trim();
     if (!q2) return;
@@ -363,6 +382,15 @@ export default function MaximoQueryPage() {
             {/* Feedback buttons */}
             {result.success && result.sql && (
               <FeedbackButtons question={question} sql={result.sql} />
+            )}
+            {result.success && result.row_count && result.row_count > 0 && (
+              <button onClick={() => exportExcel(question)} style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                color: 'var(--text-muted)', background: 'none', border: 'none',
+                cursor: 'pointer', fontSize: '0.8125rem',
+              }}>
+                📥 Excel
+              </button>
             )}
             {result.sql && (
               <button

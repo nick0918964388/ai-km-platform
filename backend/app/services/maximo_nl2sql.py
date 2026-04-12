@@ -679,6 +679,31 @@ class MaximoNL2SQL:
         except Exception as e:
             log.warning("寫入稽核日誌失敗: %s", e)
 
+    def _generate_summary(self, columns: list, data: list, row_count: int) -> Optional[str]:
+        """Auto-generate summary stats for large result sets."""
+        if row_count <= 10 or not data or not columns:
+            return None
+
+        parts = [f"共 {row_count} 筆結果"]
+
+        for col in columns:
+            values = [row.get(col) for row in data if row.get(col) is not None]
+            if not values:
+                continue
+
+            # Count distinct
+            unique = set(str(v) for v in values)
+            if 2 <= len(unique) <= 20 and len(unique) < len(values) * 0.8:
+                parts.append(f"{col} 共 {len(unique)} 種")
+
+            # Numeric stats
+            nums = [v for v in values if isinstance(v, (int, float))]
+            if nums and len(nums) > 5:
+                total = sum(nums)
+                parts.append(f"{col} 合計 {total:,.0f}")
+
+        return "｜".join(parts) if len(parts) > 1 else None
+
     def _suggest_chart(self, question: str, sql: str, result: Dict) -> Optional[Dict]:
         """Analyze SQL + result to suggest chart type. Returns None if table is best."""
         if not result.get("columns") or result.get("row_count", 0) == 0:
@@ -784,6 +809,7 @@ class MaximoNL2SQL:
                         "mode": mode,
                         "cached": True,
                         "query_plan": None,
+                        "summary": self._generate_summary(result["columns"], result["rows"], result["row_count"]),
                     }
                     if redis_conn:
                         try: await redis_conn.aclose()
@@ -930,6 +956,7 @@ class MaximoNL2SQL:
                 "cached": False,
                 "query_plan": self._query_plan,
                 "chart_suggestion": chart_suggestion,
+                "summary": self._generate_summary(result["columns"], result["rows"], result["row_count"]),
             }
             break
 

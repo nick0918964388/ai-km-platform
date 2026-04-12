@@ -3,10 +3,12 @@ Maximo API Routes — NL→SQL structured query + knowledge base management.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+import io
 
 from app.db.session import get_db
 from app.services.maximo_nl2sql import MaximoNL2SQL
@@ -44,6 +46,7 @@ class NL2SQLResponse(BaseModel):
     cached: bool = False
     query_plan: Optional[Any] = None
     chart_suggestion: Optional[Any] = None
+    summary: Optional[str] = None
 
 
 @router.post("/schema/index")
@@ -74,6 +77,63 @@ async def nl2sql(req: NL2SQLRequest, db: AsyncSession = Depends(get_db), user: d
     service = MaximoNL2SQL(db)
     result = await service.query(req.question, mode=req.mode, user_context=user, conversation_history=req.history)
     return NL2SQLResponse(**result)
+
+
+@router.get("/export")
+async def export_results(
+    question: str,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """Export NL→SQL query results as Excel (.xlsx)."""
+    import openpyxl
+
+    service = MaximoNL2SQL(db)
+    result = await service.query(question, mode="fast", user_context=user)
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "查詢失敗"))
+
+    columns = result.get("columns", [])
+    data = result.get("data", [])
+
+    # Create Excel workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "查詢結果"
+
+    # Header row with styling
+    from openpyxl.styles import Font, PatternFill
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="0F62FE", end_color="0F62FE", fill_type="solid")
+
+    for col_idx, col_name in enumerate(columns, 1):
+        cell = ws.cell(row=1, column=col_idx, value=col_name)
+        cell.font = header_font
+        cell.fill = header_fill
+
+    # Data rows
+    for row_idx, row in enumerate(data, 2):
+        for col_idx, col_name in enumerate(columns, 1):
+            ws.cell(row=row_idx, column=col_idx, value=row.get(col_name))
+
+    # Auto-width columns
+    for col_idx, col_name in enumerate(columns, 1):
+        max_len = max(len(str(col_name)), max((len(str(row.get(col_name, ""))) for row in data[:100]), default=5))
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = min(max_len + 2, 40)
+
+    # Write to bytes
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"maximo_export_{question[:20].replace(' ', '_')}.xlsx"
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
 
 
 # ── Feedback ─────────────────────────────────────────────────────────────────

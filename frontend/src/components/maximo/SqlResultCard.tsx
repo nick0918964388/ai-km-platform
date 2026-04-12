@@ -19,6 +19,7 @@ interface SqlResultData {
   confidence?: number;
   chart_suggestion?: any;
   cached?: boolean;
+  summary?: string;
 }
 
 interface SqlResultCardProps {
@@ -31,7 +32,9 @@ export default function SqlResultCard({ result, question }: SqlResultCardProps) 
   const [copied, setCopied] = useState(false);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [docSearchRow, setDocSearchRow] = useState<Record<string, unknown> | null>(null);
-  const [viewMode, setViewMode] = useState<'table' | 'chart'>(result.chart_suggestion ? 'chart' : 'table');
+  const [viewMode, setViewMode] = useState<'table' | 'chart'>(
+    result.chart_suggestion || (result.row_count && result.row_count > 20) ? 'chart' : 'table'
+  );
   const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>(result.chart_suggestion?.type || 'bar');
 
   const copySQL = () => {
@@ -39,6 +42,25 @@ export default function SqlResultCard({ result, question }: SqlResultCardProps) 
       navigator.clipboard.writeText(result.sql);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const exportExcel = async () => {
+    const token = localStorage.getItem('auth_token');
+    try {
+      const res = await fetch(`/api/maximo/export?question=${encodeURIComponent(question)}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `maximo_export.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Export error:', e);
     }
   };
 
@@ -112,6 +134,18 @@ export default function SqlResultCard({ result, question }: SqlResultCardProps) 
 
       {/* Main content area */}
       <div style={{ padding: '0.75rem 1rem' }}>
+        {/* Summary for large results */}
+        {result.summary && (
+          <div style={{
+            padding: '0.5rem 0.75rem', margin: '0 0 0.5rem',
+            background: 'rgba(80,144,211,0.08)', borderRadius: 6,
+            fontSize: '0.8125rem', color: 'var(--text-secondary)',
+            borderLeft: '3px solid var(--accent)',
+          }}>
+            {result.summary}
+          </div>
+        )}
+
         {/* Chart + Table using shared components */}
         {result.data && result.data.length > 0 && result.columns && result.columns.length >= 2 && (
           <ChartRenderer
@@ -183,6 +217,17 @@ export default function SqlResultCard({ result, question }: SqlResultCardProps) 
           }}>
             {copied ? <Checkmark size={14} /> : <Copy size={14} />}
             {copied ? '已複製' : '複製'}
+          </button>
+        )}
+
+        {/* Excel export */}
+        {result.row_count && result.row_count > 0 && (
+          <button onClick={exportExcel} style={{
+            display: 'flex', alignItems: 'center', gap: 4,
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--text-muted)', fontSize: '0.75rem',
+          }}>
+            📥 Excel
           </button>
         )}
       </div>

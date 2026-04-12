@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import { TableSplit } from '@carbon/icons-react';
 
 interface QueryResultTableProps {
@@ -10,6 +11,11 @@ interface QueryResultTableProps {
 }
 
 export default function QueryResultTable({ columns, data, rowCount, onDocSearch, selectedRow }: QueryResultTableProps) {
+  const [page, setPage] = useState(0);
+  const pageSize = 10;
+  const totalPages = Math.ceil(data.length / pageSize);
+  const pagedData = data.slice(page * pageSize, (page + 1) * pageSize);
+
   const hasDocColumns = columns.some(c => ['description', 'wonum', 'ticketid', 'assetnum'].includes(c.toLowerCase()));
 
   return (
@@ -35,40 +41,66 @@ export default function QueryResultTable({ columns, data, rowCount, onDocSearch,
             </tr>
           </thead>
           <tbody>
-            {data.map((row, i) => (
-              <tr key={i} style={{ borderBottom: i < data.length - 1 ? '1px solid var(--border)' : 'none' }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-primary)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-              >
-                {columns.map(col => (
-                  <td key={col} style={{ padding: '0.5rem 0.875rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {row[col] == null ? <span style={{ color: 'var(--text-muted)' }}>—</span> : String(row[col])}
-                  </td>
-                ))}
-                {hasDocColumns && (
-                  <td style={{ padding: '0.5rem', textAlign: 'center' }}>
-                    {columns.some(c => ['description','wonum','ticketid','assetnum'].includes(c.toLowerCase()) && row[c] != null) && onDocSearch && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onDocSearch(row, i); }}
-                        title="搜尋相關文件"
-                        style={{
-                          background: selectedRow === i ? 'var(--primary)' : 'none',
-                          border: '1px solid var(--border)', borderRadius: 4,
-                          padding: '0.25rem 0.5rem', cursor: 'pointer',
-                          color: selectedRow === i ? 'white' : 'var(--text-muted)',
-                          fontSize: '0.75rem',
-                        }}
-                      >
-                        📄
-                      </button>
-                    )}
-                  </td>
-                )}
-              </tr>
-            ))}
+            {pagedData.map((row, i) => {
+              const globalIndex = page * pageSize + i;
+              return (
+                <tr key={globalIndex} style={{ borderBottom: i < pagedData.length - 1 ? '1px solid var(--border)' : 'none' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-primary)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  {columns.map(col => (
+                    <td key={col} style={{ padding: '0.5rem 0.875rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {row[col] == null ? <span style={{ color: 'var(--text-muted)' }}>—</span> : String(row[col])}
+                    </td>
+                  ))}
+                  {hasDocColumns && (
+                    <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                      {columns.some(c => ['description','wonum','ticketid','assetnum'].includes(c.toLowerCase()) && row[c] != null) && onDocSearch && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDocSearch(row, globalIndex); }}
+                          title="搜尋相關文件"
+                          style={{
+                            background: selectedRow === globalIndex ? 'var(--primary)' : 'none',
+                            border: '1px solid var(--border)', borderRadius: 4,
+                            padding: '0.25rem 0.5rem', cursor: 'pointer',
+                            color: selectedRow === globalIndex ? 'white' : 'var(--text-muted)',
+                            fontSize: '0.75rem',
+                          }}
+                        >
+                          📄
+                        </button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+          padding: '0.5rem', borderTop: '1px solid var(--border)',
+          fontSize: '0.75rem', color: 'var(--text-muted)',
+        }}>
+          <button
+            disabled={page === 0}
+            onClick={() => setPage(p => p - 1)}
+            style={{ padding: '0.25rem 0.5rem', border: '1px solid var(--border)', borderRadius: 4, background: 'transparent', cursor: page === 0 ? 'default' : 'pointer', opacity: page === 0 ? 0.4 : 1, color: 'var(--text-muted)' }}
+          >
+            ‹ 上一頁
+          </button>
+          <span>第 {page + 1} / {totalPages} 頁</span>
+          <button
+            disabled={page >= totalPages - 1}
+            onClick={() => setPage(p => p + 1)}
+            style={{ padding: '0.25rem 0.5rem', border: '1px solid var(--border)', borderRadius: 4, background: 'transparent', cursor: page >= totalPages - 1 ? 'default' : 'pointer', opacity: page >= totalPages - 1 ? 0.4 : 1, color: 'var(--text-muted)' }}
+          >
+            下一頁 ›
+          </button>
+        </div>
+      )}
     </div>
   );
 }
