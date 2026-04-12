@@ -86,6 +86,34 @@ docker exec -i aikm-postgres psql -U aikm -d aikm < backend/scripts/migration.sq
 
 ---
 
+## 開發流程（Agent Team）
+
+所有功能開發必須使用 **Agent Team** 模式，包含以下角色：
+
+### 開發流程
+1. **規劃** — 先分析需求，規劃架構與實作方案
+2. **實作** — 用 Agent Team 平行開發（Backend + Frontend 可同時進行）
+3. **Review** — 啟動 Review Agent 檢查安全性、正確性、架構問題
+4. **測試** — 用 Playwright MCP 進行視覺驗證 + API 端點測試
+5. **修正** — 根據 Review/Test 結果修正問題
+6. **部署** — SSH 到 192.168.1.11 執行 `git pull` + `docker compose up -d --build`
+
+### Agent 角色
+| 角色 | 用途 | 說明 |
+|------|------|------|
+| **Implementation Agent** | 實作功能 | Backend/Frontend 分開派發，可平行 |
+| **Review Agent** | 程式碼審查 | 檢查安全漏洞、SQL injection、權限問題、import 錯誤 |
+| **Test Agent** | 測試驗證 | 用 Playwright MCP 截圖驗證 + curl API 測試 |
+
+### 規範
+- 實作完成後 **必須** 啟動 Review Agent（可在背景執行）
+- Review 發現的 HIGH/CRITICAL 問題 **必須** 修正後才能交付
+- 前端改動 **必須** 用 Playwright 截圖驗證
+- 每次部署後 **必須** 確認 health check 通過
+- Commit 後 **必須** push + 在 192.168.1.11 部署
+
+---
+
 ## 我的偏好
 
 - 回應語言：繁體中文
