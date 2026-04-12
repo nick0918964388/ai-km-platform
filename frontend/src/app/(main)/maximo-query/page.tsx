@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Send, Code, Renew, Checkmark, Chat, Spreadsheet } from '@carbon/icons-react';
+import { Send, Code, Renew, Checkmark, Chat, DocumentDownload } from '@carbon/icons-react';
 import ChartRenderer from '@/components/maximo/ChartRenderer';
 import FeedbackButtons from '@/components/maximo/FeedbackButtons';
 import RelatedDocsPanel from '@/components/maximo/RelatedDocsPanel';
@@ -389,7 +389,7 @@ export default function MaximoQueryPage() {
                 color: 'var(--text-muted)', background: 'none', border: 'none',
                 cursor: 'pointer', fontSize: '0.8125rem',
               }}>
-                <Spreadsheet size={16} style={{ color: '#217346' }} /> Excel
+                <DocumentDownload size={16} style={{ color: '#217346' }} /> Excel
               </button>
             )}
             {result.sql && (
