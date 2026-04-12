@@ -140,17 +140,27 @@ export default function MaximoQueryPage() {
 
     try {
       const token = localStorage.getItem('auth_token');
+      if (!token) {
+        setResult({ success: false, error: '請先登入。請登出後重新登入以取得認證 Token。' } as QueryResult);
+        return;
+      }
       const res = await fetch(`${API}/api/maximo/nl2sql`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ question: q2, mode, history: queryHistory }),
       });
+      if (res.status === 401) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user_session');
+        setResult({ success: false, error: 'Token 已過期，請重新登入。' } as QueryResult);
+        setTimeout(() => { window.location.href = '/login'; }, 2000);
+        return;
+      }
       const data = await res.json();
       if (data.model || data.llm_ms) setLlmInfo({ model: data.model, llm_ms: data.llm_ms });
-      // Quickly complete remaining steps
       const lastStep = steps.length - 2;
       setActiveStep(lastStep);
       await new Promise(r => setTimeout(r, 200));
