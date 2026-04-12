@@ -1,6 +1,7 @@
 """Chat and search router for RAG queries."""
 import json
 import time
+import logging
 import urllib.request
 import urllib.error
 from fastapi import APIRouter, Request
@@ -13,8 +14,10 @@ from app.models.schemas import (
     SearchResponse,
 )
 from app.services import rag
+from app.services.intent_router import detect_intent
 from app.config import get_settings
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["chat"])
 
 
@@ -38,6 +41,21 @@ async def chat(request: ChatRequest):
     )
 
 
+def _generate_sql_follow_ups(query: str, result: dict) -> list:
+    """Generate follow-up suggestions based on SQL query result."""
+    suggestions = []
+    if result.get("row_count", 0) > 0:
+        suggestions.append("用圖表顯示這個結果")
+        suggestions.append("只看最近一個月的")
+    if "工單" in query or "mxwo" in query.lower():
+        suggestions.append("這些工單的車輛資訊？")
+    if "故障" in query or "mxsr" in query.lower():
+        suggestions.append("這些故障通報的處理情形？")
+    if "資產" in query or "asset" in query.lower():
+        suggestions.append("這些車輛的最近工單？")
+    return suggestions[:3]
+
+
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """
@@ -56,6 +74,86 @@ async def chat_stream(request: ChatRequest):
 
     async def generate():
         try:
+            query = request.query
+
+            # Intent detection
+            intent_result = detect_intent(query)
+            intent = intent_result["intent"]
+            log.info("Intent detected: %s (confidence=%.2f) for query: %s",
+                     intent, intent_result["confidence"], query[:80])
+
+            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'intent', 'label': f'意圖偵測：{intent_result[\"reason\"]}', 'status': 'done'}}, ensure_ascii=False)}\n\n"
+
+            sql_result = None
+
+            if intent in ("sql", "hybrid"):
+                # === NL→SQL Path ===
+                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'sql_generate', 'label': '產生 SQL 查詢', 'status': 'running'}}, ensure_ascii=False)}\n\n"
+
+                from app.services.maximo_nl2sql import MaximoNL2SQL
+                from app.db.session import get_db_context
+
+                try:
+                    async with get_db_context() as db:
+                        service = MaximoNL2SQL(db)
+                        sql_result = await service.query(query, mode="fast")
+                except Exception as sql_err:
+                    log.exception("NL→SQL error")
+                    sql_result = {"success": False, "error": str(sql_err)}
+
+                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'sql_generate', 'label': '產生 SQL 查詢', 'status': 'done'}}, ensure_ascii=False)}\n\n"
+
+                if sql_result.get("success"):
+                    # Format result as markdown table
+                    md_lines = []
+                    if sql_result.get("explanation"):
+                        md_lines.append(f"**{sql_result['explanation']}**\n")
+
+                    cols = sql_result.get("columns", [])
+                    data = sql_result.get("data", [])
+                    if cols and data:
+                        md_lines.append(f"共 {sql_result.get('row_count', 0)} 筆結果：\n")
+                        md_lines.append("| " + " | ".join(cols) + " |")
+                        md_lines.append("| " + " | ".join(["---"] * len(cols)) + " |")
+                        for row in data[:20]:
+                            values = [str(row.get(c, "—")) for c in cols]
+                            md_lines.append("| " + " | ".join(values) + " |")
+                        if len(data) > 20:
+                            md_lines.append(f"\n*（僅顯示前 20 筆，共 {len(data)} 筆）*")
+
+                    content = "\n".join(md_lines)
+                    yield f"data: {json.dumps({'type': 'content', 'data': content}, ensure_ascii=False)}\n\n"
+
+                    # Emit chart suggestion if available
+                    if sql_result.get("chart_suggestion"):
+                        yield f"data: {json.dumps({'type': 'chart', 'data': {'suggestion': sql_result['chart_suggestion'], 'chart_data': data[:50], 'columns': cols}}, ensure_ascii=False)}\n\n"
+
+                    # Metadata
+                    yield f"data: {json.dumps({'type': 'metadata', 'data': {'model': sql_result.get('model', 'nl2sql'), 'duration_ms': sql_result.get('llm_ms', 0), 'sql': sql_result.get('sql'), 'intent': intent_result}}, ensure_ascii=False)}\n\n"
+
+                    # SQL follow-up suggestions
+                    follow_ups = _generate_sql_follow_ups(query, sql_result)
+                    if follow_ups:
+                        yield f"data: {json.dumps({'type': 'follow_up', 'data': follow_ups}, ensure_ascii=False)}\n\n"
+
+                    if intent == "sql":
+                        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                        return
+
+                    # hybrid: add separator before RAG section
+                    yield f"data: {json.dumps({'type': 'content', 'data': '\\n\\n---\\n\\n**相關文件參考：**\\n\\n'}, ensure_ascii=False)}\n\n"
+
+                else:
+                    error_msg = sql_result.get("error", "查詢失敗")
+                    if intent == "hybrid":
+                        yield f"data: {json.dumps({'type': 'content', 'data': f'*（資料查詢：{error_msg}，改用知識庫搜尋）*\\n\\n'}, ensure_ascii=False)}\n\n"
+                        intent = "rag"
+                    else:
+                        yield f"data: {json.dumps({'type': 'content', 'data': f'查詢失敗：{error_msg}'}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                        return
+
+            # === RAG Path (intent == "rag" or hybrid fallthrough) ===
             # Step 1: search
             yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'search', 'label': '查詢知識庫', 'status': 'running'}})}\n\n"
             all_sources = rag.search(
@@ -67,7 +165,7 @@ async def chat_stream(request: ChatRequest):
             sources = [s for s in all_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
             yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'search', 'label': '查詢知識庫', 'status': 'done'}})}\n\n"
 
-            # Step 2: rerank (already done inside search, just report)
+            # Step 2: rerank
             if sources:
                 yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'rerank', 'label': '重排序結果', 'status': 'running'}})}\n\n"
                 yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'rerank', 'label': '重排序結果', 'status': 'done'}})}\n\n"
@@ -102,6 +200,8 @@ async def chat_stream(request: ChatRequest):
                 "duration_ms": duration_ms,
                 "tokens": total_tokens,
             }
+            if intent_result:
+                metadata["intent"] = intent_result
             yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
@@ -117,6 +217,7 @@ async def chat_stream(request: ChatRequest):
                 pass
 
         except Exception as e:
+            log.exception("chat_stream error")
             yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
 
     return StreamingResponse(

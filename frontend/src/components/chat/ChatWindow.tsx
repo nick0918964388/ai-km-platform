@@ -9,6 +9,7 @@ import {
   TrashCan,
 } from '@carbon/icons-react';
 import ReactMarkdown from 'react-markdown';
+import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useStore } from '@/store/useStore';
 import { Message, SearchResult } from '@/types';
 import SourcePreview from './SourcePreview';
@@ -44,6 +45,59 @@ interface ExpandedInfoMap {
 
 interface MessageFollowUps {
   [messageId: string]: string[];
+}
+
+interface ChartInfo {
+  suggestion: { type: string; x_key?: string; y_key?: string; name_key?: string; value_key?: string; title?: string };
+  data: any[];
+  columns: string[];
+}
+
+interface ChartDataMap {
+  [messageId: string]: ChartInfo;
+}
+
+const CHART_COLORS = ['#0f62fe', '#42be65', '#f1c21b', '#da1e28', '#a56eff', '#ff832b'];
+
+function renderChatChart(chartInfo: ChartInfo): React.ReactElement | null {
+  const { suggestion: cs, data } = chartInfo;
+  const xKey = cs.x_key || cs.name_key || '';
+  const yKey = cs.y_key || cs.value_key || '';
+
+  if (cs.type === 'bar') {
+    return (
+      <BarChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+        <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+        <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+        <Tooltip />
+        <Bar dataKey={yKey} fill="#0f62fe" radius={[4, 4, 0, 0]} />
+      </BarChart>
+    );
+  }
+  if (cs.type === 'pie') {
+    return (
+      <PieChart>
+        <Pie data={data} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%" outerRadius={80}
+          label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`}>
+          {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+        </Pie>
+        <Tooltip />
+      </PieChart>
+    );
+  }
+  if (cs.type === 'line') {
+    return (
+      <LineChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+        <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+        <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+        <Tooltip />
+        <Line type="monotone" dataKey={yKey} stroke="#0f62fe" strokeWidth={2} />
+      </LineChart>
+    );
+  }
+  return null;
 }
 
 // Helper: get score color based on similarity value
@@ -104,6 +158,7 @@ export default function ChatWindow() {
   const [messageQueries, setMessageQueries] = useState<{ [msgId: string]: string }>({});
   const [expandedSources, setExpandedSources] = useState<{ [key: string]: boolean }>({});
   const [taskSteps, setTaskSteps] = useState<Step[]>([]);
+  const [chartDataMap, setChartDataMap] = useState<ChartDataMap>({});
   const [selectedModel, setSelectedModel] = useState('qwen3-vl:32b');
   const [historyOpen, setHistoryOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -301,6 +356,15 @@ export default function ChatWindow() {
                     }
                     return [...prev, step];
                   });
+                } else if (data.type === 'chart' && data.data) {
+                  setChartDataMap(prev => ({
+                    ...prev,
+                    [messageId]: {
+                      suggestion: data.data.suggestion,
+                      data: data.data.chart_data,
+                      columns: data.data.columns,
+                    },
+                  }));
                 } else if (data.type === 'done') {
                   setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
                   // Save sources to message for persistence
@@ -671,21 +735,28 @@ export default function ChatWindow() {
                 justifyContent: 'center',
                 flexWrap: 'wrap',
               }}>
-                {['EMU900 轉向架維修', '煞車系統檢測', '定期保養週期'].map((q) => (
+                {[
+                  { label: 'EMU900 轉向架維修', category: 'knowledge' },
+                  { label: '煞車系統檢測', category: 'knowledge' },
+                  { label: '定期保養週期', category: 'knowledge' },
+                  { label: '目前核簽中的工單有哪些？', category: 'data' },
+                  { label: '本月故障通報統計', category: 'data' },
+                  { label: 'EMU900 車輛狀態', category: 'data' },
+                ].map((t) => (
                   <button
-                    key={q}
-                    onClick={() => handleSend(q)}
+                    key={t.label}
+                    onClick={() => handleSend(t.label)}
                     style={{
                       padding: '0.5rem 1rem',
-                      background: 'var(--bg-secondary)',
-                      border: '1px solid var(--border)',
+                      background: t.category === 'data' ? 'var(--primary-light)' : 'var(--bg-secondary)',
+                      border: `1px solid ${t.category === 'data' ? 'var(--accent)' : 'var(--border)'}`,
                       borderRadius: 20,
-                      color: 'var(--text-primary)',
+                      color: t.category === 'data' ? 'var(--accent)' : 'var(--text-primary)',
                       fontSize: '0.8125rem',
                       cursor: 'pointer',
                     }}
                   >
-                    {q}
+                    {t.category === 'data' ? '📊' : '📄'} {t.label}
                   </button>
                 ))}
               </div>
@@ -787,6 +858,31 @@ export default function ChatWindow() {
                           {line}
                         </p>
                       ))
+                    )}
+                    {/* Chart from Maximo data query */}
+                    {msg.role === 'assistant' && chartDataMap[msg.id] && !messageStreamingStatus[msg.id] && (
+                      <div style={{
+                        marginTop: '0.75rem',
+                        background: 'var(--bg-primary)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 8,
+                        padding: '1rem',
+                      }}>
+                        {chartDataMap[msg.id].suggestion.title && (
+                          <div style={{
+                            fontSize: '0.8125rem',
+                            fontWeight: 600,
+                            textAlign: 'center',
+                            marginBottom: '0.5rem',
+                            color: 'var(--text-primary)',
+                          }}>
+                            {chartDataMap[msg.id].suggestion.title}
+                          </div>
+                        )}
+                        <ResponsiveContainer width="100%" height={250}>
+                          {renderChatChart(chartDataMap[msg.id]) ?? <div />}
+                        </ResponsiveContainer>
+                      </div>
                     )}
                     {/* 來源文件 - 只在 streaming 完成後且 AI 回答引用了來源時顯示 */}
                     {msg.role === 'assistant' && 
