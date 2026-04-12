@@ -17,7 +17,7 @@ SQL_KEYWORDS = [
     # 統計相關
     "幾筆", "幾台", "幾張", "多少", "數量", "統計", "趨勢", "佔比", "排名",
     # 狀態查詢
-    "狀態", "status",
+    "狀態",
     # 表名直接引用
     "maximo", "mxwo", "mxsr", "mxasset",
 ]
@@ -43,8 +43,15 @@ def detect_intent(query: str) -> dict:
     """
     q = query.lower()
 
-    sql_score = sum(1 for kw in SQL_KEYWORDS if kw.lower() in q)
-    rag_score = sum(1 for kw in RAG_KEYWORDS if kw.lower() in q)
+    def _match(kw: str, text: str) -> bool:
+        k = kw.lower()
+        # Short English keywords (like 1A, 2A) need word boundary to avoid false matches
+        if len(k) <= 3 and k.isascii():
+            return bool(re.search(r'\b' + re.escape(k) + r'\b', text, re.IGNORECASE))
+        return k in text
+
+    sql_score = sum(1 for kw in SQL_KEYWORDS if _match(kw, q))
+    rag_score = sum(1 for kw in RAG_KEYWORDS if _match(kw, q))
     hybrid_match = any(re.search(pat, q, re.IGNORECASE) for pat in HYBRID_KEYWORDS)
 
     if hybrid_match:
