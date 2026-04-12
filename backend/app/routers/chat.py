@@ -82,7 +82,8 @@ async def chat_stream(request: ChatRequest):
             log.info("Intent detected: %s (confidence=%.2f) for query: %s",
                      intent, intent_result["confidence"], query[:80])
 
-            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'intent', 'label': f'意圖偵測：{intent_result[\"reason\"]}', 'status': 'done'}}, ensure_ascii=False)}\n\n"
+            reason = intent_result["reason"]
+            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'intent', 'label': '意圖偵測：' + reason, 'status': 'done'}}, ensure_ascii=False)}\n\n"
 
             sql_result = None
 
