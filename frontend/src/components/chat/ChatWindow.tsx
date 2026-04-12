@@ -808,8 +808,17 @@ export default function ChatWindow() {
                     lineHeight: 1.6,
                     position: 'relative',
                   }}>
+                    {/* Thinking indicator: show when streaming but no content yet */}
+                    {msg.role === 'assistant' && messageStreamingStatus[msg.id] && !msg.content && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                        <div className="typing-indicator" style={{ display: 'inline-flex' }}>
+                          <span></span><span></span><span></span>
+                        </div>
+                        <span>思考中...</span>
+                      </div>
+                    )}
                     {msg.role === 'assistant' ? (
-                      <div className="markdown-content">
+                      <div className="markdown-content" style={{ display: msg.content ? 'block' : 'none' }}>
                         <ReactMarkdown
                           components={{
                             p: ({ children }) => <p style={{ margin: '0.5rem 0' }}>{children}</p>,
