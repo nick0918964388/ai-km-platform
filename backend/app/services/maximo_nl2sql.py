@@ -525,6 +525,11 @@ class MaximoNL2SQL:
                 "execution_ms": round((time.monotonic() - t0) * 1000, 1),
             }
         except Exception as e:
+            # Rollback failed transaction so next query can proceed
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
             return {"error": str(e), "rows": [], "columns": [], "row_count": 0}
 
     def _rule_validate(self, question: str, sql: str, result: Dict) -> list[str]:
