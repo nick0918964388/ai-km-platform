@@ -50,50 +50,65 @@ export default function SqlResultCard({ result, question }: SqlResultCardProps) 
     );
   }
 
+  const [showMeta, setShowMeta] = useState(false);
+
   return (
     <div style={{
       background: 'var(--bg-secondary)', border: '1px solid var(--border)',
       borderRadius: 'var(--radius-md)', overflow: 'hidden', marginTop: '0.5rem',
+      position: 'relative',
     }}>
-      {/* Summary metrics bar */}
+      {/* Compact meta badge — top right corner */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap',
-        padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)',
-        fontSize: '0.75rem', color: 'var(--text-muted)',
+        position: 'absolute', top: '0.5rem', right: '0.5rem', zIndex: 1,
+        display: 'flex', alignItems: 'center', gap: '0.25rem',
       }}>
-        <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.8125rem' }}>
-          查詢結果
-        </span>
         <span style={{
-          padding: '0.125rem 0.5rem', borderRadius: 99,
-          background: 'rgba(66,190,101,0.12)', color: '#42be65', fontWeight: 600,
+          padding: '0.1rem 0.4rem', borderRadius: 99, fontSize: '0.65rem', fontWeight: 600,
+          background: 'rgba(66,190,101,0.12)', color: '#42be65',
         }}>
           {result.row_count} 筆
         </span>
-        {result.execution_ms != null && (
-          <span>{result.execution_ms} ms</span>
-        )}
         {result.confidence != null && (
           <span style={{
-            padding: '0.125rem 0.5rem', borderRadius: 99,
+            padding: '0.1rem 0.4rem', borderRadius: 99, fontSize: '0.65rem', fontWeight: 600,
             background: result.confidence >= 0.8 ? 'rgba(66,190,101,0.12)' : result.confidence >= 0.5 ? 'rgba(241,194,50,0.12)' : 'rgba(218,30,40,0.12)',
             color: result.confidence >= 0.8 ? '#42be65' : result.confidence >= 0.5 ? '#f1c232' : '#da1e28',
-            fontWeight: 600,
           }}>
-            信心 {Math.round(result.confidence * 100)}%
+            {Math.round(result.confidence * 100)}%
           </span>
         )}
         {result.cached && (
-          <span style={{ padding: '0.125rem 0.5rem', borderRadius: 99, background: 'rgba(80,144,211,0.12)', color: 'var(--accent)' }}>
+          <span style={{ padding: '0.1rem 0.4rem', borderRadius: 99, fontSize: '0.65rem', background: 'rgba(80,144,211,0.12)', color: 'var(--accent)' }}>
             快取
           </span>
         )}
-        {result.model && (
-          <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            {result.model}
-          </span>
-        )}
+        <button
+          onClick={() => setShowMeta(v => !v)}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontSize: '0.65rem', color: 'var(--text-muted)', padding: '0.1rem 0.25rem',
+          }}
+          title="詳細資訊"
+        >
+          {showMeta ? '▲' : 'ⓘ'}
+        </button>
       </div>
+
+      {/* Expanded meta info (toggled) */}
+      {showMeta && (
+        <div style={{
+          padding: '0.5rem 1rem', borderBottom: '1px solid var(--border)',
+          fontSize: '0.7rem', color: 'var(--text-muted)',
+          display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center',
+        }}>
+          {result.model && <span>模型：<b>{result.model}</b></span>}
+          {result.llm_ms != null && <span>LLM：{(result.llm_ms / 1000).toFixed(1)}s</span>}
+          {result.execution_ms != null && <span>查詢：{result.execution_ms}ms</span>}
+          {result.confidence != null && <span>信心度：{Math.round(result.confidence * 100)}%</span>}
+          {result.cached && <span>來源：快取 SQL</span>}
+        </div>
+      )}
 
       {/* Main content area */}
       <div style={{ padding: '0.75rem 1rem' }}>
