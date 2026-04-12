@@ -819,7 +819,7 @@ class MaximoNL2SQL:
                         except Exception: pass
                     return final
 
-        max_iter = 3 if mode == "accurate" else 1
+        max_iter = 3 if mode == "accurate" else 2  # fast mode: 1 generation + 1 auto-retry on error
         history: List[Dict[str, Any]] = []
         last_result: Optional[Dict[str, Any]] = None
         final_confidence = None
