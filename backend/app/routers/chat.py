@@ -137,6 +137,30 @@ async def chat_stream(request: ChatRequest):
                     if follow_ups:
                         yield f"data: {json.dumps({'type': 'follow_up', 'data': follow_ups}, ensure_ascii=False)}\n\n"
 
+                    # Auto-search for related SOPs when query involves fault reports
+                    if sql_result.get("success") and any(t in str(sql_result.get("sql", "")).lower() for t in ["mxsr", "fault", "故障"]):
+                        try:
+                            from app.services.maximo_doc_search import MaximoDocSearch
+                            from app.db.session import get_db_context as _get_db_ctx
+                            async with _get_db_ctx() as doc_db:
+                                doc_service = MaximoDocSearch(doc_db)
+                                search_desc = query
+                                data = sql_result.get("data", [])
+                                if data and data[0].get("description"):
+                                    search_desc = data[0]["description"]
+                                related = await doc_service.find_related_docs(description=search_desc, top_k=3)
+                                if related.get("documents"):
+                                    doc_md = "\n\n---\n📄 **相關文件：**\n"
+                                    for doc in related["documents"]:
+                                        score_pct = int(doc["score"] * 100) if doc["score"] <= 1 else int(doc["score"])
+                                        doc_md += f"- **{doc['document_name']}**（相關度 {score_pct}%）"
+                                        if doc.get("content_preview"):
+                                            doc_md += f"\n  > {doc['content_preview'][:100]}..."
+                                        doc_md += "\n"
+                                    yield f"data: {json.dumps({'type': 'content', 'data': doc_md}, ensure_ascii=False)}\n\n"
+                        except Exception as e:
+                            log.warning("相關文件搜尋失敗: %s", e)
+
                     if intent == "sql":
                         yield f"data: {json.dumps({'type': 'done'})}\n\n"
                         return

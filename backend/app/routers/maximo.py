@@ -11,6 +11,7 @@ from sqlalchemy import text
 from app.db.session import get_db
 from app.services.maximo_nl2sql import MaximoNL2SQL
 from app.services.maximo_schema_rag import MaximoSchemaRAG
+from app.services.maximo_doc_search import MaximoDocSearch
 from app.auth import get_current_user, require_auth, require_admin
 
 router = APIRouter(prefix="/maximo", tags=["Maximo"])
@@ -273,6 +274,52 @@ async def update_example(example_id: int, req: UpdateExampleRequest, db: AsyncSe
         raise HTTPException(status_code=404, detail="Example not found")
     return ExampleItem(id=example_id, question=req.question.strip(), sql_query=req.sql_query.strip(), verified=True, tag=req.tag)
 
+
+# ── Related Documents (SOP) ──────────────────────────────────────────────────
+
+class RelatedDocsRequest(BaseModel):
+    wo_number: Optional[str] = None
+    fault_code: Optional[str] = None
+    description: Optional[str] = None
+    asset_num: Optional[str] = None
+    top_k: int = 5
+
+
+@router.post("/related-docs")
+async def find_related_docs(req: RelatedDocsRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(require_auth)):
+    """Find SOP documents related to a work order, fault code, or description."""
+    service = MaximoDocSearch(db)
+    result = await service.find_related_docs(
+        wo_number=req.wo_number,
+        fault_code=req.fault_code,
+        description=req.description,
+        asset_num=req.asset_num,
+        top_k=req.top_k,
+    )
+    return result
+
+
+class AddMappingRequest(BaseModel):
+    fault_code: str
+    document_id: str
+    document_name: str
+    fault_description: str = ""
+
+
+@router.post("/related-docs/mapping")
+async def add_doc_mapping(req: AddMappingRequest, db: AsyncSession = Depends(get_db), admin: dict = Depends(require_admin)):
+    """Add a fault_code → document mapping (admin only)."""
+    service = MaximoDocSearch(db)
+    mapping_id = await service.add_mapping(
+        fault_code=req.fault_code,
+        document_id=req.document_id,
+        document_name=req.document_name,
+        fault_description=req.fault_description,
+    )
+    return {"success": True, "mapping_id": mapping_id}
+
+
+# ── Audit ────────────────────────────────────────────────────────────────────
 
 @router.get("/audit")
 async def get_audit_log(db: AsyncSession = Depends(get_db), admin: dict = Depends(require_admin)):
