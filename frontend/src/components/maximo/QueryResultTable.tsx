@@ -47,7 +47,7 @@ export default function QueryResultTable({ columns, data, rowCount, onDocSearch,
                 ))}
                 {hasDocColumns && (
                   <td style={{ padding: '0.5rem', textAlign: 'center' }}>
-                    {(row.description || row.wonum || row.ticketid || row.assetnum) && onDocSearch && (
+                    {columns.some(c => ['description','wonum','ticketid','assetnum'].includes(c.toLowerCase()) && row[c] != null) && onDocSearch && (
                       <button
                         onClick={(e) => { e.stopPropagation(); onDocSearch(row, i); }}
                         title="搜尋相關文件"

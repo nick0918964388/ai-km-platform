@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 interface RelatedDocsPanelProps {
   row?: Record<string, unknown> | null;
@@ -11,16 +11,21 @@ export default function RelatedDocsPanel({ row, autoSearch, onClose }: RelatedDo
   const [relatedDocs, setRelatedDocs] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
-  const search = async (searchRow: Record<string, unknown>) => {
+  const search = useCallback(async (searchRow: Record<string, unknown>) => {
     setLoading(true);
     setRelatedDocs(null);
     const token = localStorage.getItem('auth_token');
     try {
       const body: any = { top_k: 5 };
-      if (searchRow.wonum) body.wo_number = String(searchRow.wonum);
-      if (searchRow.ticketid) body.wo_number = String(searchRow.ticketid);
-      if (searchRow.description) body.description = String(searchRow.description);
-      if (searchRow.assetnum) body.asset_num = String(searchRow.assetnum);
+      // Case-insensitive key lookup
+      const get = (r: Record<string, unknown>, key: string) => {
+        const k = Object.keys(r).find(k => k.toLowerCase() === key.toLowerCase());
+        return k ? r[k] : undefined;
+      };
+      const wo = get(searchRow, 'wonum'); if (wo) body.wo_number = String(wo);
+      const tid = get(searchRow, 'ticketid'); if (tid) body.wo_number = String(tid);
+      const desc = get(searchRow, 'description'); if (desc) body.description = String(desc);
+      const asset = get(searchRow, 'assetnum'); if (asset) body.asset_num = String(asset);
 
       const res = await fetch('/api/maximo/related-docs', {
         method: 'POST',
@@ -36,13 +41,13 @@ export default function RelatedDocsPanel({ row, autoSearch, onClose }: RelatedDo
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (autoSearch && row) {
       search(row);
     }
-  }, [row, autoSearch]);
+  }, [row, autoSearch, search]);
 
   const handleClose = () => {
     setRelatedDocs(null);
