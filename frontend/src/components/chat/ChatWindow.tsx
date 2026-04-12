@@ -9,8 +9,8 @@ import {
   TrashCan,
 } from '@carbon/icons-react';
 import ReactMarkdown from 'react-markdown';
-import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useStore } from '@/store/useStore';
+import ChartRenderer from '@/components/maximo/ChartRenderer';
 import { Message, SearchResult } from '@/types';
 import SourcePreview from './SourcePreview';
 import { getApiHeaders, API_URL, TIMEOUTS, fetchWithTimeout, TimeoutError, getErrorMessage } from '@/lib/api';
@@ -55,49 +55,6 @@ interface ChartInfo {
 
 interface ChartDataMap {
   [messageId: string]: ChartInfo;
-}
-
-const CHART_COLORS = ['#0f62fe', '#42be65', '#f1c21b', '#da1e28', '#a56eff', '#ff832b'];
-
-function renderChatChart(chartInfo: ChartInfo): React.ReactElement | null {
-  const { suggestion: cs, data } = chartInfo;
-  const xKey = cs.x_key || cs.name_key || '';
-  const yKey = cs.y_key || cs.value_key || '';
-
-  if (cs.type === 'bar') {
-    return (
-      <BarChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-        <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
-        <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
-        <Tooltip />
-        <Bar dataKey={yKey} fill="#0f62fe" radius={[4, 4, 0, 0]} />
-      </BarChart>
-    );
-  }
-  if (cs.type === 'pie') {
-    return (
-      <PieChart>
-        <Pie data={data} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%" outerRadius={80}
-          label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`}>
-          {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-        </Pie>
-        <Tooltip />
-      </PieChart>
-    );
-  }
-  if (cs.type === 'line') {
-    return (
-      <LineChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-        <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
-        <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
-        <Tooltip />
-        <Line type="monotone" dataKey={yKey} stroke="#0f62fe" strokeWidth={2} />
-      </LineChart>
-    );
-  }
-  return null;
 }
 
 // Helper: get score color based on similarity value
@@ -870,27 +827,14 @@ export default function ChatWindow() {
                     )}
                     {/* Chart from Maximo data query */}
                     {msg.role === 'assistant' && chartDataMap[msg.id] && !messageStreamingStatus[msg.id] && (
-                      <div style={{
-                        marginTop: '0.75rem',
-                        background: 'var(--bg-primary)',
-                        border: '1px solid var(--border)',
-                        borderRadius: 8,
-                        padding: '1rem',
-                      }}>
-                        {chartDataMap[msg.id].suggestion.title && (
-                          <div style={{
-                            fontSize: '0.8125rem',
-                            fontWeight: 600,
-                            textAlign: 'center',
-                            marginBottom: '0.5rem',
-                            color: 'var(--text-primary)',
-                          }}>
-                            {chartDataMap[msg.id].suggestion.title}
-                          </div>
-                        )}
-                        <ResponsiveContainer width="100%" height={250}>
-                          {renderChatChart(chartDataMap[msg.id]) ?? <div />}
-                        </ResponsiveContainer>
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <ChartRenderer
+                          data={chartDataMap[msg.id].data}
+                          columns={chartDataMap[msg.id].columns}
+                          chartSuggestion={chartDataMap[msg.id].suggestion as any}
+                          showControls={true}
+                          height={250}
+                        />
                       </div>
                     )}
                     {/* 來源文件 - 只在 streaming 完成後且 AI 回答引用了來源時顯示 */}

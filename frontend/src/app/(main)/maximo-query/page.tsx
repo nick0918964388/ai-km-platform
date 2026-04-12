@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Send, DataBase, Code, TableSplit, Renew, Checkmark, Chat } from '@carbon/icons-react';
-import { ThumbsUp, ThumbsDown } from '@carbon/icons-react';
-import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Send, Code, Renew, Checkmark, Chat } from '@carbon/icons-react';
+import ChartRenderer from '@/components/maximo/ChartRenderer';
+import FeedbackButtons from '@/components/maximo/FeedbackButtons';
+import RelatedDocsPanel from '@/components/maximo/RelatedDocsPanel';
+import QueryResultTable from '@/components/maximo/QueryResultTable';
 
 const API = '';
 
@@ -40,8 +42,6 @@ const EXAMPLES = [
   '最近 10 筆工單是哪些車？',
 ];
 
-const CHART_COLORS = ['#0f62fe', '#42be65', '#f1c21b', '#da1e28', '#a56eff', '#ff832b', '#08bdba', '#ba4e00'];
-
 interface QueryResult {
   success: boolean;
   sql?: string;
@@ -53,7 +53,6 @@ interface QueryResult {
   llm_ms?: number;
   model?: string;
   error?: string;
-  // New fields
   iterations?: number;
   confidence?: number;
   verification_history?: Array<{
@@ -84,118 +83,14 @@ export default function MaximoQueryPage() {
   const [mode, setMode] = useState<'fast' | 'accurate'>('accurate');
   const [viewMode, setViewMode] = useState<'table' | 'chart'>('table');
   const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>('bar');
-  const [feedbackSent, setFeedbackSent] = useState<string | null>(null);
-  const [showCorrectionModal, setShowCorrectionModal] = useState(false);
-  const [correctedSQL, setCorrectedSQL] = useState('');
   const [queryHistory, setQueryHistory] = useState<Array<{question: string; sql: string}>>([]);
-  const [relatedDocs, setRelatedDocs] = useState<any>(null);
-  const [loadingDocs, setLoadingDocs] = useState(false);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  const [docSearchRow, setDocSearchRow] = useState<Record<string, unknown> | null>(null);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const clearTimers = () => {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
-  };
-
-  const searchRelatedDocs = async (row: Record<string, unknown>) => {
-    setLoadingDocs(true);
-    setRelatedDocs(null);
-    const token = localStorage.getItem('auth_token');
-    try {
-      const body: any = { top_k: 5 };
-      if (row.wonum) body.wo_number = String(row.wonum);
-      if (row.ticketid) body.wo_number = String(row.ticketid);
-      if (row.description) body.description = String(row.description);
-      if (row.assetnum) body.asset_num = String(row.assetnum);
-
-      const res = await fetch(`${API}/api/maximo/related-docs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      setRelatedDocs(data);
-    } catch (e) {
-      console.error('Related docs error:', e);
-    } finally {
-      setLoadingDocs(false);
-    }
-  };
-
-  const handleFeedback = async (rating: 'up' | 'down', corrected?: string) => {
-    if (!result?.sql) return;
-    const token = localStorage.getItem('auth_token');
-    try {
-      await fetch(`${API}/api/maximo/feedback`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          question,
-          sql: result.sql,
-          rating,
-          corrected_sql: corrected || undefined,
-        }),
-      });
-      setFeedbackSent(rating);
-      setShowCorrectionModal(false);
-    } catch (e) {
-      console.error('Feedback error:', e);
-    }
-  };
-
-  const renderChart = (r: QueryResult) => {
-    const cs = r.chart_suggestion;
-    const data = r.data || [];
-    const cols = r.columns || [];
-
-    // Auto-detect x/y keys: use suggestion if available, otherwise guess from columns
-    const xKey = cs?.x_key || cs?.name_key || cols[0] || 'x';
-    const yKey = cs?.y_key || cs?.value_key || cols[1] || 'y';
-
-    if (chartType === 'bar') {
-      return (
-        <BarChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey={xKey} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
-          <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
-          <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
-          <Bar dataKey={yKey} fill="#0f62fe" radius={[4, 4, 0, 0]} />
-        </BarChart>
-      );
-    }
-
-    if (chartType === 'line') {
-      return (
-        <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey={xKey} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
-          <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
-          <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
-          <Line type="monotone" dataKey={yKey} stroke="#0f62fe" strokeWidth={2} dot={{ fill: '#0f62fe' }} />
-        </LineChart>
-      );
-    }
-
-    if (chartType === 'pie') {
-      return (
-        <PieChart>
-          <Pie data={data} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%" outerRadius={100} label={({ name, percent }: { name: string; percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-            {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-          </Pie>
-          <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
-          <Legend />
-        </PieChart>
-      );
-    }
-
-    return <div>不支援的圖表類型</div>;
   };
 
   const runQuery = async (q: string) => {
@@ -242,7 +137,6 @@ export default function MaximoQueryPage() {
       if (data.success && data.sql) {
         setQueryHistory(prev => [...prev.slice(-4), { question: q2, sql: data.sql }]);
       }
-      setFeedbackSent(null);
       setViewMode(data.chart_suggestion ? 'chart' : 'table');
       if (data.chart_suggestion?.type) setChartType(data.chart_suggestion.type);
     } finally {
@@ -467,20 +361,8 @@ export default function MaximoQueryPage() {
               </span>
             )}
             {/* Feedback buttons */}
-            {result.success && !feedbackSent && (
-              <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.5rem' }}>
-                <button onClick={() => handleFeedback('up')} title="查詢正確" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.125rem 0.375rem', borderRadius: 4, color: 'var(--text-muted)' }}>
-                  <ThumbsUp size={14} />
-                </button>
-                <button onClick={() => { setShowCorrectionModal(true); setCorrectedSQL(result.sql || ''); }} title="查詢有誤" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.125rem 0.375rem', borderRadius: 4, color: 'var(--text-muted)' }}>
-                  <ThumbsDown size={14} />
-                </button>
-              </div>
-            )}
-            {feedbackSent && (
-              <span style={{ fontSize: '0.75rem', color: '#42be65', marginLeft: '0.5rem' }}>
-                {feedbackSent === 'up' ? '✓ 已標記為正確' : '✓ 已提交回饋'}
-              </span>
+            {result.success && result.sql && (
+              <FeedbackButtons question={question} sql={result.sql} />
             )}
             {result.sql && (
               <button
@@ -538,131 +420,28 @@ export default function MaximoQueryPage() {
 
           {/* View mode toggle + Chart */}
           {result.success && result.data && result.data.length > 0 && result.columns && result.columns.length >= 2 && (
-            <>
-              <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.8125rem', alignItems: 'center' }}>
-                <button
-                  onClick={() => setViewMode('table')}
-                  style={{
-                    padding: '0.25rem 0.75rem', borderRadius: 99,
-                    border: `1px solid ${viewMode === 'table' ? 'var(--primary)' : 'var(--border)'}`,
-                    background: viewMode === 'table' ? 'var(--primary)' : 'transparent',
-                    color: viewMode === 'table' ? 'white' : 'var(--text-muted)',
-                    cursor: 'pointer', fontWeight: 500,
-                  }}
-                >
-                  表格
-                </button>
-                <button
-                  onClick={() => setViewMode('chart')}
-                  style={{
-                    padding: '0.25rem 0.75rem', borderRadius: 99,
-                    border: `1px solid ${viewMode === 'chart' ? 'var(--accent)' : 'var(--border)'}`,
-                    background: viewMode === 'chart' ? 'var(--accent)' : 'transparent',
-                    color: viewMode === 'chart' ? 'white' : 'var(--text-muted)',
-                    cursor: 'pointer', fontWeight: 500,
-                  }}
-                >
-                  圖表
-                </button>
-                {viewMode === 'chart' && (
-                  <>
-                    <span style={{ color: 'var(--border)', margin: '0 0.25rem' }}>|</span>
-                    {(['bar', 'line', 'pie'] as const).map(t => (
-                      <button
-                        key={t}
-                        onClick={() => setChartType(t)}
-                        style={{
-                          padding: '0.2rem 0.5rem', borderRadius: 4,
-                          border: `1px solid ${chartType === t ? 'var(--accent)' : 'var(--border)'}`,
-                          background: chartType === t ? 'rgba(80,144,211,0.15)' : 'transparent',
-                          color: chartType === t ? 'var(--accent)' : 'var(--text-muted)',
-                          cursor: 'pointer', fontSize: '0.75rem',
-                        }}
-                      >
-                        {t === 'bar' ? '長條圖' : t === 'line' ? '折線圖' : '圓餅圖'}
-                      </button>
-                    ))}
-                  </>
-                )}
-              </div>
-
-              {viewMode === 'chart' && (
-                <div style={{
-                  background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-md)', padding: '1.25rem',
-                }}>
-                  {result.chart_suggestion?.title && (
-                    <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', textAlign: 'center' }}>
-                      {result.chart_suggestion.title}
-                    </div>
-                  )}
-                  <ResponsiveContainer width="100%" height={300}>
-                    {renderChart(result)}
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </>
+            <ChartRenderer
+              data={result.data}
+              columns={result.columns}
+              chartSuggestion={result.chart_suggestion}
+              showControls={true}
+              height={300}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              chartType={chartType}
+              onChartTypeChange={setChartType}
+            />
           )}
 
           {/* Table */}
-          {viewMode === 'table' && result.success && result.data && result.data.length > 0 && (
-            <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.625rem 1rem', borderBottom: '1px solid var(--border)', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                <TableSplit size={14} />
-                {result.row_count} 筆
-              </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
-                  <thead>
-                    <tr style={{ background: 'var(--bg-primary)' }}>
-                      {result.columns?.map(col => (
-                        <th key={col} style={{
-                          padding: '0.5rem 0.875rem', textAlign: 'left',
-                          fontWeight: 600, color: 'var(--text-secondary)',
-                          borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap',
-                        }}>{col}</th>
-                      ))}
-                      {result.columns?.some(col => ['description', 'wonum', 'ticketid', 'assetnum'].includes(col)) && (
-                        <th style={{ width: 60, textAlign: 'center', padding: '0.5rem', fontWeight: 600, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>文件</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.data.map((row, i) => (
-                      <tr key={i} style={{ borderBottom: i < result.data!.length - 1 ? '1px solid var(--border)' : 'none' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-primary)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                      >
-                        {result.columns?.map(col => (
-                          <td key={col} style={{ padding: '0.5rem 0.875rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {row[col] == null ? <span style={{ color: 'var(--text-muted)' }}>—</span> : String(row[col])}
-                          </td>
-                        ))}
-                        {result.columns?.some(col => ['description', 'wonum', 'ticketid', 'assetnum'].includes(col)) && (
-                          <td style={{ padding: '0.5rem', textAlign: 'center' }}>
-                            {(row.description || row.wonum || row.ticketid || row.assetnum) && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setSelectedRow(i); searchRelatedDocs(row); }}
-                                title="搜尋相關文件"
-                                style={{
-                                  background: selectedRow === i && relatedDocs ? 'var(--primary)' : 'none',
-                                  border: '1px solid var(--border)', borderRadius: 4,
-                                  padding: '0.25rem 0.5rem', cursor: 'pointer',
-                                  color: selectedRow === i && relatedDocs ? 'white' : 'var(--text-muted)',
-                                  fontSize: '0.75rem',
-                                }}
-                              >
-                                📄
-                              </button>
-                            )}
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+          {viewMode === 'table' && result.success && result.data && result.data.length > 0 && result.columns && (
+            <QueryResultTable
+              columns={result.columns}
+              data={result.data}
+              rowCount={result.row_count || 0}
+              selectedRow={selectedRow}
+              onDocSearch={(row, i) => { setSelectedRow(i); setDocSearchRow(row); }}
+            />
           )}
 
           {result.success && result.row_count === 0 && (
@@ -672,109 +451,11 @@ export default function MaximoQueryPage() {
           )}
 
           {/* Related Docs Panel */}
-          {(relatedDocs || loadingDocs) && (
-            <div style={{
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-md)', padding: '1rem', marginTop: '0.75rem',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  📄 相關文件{relatedDocs ? `（${relatedDocs.total_found} 筆）` : ''}
-                </div>
-                <button onClick={() => { setRelatedDocs(null); setSelectedRow(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.875rem' }}>✕</button>
-              </div>
-
-              {loadingDocs && <div style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>搜尋中...</div>}
-
-              {relatedDocs && relatedDocs.documents && relatedDocs.documents.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {relatedDocs.documents.map((doc: any, i: number) => (
-                    <div key={i} style={{
-                      padding: '0.75rem', background: 'var(--bg-primary)',
-                      borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--text-primary)' }}>
-                          {doc.document_name}
-                        </div>
-                        <div style={{
-                          fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: 4,
-                          background: doc.score >= 0.7 ? 'rgba(66,190,101,0.15)' : 'rgba(241,194,50,0.15)',
-                          color: doc.score >= 0.7 ? '#42be65' : '#f1c232',
-                        }}>
-                          {doc.source === 'mapping' ? '精確對應' : `相關度 ${Math.round(doc.score * 100)}%`}
-                        </div>
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                        {doc.match_type}
-                      </div>
-                      {doc.content_preview && (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.5rem', lineHeight: 1.5 }}>
-                          {doc.content_preview}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : relatedDocs && !loadingDocs ? (
-                <div style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
-                  未找到相關文件。上傳更多 SOP 文件可以提升關聯效果。
-                </div>
-              ) : null}
-
-              {relatedDocs?.query_context && (
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                  搜尋條件：{relatedDocs.query_context.substring(0, 100)}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* SQL Correction Modal */}
-      {showCorrectionModal && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-        }} onClick={() => setShowCorrectionModal(false)}>
-          <div style={{
-            background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)',
-            padding: '1.5rem', width: '90%', maxWidth: 600,
-            border: '1px solid var(--border)',
-          }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 1rem', fontSize: '1rem', color: 'var(--text-primary)' }}>修正 SQL</h3>
-            <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
-              請修正下方 SQL，修正後會加入範例庫提升未來查詢品質：
-            </p>
-            <textarea
-              value={correctedSQL}
-              onChange={e => setCorrectedSQL(e.target.value)}
-              style={{
-                width: '100%', minHeight: 120, padding: '0.75rem',
-                fontFamily: 'monospace', fontSize: '0.8125rem',
-                background: 'var(--bg-primary)', color: 'var(--text-primary)',
-                border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-                resize: 'vertical',
-                boxSizing: 'border-box',
-              }}
-            />
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
-              <button onClick={() => { handleFeedback('down'); }} style={{
-                padding: '0.5rem 1rem', border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)', background: 'transparent',
-                color: 'var(--text-muted)', cursor: 'pointer',
-              }}>
-                不修正，僅回報問題
-              </button>
-              <button onClick={() => { handleFeedback('down', correctedSQL); }} style={{
-                padding: '0.5rem 1rem', background: 'var(--primary)', color: 'white',
-                border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600,
-              }}>
-                提交修正
-              </button>
-            </div>
-          </div>
+          <RelatedDocsPanel
+            row={docSearchRow}
+            autoSearch={true}
+            onClose={() => { setDocSearchRow(null); setSelectedRow(null); }}
+          />
         </div>
       )}
 
