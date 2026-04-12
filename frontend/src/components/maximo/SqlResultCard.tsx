@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Code, Copy, Checkmark } from '@carbon/icons-react';
+import { Code, Copy, Checkmark, Spreadsheet } from '@carbon/icons-react';
 import ChartRenderer from './ChartRenderer';
 import FeedbackButtons from './FeedbackButtons';
 import QueryResultTable from './QueryResultTable';
@@ -227,7 +227,7 @@ export default function SqlResultCard({ result, question }: SqlResultCardProps) 
             background: 'none', border: 'none', cursor: 'pointer',
             color: 'var(--text-muted)', fontSize: '0.75rem',
           }}>
-            📥 Excel
+            <Spreadsheet size={14} style={{ color: '#217346' }} /> Excel
           </button>
         )}
       </div>
