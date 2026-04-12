@@ -47,6 +47,7 @@ class NL2SQLResponse(BaseModel):
     query_plan: Optional[Any] = None
     chart_suggestion: Optional[Any] = None
     summary: Optional[str] = None
+    clarification: Optional[Any] = None
 
 
 @router.post("/schema/index")
@@ -74,6 +75,14 @@ async def discover_and_index(db: AsyncSession = Depends(get_db), admin: dict = D
 @router.post("/nl2sql", response_model=NL2SQLResponse)
 async def nl2sql(req: NL2SQLRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(require_auth)):
     """Convert natural language question to SQL and execute against Maximo tables."""
+    from app.services.intent_router import detect_ambiguity
+    ambiguity = detect_ambiguity(req.question, history=req.history)
+    if ambiguity:
+        return NL2SQLResponse(
+            success=False,
+            explanation=ambiguity["message"],
+            clarification=ambiguity,
+        )
     service = MaximoNL2SQL(db)
     result = await service.query(req.question, mode=req.mode, user_context=user, conversation_history=req.history)
     return NL2SQLResponse(**result)

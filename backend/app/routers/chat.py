@@ -14,7 +14,7 @@ from app.models.schemas import (
     SearchResponse,
 )
 from app.services import rag
-from app.services.intent_router import detect_intent
+from app.services.intent_router import detect_intent, detect_ambiguity
 from app.config import get_settings
 
 log = logging.getLogger(__name__)
@@ -86,6 +86,14 @@ async def chat_stream(request: ChatRequest):
             yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'intent', 'label': '意圖偵測：' + reason, 'status': 'done'}}, ensure_ascii=False)}\n\n"
 
             sql_result = None
+
+            # Check for ambiguity (only for SQL intent)
+            if intent in ("sql", "hybrid"):
+                ambiguity = detect_ambiguity(query, history=[])
+                if ambiguity:
+                    yield f"data: {json.dumps({'type': 'clarification', 'data': ambiguity}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                    return
 
             if intent in ("sql", "hybrid"):
                 # === NL→SQL Path ===

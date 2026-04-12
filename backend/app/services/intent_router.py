@@ -2,6 +2,7 @@
 
 import re
 import logging
+from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -75,3 +76,86 @@ def detect_intent(query: str) -> dict:
 
     # Default to RAG (knowledge base search)
     return {"intent": "rag", "confidence": 0.5, "reason": "預設使用知識庫搜尋"}
+
+
+def detect_ambiguity(query: str, history: list = None) -> Optional[dict]:
+    """Detect if query is too ambiguous and needs clarification.
+    Returns None if query is clear enough, or a dict with clarification options.
+
+    Only triggers when:
+    - No multi-turn history (context would disambiguate)
+    - Query matches ambiguity rules
+    """
+    # Skip if multi-turn context available
+    if history and len(history) > 0:
+        return None
+
+    q = query.strip()
+    q_lower = q.lower()
+
+    # Rule 1: Very short/vague query (< 4 chars)
+    if len(q) < 4:
+        return {
+            "message": "請提供更具體的查詢條件：",
+            "options": [
+                {"label": "核簽中的工單有哪些？", "query": "核簽中的工單有哪些？"},
+                {"label": "EMU900 的故障通報", "query": "EMU900 的故障通報"},
+                {"label": "各車型資產數量統計", "query": "各車型的資產數量統計"},
+            ]
+        }
+
+    # Rule 2: "工單" without specifying which type/table — BUT only if no status/type keywords
+    if "工單" in q and not any(kw in q_lower for kw in [
+        "maximo_mxwo", "pm_workorder", "cm_workorder", "mxwo",
+        "核簽", "執行中", "完工", "初始", "退回",  # status keywords = clear intent
+        "1a", "2a", "3a", "4a",  # PM work types
+        "t1", "tr", "cm",  # CM work types
+        "定檢", "臨修", "定期", "全部",
+    ]):
+        return {
+            "message": "「工單」在系統中有多種來源，您要查詢哪一種？",
+            "options": [
+                {"label": "所有工單 (maximo_mxwo)", "query": f"maximo_mxwo {q}"},
+                {"label": "定期檢修工單 (1A/2A/3A/4A)", "query": f"定期檢修工單 {q}"},
+                {"label": "臨修工單 (T1/TR/CM)", "query": f"臨修工單 {q}"},
+            ]
+        }
+
+    # Rule 3: Ambiguous "狀態" without subject
+    if "狀態" in q and not any(kw in q for kw in ["工單", "故障", "車輛", "資產", "通報", "mxwo", "mxsr", "mxasset"]):
+        return {
+            "message": "您想查詢哪種資料的狀態？",
+            "options": [
+                {"label": "工單狀態", "query": f"工單{q}"},
+                {"label": "故障通報狀態", "query": f"故障通報{q}"},
+                {"label": "車輛資產狀態", "query": f"車輛資產{q}"},
+            ]
+        }
+
+    # Rule 4: "最近" without time range and without specific count
+    if "最近" in q and not any(kw in q for kw in [
+        "天", "週", "月", "年", "筆", "個", "台",
+        "10", "20", "30", "50", "100",
+    ]):
+        return {
+            "message": "「最近」是指多長的時間範圍？",
+            "options": [
+                {"label": "最近一週", "query": q.replace("最近", "最近一週")},
+                {"label": "最近一個月", "query": q.replace("最近", "最近一個月")},
+                {"label": "最近 10 筆", "query": f"{q}，列出 10 筆"},
+            ]
+        }
+
+    # Rule 5: Just a vehicle number without action
+    if re.match(r'^(EMU|TEMU|ED|E)\d+$', q.strip(), re.IGNORECASE):
+        vehicle = q.strip()
+        return {
+            "message": f"您想查詢 {vehicle} 的哪些資訊？",
+            "options": [
+                {"label": f"{vehicle} 的基本資料", "query": f"{vehicle} 車輛資產資料"},
+                {"label": f"{vehicle} 的工單", "query": f"{vehicle} 的工單有哪些"},
+                {"label": f"{vehicle} 的故障通報", "query": f"{vehicle} 的故障通報"},
+            ]
+        }
+
+    return None  # Query is clear enough

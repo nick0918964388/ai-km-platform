@@ -63,6 +63,10 @@ interface QueryResult {
   }>;
   cached?: boolean;
   mode?: string;
+  clarification?: {
+    message: string;
+    options: Array<{label: string; query: string}>;
+  };
   chart_suggestion?: {
     type: 'bar' | 'line' | 'pie';
     x_key?: string;
@@ -341,8 +345,38 @@ export default function MaximoQueryPage() {
         </div>
       )}
 
+      {/* Clarification */}
+      {result && !loading && result.clarification && (
+        <div style={{
+          background: 'var(--bg-secondary)', border: '1px solid var(--primary)',
+          borderRadius: 'var(--radius-md)', padding: '1.25rem',
+        }}>
+          <div style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem' }}>
+            {result.clarification.message}
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {result.clarification.options.map((opt: any, i: number) => (
+              <button
+                key={i}
+                onClick={() => runQuery(opt.query)}
+                style={{
+                  padding: '0.5rem 1rem', borderRadius: 99,
+                  border: '2px solid var(--primary)', background: 'transparent',
+                  color: 'var(--primary)', cursor: 'pointer',
+                  fontSize: '0.875rem', fontWeight: 600,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--primary)'; e.currentTarget.style.color = 'white'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--primary)'; }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Result */}
-      {result && !loading && (
+      {result && !loading && !result.clarification && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           {/* Status bar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>

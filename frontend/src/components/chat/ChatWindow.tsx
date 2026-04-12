@@ -106,6 +106,7 @@ export default function ChatWindow() {
   const [expandedSources, setExpandedSources] = useState<{ [key: string]: boolean }>({});
   const [taskSteps, setTaskSteps] = useState<Step[]>([]);
   const [messageSqlResults, setMessageSqlResults] = useState<Record<string, any>>({});
+  const [pendingClarification, setPendingClarification] = useState<{message: string; options: {label: string; query: string}[]} | null>(null);
   const [selectedModel, setSelectedModel] = useState('qwen3-vl:32b');
   const [historyOpen, setHistoryOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -160,6 +161,7 @@ export default function ChatWindow() {
       setMessageSources({});
       setMessageQueries({});
       setMessageSqlResults({});
+      setPendingClarification(null);
     }
   }, [activeConversationId, messages]);
 
@@ -180,6 +182,7 @@ export default function ChatWindow() {
 
   const handleSend = useCallback(async (queryToSend: string, imageBase64?: string, model?: string) => {
     if (!queryToSend.trim() || isLoading) return;
+    setPendingClarification(null);
 
     let convId = activeConversationId;
 
@@ -306,6 +309,10 @@ export default function ChatWindow() {
                   });
                 } else if (data.type === 'sql_result' && data.data) {
                   setMessageSqlResults(prev => ({ ...prev, [messageId]: data.data }));
+                } else if (data.type === 'clarification' && data.data) {
+                  setPendingClarification(data.data);
+                  streamedContent = data.data.message;
+                  useStore.getState().updateMessage(convId!, messageId, data.data.message);
                 } else if (data.type === 'done') {
                   setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
                   // Save sources to message for persistence
@@ -808,6 +815,37 @@ export default function ChatWindow() {
                           {line}
                         </p>
                       ))
+                    )}
+                    {/* Clarification options */}
+                    {msg.role === 'assistant' && pendingClarification && msg.id === messages[messages.length - 1]?.id && !messageStreamingStatus[msg.id] && (
+                      <div style={{
+                        display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem',
+                      }}>
+                        {pendingClarification.options.map((opt, i) => (
+                          <button
+                            key={i}
+                            onClick={() => {
+                              setPendingClarification(null);
+                              handleSend(opt.query);
+                            }}
+                            style={{
+                              padding: '0.5rem 0.875rem',
+                              borderRadius: 99,
+                              border: '2px solid var(--primary)',
+                              background: 'transparent',
+                              color: 'var(--primary)',
+                              cursor: 'pointer',
+                              fontSize: '0.8125rem',
+                              fontWeight: 600,
+                              transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'var(--primary)'; e.currentTarget.style.color = 'white'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--primary)'; }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
                     )}
                     {/* SQL Result Card */}
                     {msg.role === 'assistant' && messageSqlResults[msg.id] && !messageStreamingStatus[msg.id] && (
