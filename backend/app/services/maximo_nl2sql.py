@@ -495,9 +495,12 @@ class MaximoNL2SQL:
             return "不允許多個語句"
         # Use dynamic allowed tables (set in generate_sql), fallback to static
         allowed = getattr(self, '_allowed_tables', STATIC_ALLOWED_TABLES)
-        tables = re.findall(r'\b(?:from|join)\s+(\w+)', s)
+        # Remove EXTRACT(...FROM...) and similar function usages before checking table names
+        cleaned = re.sub(r'extract\s*\([^)]*\)', '', s, flags=re.IGNORECASE)
+        cleaned = re.sub(r'::\w+', '', cleaned)  # remove PostgreSQL type casts like ::date
+        tables = re.findall(r'\b(?:from|join)\s+(\w+)', cleaned)
         for t in tables:
-            if t not in allowed and t not in {"lateral", "unnest"}:
+            if t not in allowed and t not in {"lateral", "unnest", "generate_series"}:
                 return f"不允許存取的表：{t}"
         return None
 
