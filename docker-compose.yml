@@ -102,9 +102,9 @@ services:
       RERANK_TOP_N: 10
       # LLM Configuration
       LLM_PROVIDER: ollama
-      OLLAMA_CHAT_URL: https://j2ollama.nickai.cc/v1
-      OLLAMA_CHAT_MODEL: minimax-m2.7:cloud
-      OLLAMA_LIGHT_MODEL: minimax-m2.7:cloud
+      OLLAMA_CHAT_URL: http://ollama.webtw.xyz:11434/v1
+      OLLAMA_CHAT_MODEL: qwen3-vl:8b
+      OLLAMA_LIGHT_MODEL: qwen3-vl:8b
       # Fallback OpenAI (optional)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       JINA_API_KEY: ${JINA_API_KEY:-}

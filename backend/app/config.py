@@ -15,9 +15,9 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o"
 
     # Ollama Chat
-    ollama_chat_url: str = "https://j2ollama.nickai.cc/v1"
-    ollama_chat_model: str = "minimax-m2.7:cloud"
-    ollama_light_model: str = "minimax-m2.7:cloud"
+    ollama_chat_url: str = "http://ollama.webtw.xyz:11434/v1"
+    ollama_chat_model: str = "qwen3-vl:8b"
+    ollama_light_model: str = "qwen3-vl:8b"
 
     # Embedding models
     text_embedding_model: str = "all-MiniLM-L6-v2"
