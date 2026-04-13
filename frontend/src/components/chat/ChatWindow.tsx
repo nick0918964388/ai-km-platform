@@ -804,36 +804,22 @@ export default function ChatWindow() {
                     lineHeight: 1.6,
                     position: 'relative',
                   }}>
-                    {/* Thinking indicator: show step progress while streaming */}
+                    {/* Thinking indicator: show only current step while streaming */}
                     {msg.role === 'assistant' && messageStreamingStatus[msg.id] && (() => {
                       const runningStep = taskSteps.filter(s => s.status === 'running').pop();
-                      const doneSteps = taskSteps.filter(s => s.status === 'done');
-                      const currentLabel = runningStep?.label || '思考中...';
+                      const lastDone = taskSteps.filter(s => s.status === 'done').pop();
+                      const currentLabel = runningStep?.label || lastDone?.label || '思考中...';
                       return (
-                        <div style={{ marginBottom: msg.content ? '0.5rem' : 0 }}>
-                          {/* Show completed steps */}
-                          {doneSteps.length > 0 && (
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
-                              {doneSteps.map((s, i) => (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', lineHeight: 1.6 }}>
-                                  <span style={{ color: 'var(--success, #16a34a)' }}>✓</span>
-                                  <span>{s.label}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {/* Show current running step */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
-                            <div className="typing-indicator" style={{ display: 'inline-flex' }}>
-                              <span></span><span></span><span></span>
-                            </div>
-                            <span style={{ fontStyle: 'italic' }}>{currentLabel}</span>
-                            {elapsedSeconds > 0 && (
-                              <span style={{ fontSize: '0.7rem', fontFamily: 'monospace' }}>
-                                {elapsedSeconds}s
-                              </span>
-                            )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem', marginBottom: msg.content ? '0.5rem' : 0 }}>
+                          <div className="typing-indicator" style={{ display: 'inline-flex' }}>
+                            <span></span><span></span><span></span>
                           </div>
+                          <span style={{ fontStyle: 'italic' }}>{currentLabel}</span>
+                          {elapsedSeconds > 0 && (
+                            <span style={{ fontSize: '0.7rem', fontFamily: 'monospace' }}>
+                              {elapsedSeconds}s
+                            </span>
+                          )}
                         </div>
                       );
                     })()}
