@@ -818,12 +818,7 @@ export default function ChatWindow() {
                         </div>
                       );
                     })()}
-                    {/* Step details inside bubble (collapsible) */}
-                    {msg.role === 'assistant' && msgIdx === messages.length - 1 && taskSteps.length > 0 && !messageStreamingStatus[msg.id] && (
-                      <div style={{ marginBottom: '0.5rem' }}>
-                        <TaskProgress steps={taskSteps} />
-                      </div>
-                    )}
+                    {/* Step details merged into 詳細資訊 below */}
                     {msg.role === 'assistant' ? (
                       <div className="markdown-content" style={{ display: msg.content ? 'block' : 'none' }}>
                         <ReactMarkdown
@@ -1072,10 +1067,10 @@ export default function ChatWindow() {
                         })}
                       </div>
                     )}
-                    {/* 模型資訊 - 可收合區塊 */}
-                    {msg.role === 'assistant' && 
-                     messageMetadata[msg.id] && 
-                     !messageStreamingStatus[msg.id] && (
+                    {/* 詳細資訊 — 步驟 + 模型 + tokens，可收合 */}
+                    {msg.role === 'assistant' &&
+                     !messageStreamingStatus[msg.id] &&
+                     (messageMetadata[msg.id] || (msgIdx === messages.length - 1 && taskSteps.length > 0)) && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <button
                           onClick={() => setExpandedInfo(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
@@ -1103,21 +1098,39 @@ export default function ChatWindow() {
                             fontSize: '0.75rem',
                             color: 'var(--text-secondary)',
                           }}>
-                            <div style={{ marginBottom: '0.25rem' }}>
-                              <strong>模型：</strong>{messageMetadata[msg.id].model}
-                            </div>
-                            <div style={{ marginBottom: '0.25rem' }}>
-                              <strong>回應時長：</strong>{(messageMetadata[msg.id].duration_ms / 1000).toFixed(2)} 秒
-                            </div>
-                            {messageMetadata[msg.id].tokens && (
-                              <div>
-                                <strong>Token 使用量：</strong>
-                                {messageMetadata[msg.id].tokens?.total_tokens} 
-                                <span style={{ marginLeft: '0.5rem', opacity: 0.7 }}>
-                                  (輸入: {messageMetadata[msg.id].tokens?.prompt_tokens}, 
-                                  輸出: {messageMetadata[msg.id].tokens?.completion_tokens})
-                                </span>
+                            {/* 處理步驟 */}
+                            {msgIdx === messages.length - 1 && taskSteps.length > 0 && (
+                              <div style={{ marginBottom: '0.5rem' }}>
+                                {taskSteps.map((s, i) => (
+                                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', lineHeight: 1.6 }}>
+                                    <span style={{ color: s.status === 'done' ? 'var(--success, #16a34a)' : 'var(--warning, #f59e0b)' }}>
+                                      {s.status === 'done' ? '✓' : '●'}
+                                    </span>
+                                    <span>{s.label}</span>
+                                  </div>
+                                ))}
                               </div>
+                            )}
+                            {/* 模型資訊 */}
+                            {messageMetadata[msg.id] && (
+                              <>
+                                <div style={{ marginBottom: '0.25rem' }}>
+                                  <strong>模型：</strong>{messageMetadata[msg.id].model}
+                                </div>
+                                <div style={{ marginBottom: '0.25rem' }}>
+                                  <strong>回應時長：</strong>{(messageMetadata[msg.id].duration_ms / 1000).toFixed(2)} 秒
+                                </div>
+                                {messageMetadata[msg.id].tokens && (
+                                  <div>
+                                    <strong>Token 使用量：</strong>
+                                    {messageMetadata[msg.id].tokens?.total_tokens}
+                                    <span style={{ marginLeft: '0.5rem', opacity: 0.7 }}>
+                                      (輸入: {messageMetadata[msg.id].tokens?.prompt_tokens},
+                                      輸出: {messageMetadata[msg.id].tokens?.completion_tokens})
+                                    </span>
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
                         )}
