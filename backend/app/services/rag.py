@@ -580,7 +580,8 @@ def rewrite_query(query: str, attempt: int = 1) -> str | None:
     try:
         response = client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": f"""請改寫以下查詢以提高文件檢索效果。策略：{strategy}
+            messages=[{"role": "user", "content": f"""/no_think
+請改寫以下查詢以提高文件檢索效果。策略：{strategy}
 
 原始查詢：{query}
 

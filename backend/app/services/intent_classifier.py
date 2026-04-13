@@ -111,7 +111,7 @@ class IntentClassifierService:
         self.model = settings.ollama_light_model
 
     async def classify(self, query: str, context: list = None) -> IntentResult:
-        user_prompt = f"使用者查詢: {query}"
+        user_prompt = f"/no_think\n使用者查詢: {query}"
         if context:
             conv_parts = []
             for m in context[-3:]:
@@ -176,7 +176,7 @@ class IntentClassifierService:
                 clarification_options=[{"label": "請重新描述您的問題", "query": query}],
             )
 
-    async def classify_with_fallback(self, query: str, context: list = None, timeout: float = 3.0) -> IntentResult:
+    async def classify_with_fallback(self, query: str, context: list = None, timeout: float = 8.0) -> IntentResult:
         try:
             return await asyncio.wait_for(self.classify(query, context), timeout=timeout)
         except (asyncio.TimeoutError, Exception) as e:
