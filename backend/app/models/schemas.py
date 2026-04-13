@@ -54,6 +54,7 @@ class ChatRequest(BaseModel):
     top_k: int = Field(5, ge=1, le=20, description="Number of documents to retrieve")
     model: Optional[str] = None
     context: List[Dict[str, str]] = []  # conversation history [{role, content, intent?, sql?}]
+    skip_clarification: bool = False  # Skip intent clarification, go straight to search
 
 
 class SearchRequest(BaseModel):

@@ -104,7 +104,7 @@ async def chat_stream(request: ChatRequest):
             sql_result = None
 
             # Clarification check: LLM-based first, then rule-based fallback for SQL
-            if intent == "clarification" and cls_result.clarification_options:
+            if intent == "clarification" and cls_result.clarification_options and not request.skip_clarification:
                 yield sse_event('clarification', {
                     "message": cls_result.reasoning,
                     "options": cls_result.clarification_options,
@@ -112,7 +112,12 @@ async def chat_stream(request: ChatRequest):
                 yield sse_event('done', {})
                 return
 
-            if intent in ("sql", "hybrid"):
+            # If skipping clarification or intent was clarification, fallback to keyword-based routing
+            if intent == "clarification":
+                kw = detect_intent(query, context=request.context)
+                intent = kw["intent"]
+
+            if intent in ("sql", "hybrid") and not request.skip_clarification:
                 # Rule-based ambiguity as second layer (domain-specific Maximo disambiguation)
                 ambiguity = detect_ambiguity(query, history=request.context)
                 if ambiguity:

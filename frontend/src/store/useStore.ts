@@ -132,7 +132,7 @@ interface AppState {
   deleteConversation: (conversationId: string) => void;
   updateConversationTitle: (conversationId: string, title: string) => void;
   addMessage: (conversationId: string, message: Message) => void;
-  updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string; sqlResult?: any }) => void;
+  updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string; sqlResult?: any; clarification?: any }) => void;
   loadUserData: () => void;
 
   // UI

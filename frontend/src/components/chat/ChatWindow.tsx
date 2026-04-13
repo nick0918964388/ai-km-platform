@@ -193,7 +193,7 @@ export default function ChatWindow() {
     abortControllerRef.current?.abort();
   }, []);
 
-  const handleSend = useCallback(async (queryToSend: string, imageBase64?: string, model?: string) => {
+  const handleSend = useCallback(async (queryToSend: string, imageBase64?: string, model?: string, skipClarification?: boolean) => {
     if (!queryToSend.trim() || isLoading) return;
     setPendingClarification(null);
 
@@ -265,6 +265,7 @@ export default function ChatWindow() {
           context: buildContext(),
           ...(model ? { model } : {}),
           ...(imageBase64 ? { image_base64: imageBase64 } : {}),
+          ...(skipClarification ? { skip_clarification: true } : {}),
         }),
         signal: abortController.signal,
         timeout: TIMEOUTS.STREAMING,
@@ -911,7 +912,8 @@ export default function ChatWindow() {
                           <button
                             onClick={() => {
                               setPendingClarification(null);
-                              handleSend(msg.query || messages.filter(m => m.role === 'user').pop()?.content || '');
+                              const originalQuery = messages.filter(m => m.role === 'user').pop()?.content || '';
+                              handleSend(originalQuery, undefined, undefined, true);
                             }}
                             style={{
                               marginTop: '0.5rem',

@@ -143,12 +143,20 @@ class IntentClassifierService:
             if content.startswith("```"):
                 content = content.split("\n", 1)[1].rsplit("```", 1)[0]
 
-            # Try to find JSON in the response
-            json_match = re.search(r'\{[\s\S]*\}', content)
-            if json_match:
-                result = json.loads(json_match.group())
-            else:
+            # Extract outermost JSON object by bracket matching
+            start = content.find('{')
+            if start == -1:
                 raise ValueError(f"No JSON found in response: {content[:200]}")
+            depth, end = 0, start
+            for i in range(start, len(content)):
+                if content[i] == '{':
+                    depth += 1
+                elif content[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            result = json.loads(content[start:end])
 
             return IntentResult(
                 intent=QueryIntent(result.get("intent", "clarification")),
