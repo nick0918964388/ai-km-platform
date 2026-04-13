@@ -234,8 +234,9 @@ export default function ChatWindow() {
     const buildContext = () => {
       const conv = conversations.find(c => c.id === convId);
       if (!conv?.messages) return [];
-      const recentMsgs = conv.messages.slice(-6);
-      return recentMsgs.map(m => ({
+      // Exclude the message we just added (current user query) to avoid duplication
+      const prevMsgs = conv.messages.slice(0, -1).slice(-6);
+      return prevMsgs.map(m => ({
         role: m.role,
         content: (m.content || '').substring(0, 200),
         intent: messageSqlResults[m.id]

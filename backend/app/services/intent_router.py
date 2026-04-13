@@ -49,10 +49,11 @@ def detect_intent(query: str, context: list = None) -> dict:
     if context and len(context) > 0:
         last_had_sql = any(m.get("intent") == "sql" for m in context[-2:])
 
-        # Short follow-up patterns (< 15 chars or starts with modifier keywords)
-        follow_up_keywords = ["只看", "改成", "加上", "排除", "不要", "換成", "再加", "但是", "然後", "還有", "這些"]
-        is_short = len(query.strip()) < 15
-        is_follow_up = any(query.strip().startswith(kw) for kw in follow_up_keywords)
+        # Short follow-up patterns (< 20 chars or contains modifier keywords)
+        follow_up_keywords = ["只看", "改成", "加上", "排除", "不要", "換成", "再加", "但是", "然後", "還有", "這些",
+                              "上面", "那", "呢", "改為", "篩選", "過濾", "限制", "結果"]
+        is_short = len(query.strip()) < 20
+        is_follow_up = any(kw in query for kw in follow_up_keywords)
 
         if last_had_sql and (is_short or is_follow_up):
             return {"intent": "sql", "confidence": 0.9, "reason": "延續上一個資料查詢（follow-up）"}
