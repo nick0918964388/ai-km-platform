@@ -107,7 +107,7 @@ SYSTEM_PROMPT = f"""你是一個車輛維修知識管理系統的意圖分類器
 class IntentClassifierService:
     def __init__(self):
         settings = get_settings()
-        self.client = AsyncOpenAI(api_key="ollama", base_url=settings.ollama_chat_url)
+        self.client = AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url)
         self.model = settings.ollama_light_model
 
     async def classify(self, query: str, context: list = None) -> IntentResult:

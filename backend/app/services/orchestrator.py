@@ -153,7 +153,7 @@ def _heuristic_decompose(query: str) -> DecompositionResult:
 
 async def decompose_query(query: str, context: list = None) -> DecompositionResult:
     settings = get_settings()
-    client = AsyncOpenAI(api_key="ollama", base_url=settings.ollama_chat_url)
+    client = AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url)
 
     user_prompt = f"/no_think\n使用者查詢: {query}"
     if context:
@@ -318,7 +318,7 @@ async def synthesize_results(
     instruction: str,
 ) -> AsyncGenerator[dict, None]:
     settings = get_settings()
-    client = AsyncOpenAI(api_key="ollama", base_url=settings.ollama_chat_url)
+    client = AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url)
 
     context_text = _build_synthesis_context(results)
     user_prompt = f"""/no_think

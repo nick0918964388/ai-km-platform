@@ -14,10 +14,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
 
-    # Ollama Chat
-    ollama_chat_url: str = "http://ollama.webtw.xyz:11434/v1"
-    ollama_chat_model: str = "qwen3-vl:8b"
-    ollama_light_model: str = "qwen3-vl:8b"
+    # Ollama Chat / OpenAI-compatible LLM endpoint
+    ollama_chat_url: str = "https://integrate.api.nvidia.com/v1"
+    ollama_chat_api_key: str = "ollama"  # "ollama" for Ollama, real key for NVIDIA/OpenRouter
+    ollama_chat_model: str = "minimaxai/minimax-m2.7"
+    ollama_light_model: str = "minimaxai/minimax-m2.7"
 
     # Embedding models
     text_embedding_model: str = "all-MiniLM-L6-v2"

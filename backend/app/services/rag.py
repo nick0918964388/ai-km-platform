@@ -23,7 +23,7 @@ def _get_llm_client(light: bool = False):
     """Return (client, model) based on configured LLM provider."""
     settings = get_settings()
     if settings.llm_provider == "ollama":
-        client = OpenAI(base_url=settings.ollama_chat_url, api_key="ollama")
+        client = OpenAI(base_url=settings.ollama_chat_url, api_key=settings.ollama_chat_api_key)
         model = settings.ollama_light_model if light else settings.ollama_chat_model
     else:
         api_key = os.environ.get("OPENAI_API_KEY", settings.openai_api_key)

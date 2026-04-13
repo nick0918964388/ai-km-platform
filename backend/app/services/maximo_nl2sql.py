@@ -117,7 +117,8 @@ class MaximoNL2SQL:
         provider = os.getenv("LLM_PROVIDER", "openai")
         if provider == "ollama":
             base_url = os.getenv("OLLAMA_CHAT_URL", "http://localhost:11434/v1")
-            self.client = AsyncOpenAI(api_key="ollama", base_url=base_url)
+            api_key = os.getenv("OLLAMA_CHAT_API_KEY", "ollama")
+            self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
             # Use light model for NL→SQL (faster, good enough for SQL generation)
             self.model = os.getenv("OLLAMA_LIGHT_MODEL",
                           os.getenv("OLLAMA_CHAT_MODEL", "gemma4:31b-cloud"))
