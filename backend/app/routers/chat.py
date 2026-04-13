@@ -180,8 +180,9 @@ async def chat_stream(request: ChatRequest):
                         yield f"data: {json.dumps({'type': 'content', 'data': f'*（{friendly}改用知識庫搜尋）*\\n\\n'}, ensure_ascii=False)}\n\n"
                         intent = "rag"
                     else:
-                        # Friendly message + collapsible error detail
-                        error_content = f"{friendly}\n\n<details><summary>🔧 技術細節（點擊展開）</summary>\n\n```\n{raw_error[:500]}\n```\n\n</details>"
+                        # Friendly message + error detail in code block
+                        short_error = raw_error.split('\n')[0][:150] if raw_error else "未知錯誤"
+                        error_content = f"{friendly}\n\n🔧 **錯誤摘要：** `{short_error}`"
                         yield f"data: {json.dumps({'type': 'content', 'data': error_content}, ensure_ascii=False)}\n\n"
                         # Also send the structured result so SqlResultCard can show suggestions
                         if sql_result.get("suggestions"):

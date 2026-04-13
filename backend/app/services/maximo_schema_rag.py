@@ -413,9 +413,12 @@ class MaximoSchemaRAG:
                 lines.append(f"FK：{fk_str}")
 
             cols = columns_by_obj.get(obj, [])
+            is_extractor = table_name.startswith("maximo_mx")
             for c in cols:
                 attr_upper = c["attribute_name"].upper()
-                col_ref = attr_col_map.get(attr_upper, c["attribute_name"].lower())
+                # Extractor tables use original Maximo column names (lowercase)
+                # ETL tables use mapped names from _ATTR_COL
+                col_ref = c["attribute_name"].lower() if is_extractor else attr_col_map.get(attr_upper, c["attribute_name"].lower())
                 label = c["title"]
                 did = c.get("domain_id", "")
                 if did and did in domain_vals:

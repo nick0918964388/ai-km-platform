@@ -276,10 +276,11 @@ class MaximoNL2SQL:
             lines = ["## Maximo 資料庫 Schema（從 maximo_zz_maxattribute 動態產生）"]
             for obj, tattrs in sorted(by_obj.items()):
                 pg_table = self._OBJ_TABLE.get(obj, obj.lower())
+                is_extractor = pg_table.startswith("maximo_mx")
                 lines.append(f"\n### {pg_table}（Maximo {obj}）")
                 for a in tattrs:
                     attr_upper = a.attributename.upper()
-                    col_ref = self._ATTR_COL.get(attr_upper, a.attributename.lower())
+                    col_ref = a.attributename.lower() if is_extractor else self._ATTR_COL.get(attr_upper, a.attributename.lower())
                     label   = a.title or a.attributename
                     if a.domainid and a.domainid in domain_vals:
                         pairs = ", ".join(
