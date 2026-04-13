@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o"
 
     # Ollama Chat
-    ollama_chat_url: str = "http://192.168.1.161:11434/v1"
+    ollama_chat_url: str = "http://192.168.1.44:11434/v1"
     ollama_chat_model: str = "minimax-m2.7:cloud"
     ollama_light_model: str = "minimax-m2.7:cloud"
 
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     
     # Ollama Embedding
     embedding_provider: str = "ollama"  # "openai" or "ollama"
-    ollama_url: str = "http://192.168.1.161:11434"
+    ollama_url: str = "http://192.168.1.44:11434"
     ollama_embedding_model: str = "qwen3-embedding:latest"
 
     # Qdrant
