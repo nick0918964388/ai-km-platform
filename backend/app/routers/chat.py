@@ -120,8 +120,8 @@ async def chat_stream(request: ChatRequest):
                 kw = detect_intent(query, context=request.context)
                 intent = kw["intent"]
 
-            if intent in ("sql", "hybrid") and not request.skip_clarification:
-                # Rule-based ambiguity as second layer (domain-specific Maximo disambiguation)
+            if intent == "sql" and not request.skip_clarification:
+                # Rule-based ambiguity for SQL-only (hybrid goes to multi-agent which handles disambiguation)
                 ambiguity = detect_ambiguity(query, history=request.context)
                 if ambiguity:
                     yield sse_event('clarification', ambiguity)
