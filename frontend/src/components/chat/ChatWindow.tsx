@@ -766,12 +766,7 @@ export default function ChatWindow() {
                   flexDirection: 'column',
                   alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
                 }}>
-                  {/* TaskProgress: show above the last assistant message while loading */}
-                  {msg.role === 'assistant' && msgIdx === messages.length - 1 && taskSteps.length > 0 && (
-                    <div style={{ width: '100%', maxWidth: '70%' }}>
-                      <TaskProgress steps={taskSteps} />
-                    </div>
-                  )}
+                  {/* TaskProgress moved inside bubble below */}
                   <div style={{
                     display: 'flex',
                     gap: '0.75rem',
@@ -823,6 +818,12 @@ export default function ChatWindow() {
                         </div>
                       );
                     })()}
+                    {/* Step details inside bubble (collapsible) */}
+                    {msg.role === 'assistant' && msgIdx === messages.length - 1 && taskSteps.length > 0 && !messageStreamingStatus[msg.id] && (
+                      <div style={{ marginBottom: '0.5rem' }}>
+                        <TaskProgress steps={taskSteps} />
+                      </div>
+                    )}
                     {msg.role === 'assistant' ? (
                       <div className="markdown-content" style={{ display: msg.content ? 'block' : 'none' }}>
                         <ReactMarkdown
