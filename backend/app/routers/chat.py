@@ -116,9 +116,13 @@ async def chat_stream(request: ChatRequest):
                                 if m.get("intent") == "sql" and m.get("sql"):
                                     sql_history.append({"question": m.get("content", ""), "sql": m["sql"]})
 
-                        sql_result = await service.query(query, mode="fast", conversation_history=sql_history[-3:] if sql_history else None)
+                        sql_result = await service.query(query, mode="accurate", conversation_history=sql_history[-3:] if sql_history else None)
 
                         yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'sql_generate', 'label': '呼叫 AI 產生 SQL 語句...', 'status': 'done'}}, ensure_ascii=False)}\n\n"
+
+                        iters = sql_result.get("iterations", 1)
+                        if iters > 1:
+                            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'validate', 'label': f'驗證並修正查詢（{iters} 次迭代）...', 'status': 'done'}}, ensure_ascii=False)}\n\n"
 
                         if sql_result.get("success"):
                             yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'execute', 'label': '執行查詢並整理結果...', 'status': 'done'}}, ensure_ascii=False)}\n\n"
@@ -169,12 +173,19 @@ async def chat_stream(request: ChatRequest):
                     yield f"data: {json.dumps({'type': 'content', 'data': '\\n\\n---\\n\\n**相關文件參考：**\\n\\n'}, ensure_ascii=False)}\n\n"
 
                 else:
-                    error_msg = sql_result.get("error", "查詢失敗")
+                    raw_error = sql_result.get("error", "查詢失敗")
+                    iters = sql_result.get("iterations", 1)
+                    friendly = f"查詢未能成功完成（已嘗試 {iters} 次）。"
                     if intent == "hybrid":
-                        yield f"data: {json.dumps({'type': 'content', 'data': f'*（資料查詢：{error_msg}，改用知識庫搜尋）*\\n\\n'}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'type': 'content', 'data': f'*（{friendly}改用知識庫搜尋）*\\n\\n'}, ensure_ascii=False)}\n\n"
                         intent = "rag"
                     else:
-                        yield f"data: {json.dumps({'type': 'content', 'data': f'查詢失敗：{error_msg}'}, ensure_ascii=False)}\n\n"
+                        # Friendly message + collapsible error detail
+                        error_content = f"{friendly}\n\n<details><summary>🔧 技術細節（點擊展開）</summary>\n\n```\n{raw_error[:500]}\n```\n\n</details>"
+                        yield f"data: {json.dumps({'type': 'content', 'data': error_content}, ensure_ascii=False)}\n\n"
+                        # Also send the structured result so SqlResultCard can show suggestions
+                        if sql_result.get("suggestions"):
+                            yield f"data: {json.dumps({'type': 'sql_result', 'data': sql_result}, ensure_ascii=False)}\n\n"
                         yield f"data: {json.dumps({'type': 'done'})}\n\n"
                         return
 
