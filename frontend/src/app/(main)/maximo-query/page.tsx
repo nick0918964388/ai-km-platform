@@ -517,12 +517,18 @@ export default function MaximoQueryPage() {
             />
           )}
 
-          {result.success && result.row_count === 0 && (
+          {result.success && result.row_count === 0 && !result.suggestions?.length && (
+            <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem', fontSize: '0.875rem' }}>
+              查無結果
+            </div>
+          )}
+
+          {result.success && result.suggestions && result.suggestions.length > 0 && (
             <div style={{ textAlign: 'center', padding: '1.5rem' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '0.75rem' }}>
-                查無結果
+              <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                {result.row_count === 0 ? '查無結果。' : '查詢結果可能不完整。'}以下是替代建議：
               </div>
-              {result.suggestions && result.suggestions.length > 0 && (
+              {true && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', alignItems: 'center' }}>
                   <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>替代建議：</div>
                   {result.suggestions.map((s: any, i: number) => (
@@ -547,6 +553,7 @@ export default function MaximoQueryPage() {
               )}
             </div>
           )}
+
 
           {/* Related Docs Panel */}
           <RelatedDocsPanel

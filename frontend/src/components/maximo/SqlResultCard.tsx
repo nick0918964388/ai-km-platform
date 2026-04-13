@@ -175,13 +175,13 @@ export default function SqlResultCard({ result, question, onRequery }: SqlResult
           </div>
         )}
 
-        {result.row_count === 0 && (
+        {result.row_count === 0 && !result.suggestions?.length && (
           <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '1rem', fontSize: '0.8125rem' }}>
             查無結果
           </div>
         )}
 
-        {result.row_count === 0 && result.suggestions && result.suggestions.length > 0 && (
+        {result.suggestions && result.suggestions.length > 0 && (
           <div style={{ padding: '0.75rem 1rem' }}>
             <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
               查無結果。以下是一些替代建議：
