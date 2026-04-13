@@ -83,6 +83,7 @@ async def chat_stream(request: ChatRequest):
 
         try:
             query = request.query
+            total_start = time.time()
 
             # Intent detection with LLM
             yield sse_event('step', {'id': 'intent', 'label': '分析查詢意圖...', 'status': 'running'})
@@ -211,7 +212,8 @@ async def chat_stream(request: ChatRequest):
                     syn_ms = int((time.time() - t0) * 1000)
                     yield sse_event('step', {'id': 'synthesize', 'label': f'綜合分析完成（{syn_ms}ms）', 'status': 'done'})
 
-                    yield sse_event('metadata', {'model': settings.ollama_chat_model, 'duration_ms': syn_ms, 'intent': intent_result})
+                    total_ms = int((time.time() - total_start) * 1000)
+                    yield sse_event('metadata', {'model': settings.ollama_chat_model, 'duration_ms': total_ms, 'intent': intent_result})
                     yield sse_event('done', {})
 
                     try:
@@ -249,11 +251,21 @@ async def chat_stream(request: ChatRequest):
                         sql_result = await service.query(query, mode="accurate", conversation_history=sql_history[-3:] if sql_history else None)
                         sql_ms = int((time.time() - t0) * 1000)
 
-                        yield sse_event('step', {'id': 'sql_generate', 'label': f'AI 產生 SQL 語句（{sql_ms}ms）', 'status': 'done'})
-
+                        # Detailed timing breakdown
+                        llm_ms = sql_result.get("llm_ms")
+                        verify_ms = sql_result.get("verify_ms")
+                        exec_ms = sql_result.get("execution_ms")
                         iters = sql_result.get("iterations", 1)
-                        if iters > 1:
-                            yield sse_event('step', {'id': 'validate', 'label': f'驗證並修正查詢（{iters} 次迭代）', 'status': 'done'})
+                        timing_parts = [f'總計 {sql_ms}ms']
+                        if llm_ms:
+                            timing_parts.append(f'LLM {llm_ms}ms')
+                        if verify_ms:
+                            timing_parts.append(f'驗證 {verify_ms}ms')
+                        if exec_ms:
+                            timing_parts.append(f'執行 {exec_ms}ms')
+                        timing_str = '，'.join(timing_parts)
+
+                        yield sse_event('step', {'id': 'sql_generate', 'label': f'AI 產生 SQL（{timing_str}，{iters} 次迭代）', 'status': 'done'})
 
                         if sql_result.get("success"):
                             yield sse_event('step', {'id': 'execute', 'label': '執行查詢並整理結果...', 'status': 'done'})
@@ -284,7 +296,8 @@ async def chat_stream(request: ChatRequest):
                     }
                     yield sse_event('sql_result', sql_event_data)
 
-                    yield sse_event('metadata', {'model': sql_result.get('model', 'nl2sql'), 'duration_ms': sql_result.get('llm_ms', 0), 'sql': sql_result.get('sql'), 'intent': intent_result})
+                    total_ms = int((time.time() - total_start) * 1000)
+                    yield sse_event('metadata', {'model': sql_result.get('model', 'nl2sql'), 'duration_ms': total_ms, 'sql': sql_result.get('sql'), 'intent': intent_result})
 
                     follow_ups = _generate_sql_follow_ups(query, sql_result)
                     if follow_ups:
@@ -416,9 +429,10 @@ async def chat_stream(request: ChatRequest):
             yield sse_event('step', {'id': 'generate', 'label': f'回答生成完成（{gen_ms}ms）', 'status': 'done'})
 
             duration_ms = gen_ms
+            total_ms = int((time.time() - total_start) * 1000)
             metadata = {
                 "model": request.model or settings.ollama_chat_model,
-                "duration_ms": duration_ms,
+                "duration_ms": total_ms,
                 "tokens": total_tokens,
             }
             if intent_result:
