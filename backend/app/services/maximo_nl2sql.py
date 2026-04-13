@@ -1134,8 +1134,16 @@ class MaximoNL2SQL:
             except Exception:
                 pass
 
-        # If 0 results, generate alternative suggestions
-        if last_result.get("row_count", 0) == 0 and last_result.get("sql"):
+        # If 0 results (or COUNT/SUM=0), generate alternative suggestions
+        is_empty = last_result.get("row_count", 0) == 0
+        # Also detect COUNT/SUM queries that return 1 row with value 0
+        if not is_empty and last_result.get("row_count") == 1 and last_result.get("data"):
+            row = last_result["data"][0] if last_result["data"] else {}
+            vals = [v for v in row.values() if isinstance(v, (int, float))]
+            if vals and all(v == 0 for v in vals) and "count" in last_result.get("sql", "").lower():
+                is_empty = True
+
+        if is_empty and last_result.get("sql"):
             try:
                 alternatives = await self._suggest_alternatives(last_result["sql"], question)
                 last_result["suggestions"] = alternatives
