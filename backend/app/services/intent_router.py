@@ -37,12 +37,29 @@ HYBRID_KEYWORDS = [
 ]
 
 
-def detect_intent(query: str) -> dict:
+def detect_intent(query: str, context: list = None) -> dict:
     """
     Detect query intent: 'rag' (document search), 'sql' (data query), or 'hybrid' (both).
+    Uses conversation context for follow-up detection.
     Returns: {"intent": "rag"|"sql"|"hybrid", "confidence": float, "reason": str}
     """
     q = query.lower()
+
+    # Follow-up detection: if context has recent SQL query and current query is short/referential
+    if context and len(context) > 0:
+        last_had_sql = any(m.get("intent") == "sql" for m in context[-2:])
+
+        # Short follow-up patterns (< 15 chars or starts with modifier keywords)
+        follow_up_keywords = ["只看", "改成", "加上", "排除", "不要", "換成", "再加", "但是", "然後", "還有", "這些"]
+        is_short = len(query.strip()) < 15
+        is_follow_up = any(query.strip().startswith(kw) for kw in follow_up_keywords)
+
+        if last_had_sql and (is_short or is_follow_up):
+            return {"intent": "sql", "confidence": 0.9, "reason": "延續上一個資料查詢（follow-up）"}
+
+        # "這些的 SOP" / "相關文件" after SQL → hybrid
+        if last_had_sql and any(kw in q for kw in ["sop", "文件", "手冊", "怎麼修", "步驟"]):
+            return {"intent": "hybrid", "confidence": 0.85, "reason": "從資料查詢延伸到文件搜尋"}
 
     def _match(kw: str, text: str) -> bool:
         k = kw.lower()

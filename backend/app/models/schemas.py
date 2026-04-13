@@ -1,6 +1,6 @@
 """Pydantic schemas for API requests and responses."""
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Dict, List, Optional
 from datetime import datetime
 from enum import Enum
 
@@ -53,6 +53,7 @@ class ChatRequest(BaseModel):
     image_base64: Optional[str] = Field(None, description="Base64 encoded image for multimodal query")
     top_k: int = Field(5, ge=1, le=20, description="Number of documents to retrieve")
     model: Optional[str] = None
+    context: List[Dict[str, str]] = []  # conversation history [{role, content, intent?, sql?}]
 
 
 class SearchRequest(BaseModel):

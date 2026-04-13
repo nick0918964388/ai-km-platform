@@ -29,6 +29,10 @@ interface MessageMetadata {
     completion_tokens: number;
     total_tokens: number;
   } | null;
+  intent?: {
+    intent: string;
+    [key: string]: any;
+  };
 }
 
 interface MessageMetadataMap {
@@ -227,6 +231,20 @@ export default function ChatWindow() {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
+    const buildContext = () => {
+      const conv = conversations.find(c => c.id === convId);
+      if (!conv?.messages) return [];
+      const recentMsgs = conv.messages.slice(-6);
+      return recentMsgs.map(m => ({
+        role: m.role,
+        content: (m.content || '').substring(0, 200),
+        intent: messageSqlResults[m.id]
+          ? 'sql'
+          : messageMetadata[m.id]?.intent?.intent || undefined,
+        sql: messageSqlResults[m.id]?.sql || undefined,
+      }));
+    };
+
     try {
       const response = await fetchWithTimeout(`${API_URL}/api/chat/stream`, {
         method: 'POST',
@@ -234,6 +252,7 @@ export default function ChatWindow() {
         body: JSON.stringify({
           query: userQuery,
           top_k: 5,
+          context: buildContext(),
           ...(model ? { model } : {}),
           ...(imageBase64 ? { image_base64: imageBase64 } : {}),
         }),

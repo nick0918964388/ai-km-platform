@@ -77,7 +77,7 @@ async def chat_stream(request: ChatRequest):
             query = request.query
 
             # Intent detection
-            intent_result = detect_intent(query)
+            intent_result = detect_intent(query, context=request.context)
             intent = intent_result["intent"]
             log.info("Intent detected: %s (confidence=%.2f) for query: %s",
                      intent, intent_result["confidence"], query[:80])
@@ -89,7 +89,7 @@ async def chat_stream(request: ChatRequest):
 
             # Check for ambiguity (only for SQL intent)
             if intent in ("sql", "hybrid"):
-                ambiguity = detect_ambiguity(query, history=[])
+                ambiguity = detect_ambiguity(query, history=request.context)
                 if ambiguity:
                     yield f"data: {json.dumps({'type': 'clarification', 'data': ambiguity}, ensure_ascii=False)}\n\n"
                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
@@ -109,7 +109,14 @@ async def chat_stream(request: ChatRequest):
                         yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'schema', 'label': '搜尋相關資料表與欄位...', 'status': 'done'}}, ensure_ascii=False)}\n\n"
                         yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'sql_generate', 'label': '呼叫 AI 產生 SQL 語句...', 'status': 'running'}}, ensure_ascii=False)}\n\n"
 
-                        sql_result = await service.query(query, mode="fast")
+                        # Extract SQL history from conversation context
+                        sql_history = []
+                        if request.context:
+                            for m in request.context:
+                                if m.get("intent") == "sql" and m.get("sql"):
+                                    sql_history.append({"question": m.get("content", ""), "sql": m["sql"]})
+
+                        sql_result = await service.query(query, mode="fast", conversation_history=sql_history[-3:] if sql_history else None)
 
                         yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'sql_generate', 'label': '呼叫 AI 產生 SQL 語句...', 'status': 'done'}}, ensure_ascii=False)}\n\n"
 
@@ -170,10 +177,21 @@ async def chat_stream(request: ChatRequest):
                         return
 
             # === RAG Path (intent == "rag" or hybrid fallthrough) ===
+            # Enhance search query with conversation context
+            search_query = query
+            if request.context and len(request.context) > 0:
+                conv_parts = []
+                for m in request.context[-3:]:
+                    role = "用戶" if m.get("role") == "user" else "AI"
+                    content = m.get("content", "")[:100]
+                    conv_parts.append(f"{role}：{content}")
+                if conv_parts:
+                    search_query = f"對話背景：{'；'.join(conv_parts)}。\n當前問題：{query}"
+
             # Step 1: search
             yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'search', 'label': '搜尋知識庫文件...', 'status': 'running'}})}\n\n"
             all_sources = rag.search(
-                query=request.query,
+                query=search_query,
                 image_base64=request.image_base64,
                 top_k=request.top_k,
             )
@@ -196,8 +214,17 @@ async def chat_stream(request: ChatRequest):
             total_tokens = None
             full_answer = ""
 
+            # Build LLM query with conversation context
+            llm_query = query
+            if request.context and len(request.context) > 0:
+                conv_lines = []
+                for m in request.context[-3:]:
+                    role = "用戶" if m.get("role") == "user" else "AI"
+                    conv_lines.append(f"{role}：{m.get('content', '')[:150]}")
+                llm_query = "以下是之前的對話：\n" + "\n".join(conv_lines) + f"\n\n請根據以上對話脈絡回答：{query}"
+
             for result in rag.chat_stream_with_metadata(
-                query=request.query,
+                query=llm_query,
                 sources=sources,
                 image_base64=request.image_base64,
             ):
