@@ -600,26 +600,23 @@ class MaximoNL2SQL:
 
     async def _llm_verify(self, question: str, sql: str, result: Dict) -> Dict:
         """LLM-based verification. Returns {passed, confidence, issues, feedback}."""
-        sample_data = result.get("rows", [])[:5]
+        row_count = result.get('row_count', 0)
+        columns = result.get('columns', [])
+        # Only send first row as sample (lighter prompt for speed)
+        sample = result.get("rows", [])[:1]
+        sample_str = json.dumps(sample, ensure_ascii=False, default=str)[:500] if sample else "無資料"
 
-        verify_prompt = f"""你是 SQL 查詢結果的驗證專家。請驗證以下查詢是否正確回答了使用者的問題。
+        verify_prompt = f"""/no_think
+驗證 SQL 查詢是否正確回答問題。
 
-原始問題：{question}
-產生的 SQL：{sql}
-結果筆數：{result.get('row_count', 0)}
-結果欄位：{result.get('columns', [])}
-前 5 筆資料：{json.dumps(sample_data, ensure_ascii=False, default=str)[:1500]}
+問題：{question}
+SQL：{sql}
+結果：{row_count} 筆，欄位 {columns}
+樣本：{sample_str}
 
-請檢查：
-1. SQL 是否查了正確的表？
-2. WHERE 條件是否正確對應問題？
-3. 結果欄位是否涵蓋問題所需的資訊？
-4. 結果數據是否看起來合理？
+檢查：1.正確的表？ 2.WHERE 條件正確？ 3.欄位涵蓋問題所需？
 
-只回覆 JSON（不要其他文字）：
-{{"passed": true, "confidence": 0.95, "issues": [], "feedback": ""}}
-或
-{{"passed": false, "confidence": 0.3, "issues": ["問題描述"], "feedback": "具體修改建議"}}"""
+回覆 JSON：{{"passed": true/false, "confidence": 0-1, "issues": [], "feedback": ""}}"""
 
         try:
             t_verify = time.monotonic()
@@ -627,7 +624,7 @@ class MaximoNL2SQL:
                 model=self.model,
                 messages=[{"role": "user", "content": verify_prompt}],
                 temperature=0,
-                timeout=30,
+                max_tokens=300,
             )
             self._verify_ms = round((time.monotonic() - t_verify) * 1000, 1)
             content = resp.choices[0].message.content or ""
@@ -1143,8 +1140,9 @@ class MaximoNL2SQL:
                 "passed": True,
             })
 
-            # Chart suggestion (rule-based, no LLM)
+            # Chart suggestion (rule-based, no LLM) + column labels (parallel with verify if needed)
             chart_suggestion = self._suggest_chart(question, sql, result)
+            column_labels = await self._get_column_labels(result["columns"])
 
             last_result = {
                 "success": True,
@@ -1165,7 +1163,7 @@ class MaximoNL2SQL:
                 "query_plan": self._query_plan,
                 "chart_suggestion": chart_suggestion,
                 "summary": self._generate_summary(result["columns"], result["rows"], result["row_count"]),
-                "column_labels": await self._get_column_labels(result["columns"]),
+                "column_labels": column_labels,
             }
             break
 
