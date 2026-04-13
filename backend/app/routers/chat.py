@@ -46,12 +46,13 @@ def _generate_sql_follow_ups(query: str, result: dict) -> list:
     """Generate follow-up suggestions based on SQL query result."""
     suggestions = []
     if result.get("row_count", 0) > 0:
-        suggestions.append("用圖表顯示這個結果")
         suggestions.append("只看最近一個月的")
     if "工單" in query or "mxwo" in query.lower():
         suggestions.append("這些工單的車輛資訊？")
+        suggestions.append("這些工單的相關 SOP？")
     if "故障" in query or "mxsr" in query.lower():
         suggestions.append("這些故障通報的處理情形？")
+        suggestions.append("相關故障的維修 SOP？")
     if "資產" in query or "asset" in query.lower():
         suggestions.append("這些車輛的最近工單？")
     return suggestions[:3]
