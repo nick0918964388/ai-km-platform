@@ -132,6 +132,7 @@ class IntentClassifierService:
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0,
+                max_tokens=500,
             )
 
             content = response.choices[0].message.content
@@ -180,7 +181,7 @@ class IntentClassifierService:
         try:
             return await asyncio.wait_for(self.classify(query, context), timeout=timeout)
         except (asyncio.TimeoutError, Exception) as e:
-            log.warning("LLM intent classification failed, falling back to keywords: %s", e)
+            log.warning("LLM intent classification failed (%s: %s), falling back to keywords", type(e).__name__, e)
             from app.services.intent_router import detect_intent
             kw = detect_intent(query, context=context)
             intent_map = {"sql": QueryIntent.STRUCTURED, "rag": QueryIntent.KNOWLEDGE, "hybrid": QueryIntent.HYBRID}
