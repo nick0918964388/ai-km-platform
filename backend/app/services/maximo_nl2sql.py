@@ -724,6 +724,41 @@ class MaximoNL2SQL:
         except Exception as e:
             log.warning("寫入稽核日誌失敗: %s", e)
 
+    async def _get_column_labels(self, columns: list) -> Dict[str, str]:
+        """Get Chinese labels for columns. Uses maximo_zz_maxattribute title, falls back to static _COL_LABELS."""
+        labels = {}
+        missing = []
+        for c in columns:
+            static = self._COL_LABELS.get(c.lower())
+            if static:
+                labels[c] = static
+            else:
+                missing.append(c)
+
+        if missing:
+            try:
+                placeholders = ", ".join(f":c{i}" for i in range(len(missing)))
+                params = {f"c{i}": v.upper() for i, v in enumerate(missing)}
+                rows = await self.db.execute(text(
+                    f"SELECT attributename, title FROM maximo_zz_maxattribute "
+                    f"WHERE UPPER(attributename) IN ({placeholders}) AND title IS NOT NULL "
+                    f"LIMIT {len(missing)}"
+                ), params)
+                for r in rows.fetchall():
+                    labels[r.attributename.lower()] = r.title
+                    # Also map original case
+                    for c in missing:
+                        if c.lower() == r.attributename.lower():
+                            labels[c] = r.title
+            except Exception:
+                pass
+
+        # Fill any still-missing with original name
+        for c in columns:
+            if c not in labels:
+                labels[c] = c
+        return labels
+
     def _generate_summary(self, columns: list, data: list, row_count: int) -> Optional[str]:
         """Auto-generate summary stats for large result sets."""
         if row_count <= 10 or not data or not columns:
@@ -980,7 +1015,7 @@ class MaximoNL2SQL:
                         "query_plan": None,
                         "summary": self._generate_summary(result["columns"], result["rows"], result["row_count"]),
                         "suggestions": [],
-                        "column_labels": {c: self._COL_LABELS.get(c.lower(), c) for c in result["columns"]},
+                        "column_labels": await self._get_column_labels(result["columns"]),
                     }
                     if redis_conn:
                         try: await redis_conn.aclose()
@@ -1128,7 +1163,7 @@ class MaximoNL2SQL:
                 "query_plan": self._query_plan,
                 "chart_suggestion": chart_suggestion,
                 "summary": self._generate_summary(result["columns"], result["rows"], result["row_count"]),
-                "column_labels": {c: self._COL_LABELS.get(c.lower(), c) for c in result["columns"]},
+                "column_labels": await self._get_column_labels(result["columns"]),
             }
             break
 
