@@ -38,6 +38,7 @@ export default function SqlResultCard({ result, question, onRequery }: SqlResult
     result.chart_suggestion || (result.row_count && result.row_count > 20) ? 'chart' : 'table'
   );
   const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>(result.chart_suggestion?.type || 'bar');
+  const [showMeta, setShowMeta] = useState(false);
 
   const copySQL = () => {
     if (result.sql) {
@@ -73,8 +74,6 @@ export default function SqlResultCard({ result, question, onRequery }: SqlResult
       </div>
     );
   }
-
-  const [showMeta, setShowMeta] = useState(false);
 
   return (
     <div style={{
