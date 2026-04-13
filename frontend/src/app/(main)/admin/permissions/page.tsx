@@ -282,10 +282,9 @@ export default function PermissionsPage() {
         <>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
             <button
-              className="btn-icon"
               onClick={fetchUsers}
               title="重新載入"
-              style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)', background: 'var(--bg-tertiary)', border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}
             >
               <Renew size={16} />
               重新載入
@@ -522,10 +521,9 @@ export default function PermissionsPage() {
         <>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
             <button
-              className="btn-icon"
               onClick={fetchAudit}
               title="重新載入"
-              style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)', background: 'var(--bg-tertiary)', border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}
             >
               <Renew size={16} />
               重新載入

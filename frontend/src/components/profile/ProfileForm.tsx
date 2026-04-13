@@ -133,6 +133,19 @@ export default function ProfileForm() {
   }
 
   if (profileError && !profile) {
+    const isNotFound = profileError.includes('not found') || profileError.includes('404');
+    if (isNotFound) {
+      return (
+        <div className="p-6">
+          <InlineNotification
+            kind="info"
+            title="尚未建立個人資料"
+            subtitle="請先登入以查看個人資料"
+            hideCloseButton
+          />
+        </div>
+      );
+    }
     return (
       <div className="p-6">
         <InlineNotification

@@ -16,7 +16,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="settings-container" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+    <div className="settings-container" style={{ maxWidth: 720, padding: '1.5rem 2rem', boxSizing: 'border-box' }}>
       <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '1.5rem' }}>
         系統設定
       </h1>
