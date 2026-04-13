@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS maximo_field_metadata (
     display_name  VARCHAR(100),
     description   TEXT,
     value_mapping JSONB,
+    tag           VARCHAR(30) DEFAULT 'general',
     UNIQUE(table_name, column_name)
 );
 
@@ -140,12 +141,12 @@ VALUES
 ('maximo_pm_workorders','work_type','檢修級別','定期檢修級別',
  '{"1A":"一級檢修","2A":"二級檢修","3A":"三級檢修","4A":"四級檢修"}'),
 ('maximo_pm_workorders','status','工單狀態','定期工單狀態',
- '{"工單結案":"已完成","工單初始":"初始","工單核准":"核准中"}'),
+ '{"WAPPR":"核簽中（待主管核准）","APPR":"已核准","WMATL":"待料","WSCH":"待排程","INPRG":"作業中","COMP":"完成","CLOSE":"結案","CAN":"取消"}'),
 -- cm workorders
 ('maximo_cm_workorders','work_type','維修類型','維修/臨修類型',
  '{"T1":"一般臨修","TR":"試車作業","CM":"委外維修"}'),
 ('maximo_cm_workorders','status','工單狀態','維修工單狀態',
- '{"工單結案":"已完成","工單初始":"初始"}'),
+ '{"WAPPR":"核簽中（待主管核准）","APPR":"已核准","WMATL":"待料","WSCH":"待排程","INPRG":"作業中","COMP":"完成","CLOSE":"結案","CAN":"取消"}'),
 -- fault reports
 ('maximo_fault_reports','status','通報狀態','故障通報狀態',
  '{"立案":"立案中","取消":"已取消","結案":"已結案"}'),
@@ -160,6 +161,7 @@ CREATE TABLE IF NOT EXISTS nl_sql_examples (
     question   TEXT NOT NULL,
     sql_query  TEXT NOT NULL,
     verified   BOOLEAN DEFAULT FALSE,
+    tag        VARCHAR(30) DEFAULT 'general',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
