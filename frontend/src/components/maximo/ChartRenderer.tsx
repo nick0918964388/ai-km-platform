@@ -89,11 +89,11 @@ export default function ChartRenderer({
     if (chartType === 'pie') {
       return (
         <PieChart>
-          <Pie data={data} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%" outerRadius={100} label={({ name, percent }: { name: string; percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+          <Pie data={data} dataKey={yKey} nameKey={xKey} cx="50%" cy="45%" outerRadius={80} label={({ name, value }: { name: string; value: number }) => `${name}: ${value}`} labelLine={true}>
             {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
           </Pie>
           <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
-          <Legend />
+          <Legend verticalAlign="bottom" height={36} />
         </PieChart>
       );
     }
