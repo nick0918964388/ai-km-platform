@@ -234,9 +234,11 @@ async def chat_stream(request: ChatRequest):
                 image_base64=request.image_base64,
                 top_k=request.top_k,
             )
+            # Evaluate quality on unfiltered results to avoid tautological threshold check
+            quality = rag.evaluate_retrieval_quality(all_sources)
             sources = [s for s in all_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
-            quality = rag.evaluate_retrieval_quality(sources)
-            yield sse_event('step', {'id': 'search', 'label': f'搜尋知識庫文件（{quality["count"]} 筆）...', 'status': 'done'})
+            best_all_sources = all_sources  # Track best unfiltered results across attempts
+            yield sse_event('step', {'id': 'search', 'label': f'搜尋知識庫文件（{len(sources)} 筆相關）...', 'status': 'done'})
 
             # Self-reflection: if quality is low, rewrite query and retry
             if quality["quality"] in ("low", "none"):
@@ -244,34 +246,37 @@ async def chat_stream(request: ChatRequest):
                     yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'檢索品質不足，改寫查詢重試（第 {attempt} 次）...', 'status': 'running'})
                     rewritten = rag.rewrite_query(query, attempt=attempt)
                     if not rewritten:
-                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'查詢改寫失敗', 'status': 'done'})
+                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': '無替代查詢', 'status': 'done'})
                         break
 
                     log.info("Query rewrite attempt %d: '%s' → '%s'", attempt, query[:50], rewritten[:50])
                     new_sources = rag.search(query=rewritten, image_base64=request.image_base64, top_k=request.top_k)
+                    new_quality = rag.evaluate_retrieval_quality(new_sources)
                     new_filtered = [s for s in new_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
-                    new_quality = rag.evaluate_retrieval_quality(new_filtered)
 
-                    if new_quality["quality"] == "good" or new_quality["top_score"] > quality["top_score"]:
+                    # Accept if quality improved (check both score and count)
+                    better = (new_quality["quality"] == "good"
+                              or (new_quality["top_score"] > quality["top_score"] + 0.05 and len(new_filtered) >= len(sources)))
+                    if better:
                         sources = new_filtered
+                        best_all_sources = new_sources
                         quality = new_quality
                         used_query = rewritten
                         rewrite_used = True
-                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'改寫為「{rewritten[:30]}」— 找到 {new_quality["count"]} 筆', 'status': 'done'})
+                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'改寫為「{rewritten[:30]}」— 找到 {len(new_filtered)} 筆', 'status': 'done'})
                         if new_quality["quality"] == "good":
                             break
                     else:
-                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'改寫後品質未提升', 'status': 'done'})
+                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': '改寫後品質未提升', 'status': 'done'})
 
             if sources:
                 yield sse_event('step', {'id': 'rerank', 'label': '分析相關性排序...', 'status': 'running'})
                 yield sse_event('step', {'id': 'rerank', 'label': '分析相關性排序...', 'status': 'done'})
 
-            # If still no good results after retries, add a notice
+            # If still no good results after retries, add a notice and use best available
             if quality["quality"] in ("low", "none") and not sources:
                 yield sse_event('content', '⚠️ **知識庫中未找到高度相關的文件。** 以下結果僅供參考，建議嘗試換個關鍵字或更具體的描述。\n\n')
-                # Use whatever we have, even below threshold
-                sources = all_sources[:request.top_k] if all_sources else []
+                sources = best_all_sources[:request.top_k] if best_all_sources else []
 
             sources_data = [s.model_dump() for s in sources]
             yield sse_event('sources', sources_data)

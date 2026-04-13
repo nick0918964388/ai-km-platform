@@ -595,8 +595,7 @@ def rewrite_query(query: str, attempt: int = 1) -> str | None:
         )
         content = response.choices[0].message.content or ""
         # Strip think tags from qwen
-        import re as _re
-        content = _re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
+        content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
         rewritten = content.strip().strip('"').strip("'")
         if rewritten and rewritten != query:
             return rewritten
@@ -606,7 +605,7 @@ def rewrite_query(query: str, attempt: int = 1) -> str | None:
 
 
 def evaluate_retrieval_quality(sources: list[SearchResult], threshold: float = 0.5) -> dict:
-    """Evaluate retrieval quality based on source scores.
+    """Evaluate retrieval quality based on source scores (pass unfiltered results).
     Returns: {quality: 'good'|'low'|'none', avg_score, top_score, count}
     """
     if not sources:
@@ -615,18 +614,19 @@ def evaluate_retrieval_quality(sources: list[SearchResult], threshold: float = 0
     scores = [s.score or 0 for s in sources]
     avg_score = sum(scores) / len(scores)
     top_score = max(scores)
+    above_threshold = sum(1 for s in scores if s >= threshold)
 
     # Also check relevance_score from reranker if available
     rel_scores = [s.relevance_score for s in sources if s.relevance_score is not None]
     avg_rel = sum(rel_scores) / len(rel_scores) if rel_scores else None
 
     quality = "good"
-    if len(sources) < 2 or top_score < threshold:
+    if above_threshold < 2 or top_score < threshold:
         quality = "low"
     elif avg_rel is not None and avg_rel < 0.3:
         quality = "low"
 
-    return {"quality": quality, "avg_score": round(avg_score, 3), "top_score": round(top_score, 3), "count": len(sources), "avg_relevance": round(avg_rel, 3) if avg_rel is not None else None}
+    return {"quality": quality, "avg_score": round(avg_score, 3), "top_score": round(top_score, 3), "count": above_threshold, "avg_relevance": round(avg_rel, 3) if avg_rel is not None else None}
 
 
 def generate_follow_up_questions(query: str, answer: str, max_questions: int = 3) -> list[str]:
