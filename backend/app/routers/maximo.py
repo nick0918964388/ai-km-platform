@@ -49,6 +49,7 @@ class NL2SQLResponse(BaseModel):
     summary: Optional[str] = None
     clarification: Optional[Any] = None
     suggestions: List[Any] = []
+    column_labels: Optional[Any] = None
 
 
 @router.post("/schema/index")

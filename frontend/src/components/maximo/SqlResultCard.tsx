@@ -21,6 +21,7 @@ interface SqlResultData {
   cached?: boolean;
   summary?: string;
   suggestions?: Array<{label: string; query: string; type?: string}>;
+  column_labels?: Record<string, string>;
 }
 
 interface SqlResultCardProps {
@@ -171,6 +172,7 @@ export default function SqlResultCard({ result, question, onRequery }: SqlResult
               rowCount={result.row_count || 0}
               selectedRow={selectedRow}
               onDocSearch={(row, i) => { setSelectedRow(i); setDocSearchRow(row); }}
+              columnLabels={result.column_labels}
             />
           </div>
         )}

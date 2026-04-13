@@ -76,6 +76,7 @@ interface QueryResult {
     title?: string;
   };
   suggestions?: Array<{label: string; query: string; type?: string}>;
+  column_labels?: Record<string, string>;
 }
 
 export default function MaximoQueryPage() {
@@ -514,6 +515,7 @@ export default function MaximoQueryPage() {
               rowCount={result.row_count || 0}
               selectedRow={selectedRow}
               onDocSearch={(row, i) => { setSelectedRow(i); setDocSearchRow(row); }}
+              columnLabels={result.column_labels}
             />
           )}
 

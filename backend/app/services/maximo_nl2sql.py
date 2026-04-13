@@ -127,6 +127,43 @@ class MaximoNL2SQL:
 
         self._query_plan: Optional[Dict[str, Any]] = None
 
+    # Column name → Chinese display label
+    _COL_LABELS = {
+        "wonum": "工單號", "assetnum": "車號", "status": "狀態",
+        "description": "說明", "worktype": "工作類型", "work_type": "工作類型",
+        "reportdate": "通報日期", "report_date": "通報日期",
+        "changedate": "變更日期", "act_start": "實際開始", "act_finish": "實際完工",
+        "zz_actstart": "實際開始", "zz_actfinish": "實際完工",
+        "owner_group": "負責單位", "ownergroup": "負責單位",
+        "maintenance_section": "檢修段", "wol1": "檢修段",
+        "eq24": "車號", "vehicle_type": "車型", "vehicle_class": "車種",
+        "vehicle_category": "車輛類別", "workshop": "維修機廠",
+        "section": "配屬段", "borrow_section": "借用段",
+        "car_group": "車組", "position": "組內位置", "record_type": "記錄類型",
+        "install_date": "試運日期", "expected_life": "預期年限",
+        "manufacturer": "製造商", "failure_code": "故障碼",
+        "ticketid": "通報號", "im_num": "通報號碼",
+        "fault_symptom": "故障現象", "handling_desc": "處理情形",
+        "incident_class": "事件分類", "fault_location": "故障位置",
+        "tcms_code": "TCMS碼", "zz_tcms": "TCMS碼",
+        "grade": "等級", "zz_im_grade": "故障等級",
+        "urgency": "緊急程度", "zz_urgency": "緊急程度",
+        "restricted_status": "列管狀態", "report_unit": "通報單位",
+        "occurrence_date": "發生時間", "zz_entrydate": "發生日期",
+        "confirm_by": "確認人", "confirm_date": "確認日期",
+        "ticket_id": "關聯通報", "repair_proc": "修復程序",
+        "work_hours": "工時", "target_start_date": "預計進段",
+        "target_comp_date": "預計出段", "car_in_result": "進廠結果",
+        "car_out_result": "出廠結果", "last_act_finish": "上次完工",
+        "long_description": "詳細說明",
+        "count": "筆數", "total": "合計", "total_reports": "通報總數",
+        "order_count": "工單數", "cnt": "筆數",
+        "zz_personbelong": "所屬單位", "zz_wol1": "檢修段",
+        "zz_eq24": "車號", "statusdate": "狀態日期",
+        "status_description": "狀態說明", "class": "分類",
+        "class_description": "分類說明",
+    }
+
     # Maximo objectname → our PostgreSQL table name
     _OBJ_TABLE = {
         "ASSET":     "maximo_mxasset",
@@ -943,6 +980,7 @@ class MaximoNL2SQL:
                         "query_plan": None,
                         "summary": self._generate_summary(result["columns"], result["rows"], result["row_count"]),
                         "suggestions": [],
+                        "column_labels": {c: self._COL_LABELS.get(c.lower(), c) for c in result["columns"]},
                     }
                     if redis_conn:
                         try: await redis_conn.aclose()
@@ -1090,6 +1128,7 @@ class MaximoNL2SQL:
                 "query_plan": self._query_plan,
                 "chart_suggestion": chart_suggestion,
                 "summary": self._generate_summary(result["columns"], result["rows"], result["row_count"]),
+                "column_labels": {c: self._COL_LABELS.get(c.lower(), c) for c in result["columns"]},
             }
             break
 

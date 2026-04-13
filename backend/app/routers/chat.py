@@ -147,6 +147,7 @@ async def chat_stream(request: ChatRequest):
                         "cached": sql_result.get("cached", False),
                         "summary": sql_result.get("summary"),
                         "suggestions": sql_result.get("suggestions", []),
+                        "column_labels": sql_result.get("column_labels"),
                     }
                     yield f"data: {json.dumps({'type': 'sql_result', 'data': sql_event_data}, ensure_ascii=False)}\n\n"
 

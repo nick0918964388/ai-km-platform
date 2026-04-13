@@ -8,9 +8,10 @@ interface QueryResultTableProps {
   rowCount: number;
   onDocSearch?: (row: Record<string, unknown>, index: number) => void;
   selectedRow?: number | null;
+  columnLabels?: Record<string, string>;
 }
 
-export default function QueryResultTable({ columns, data, rowCount, onDocSearch, selectedRow }: QueryResultTableProps) {
+export default function QueryResultTable({ columns, data, rowCount, onDocSearch, selectedRow, columnLabels }: QueryResultTableProps) {
   const [page, setPage] = useState(0);
   const pageSize = 10;
   const totalPages = Math.ceil(data.length / pageSize);
@@ -33,7 +34,7 @@ export default function QueryResultTable({ columns, data, rowCount, onDocSearch,
                   padding: '0.5rem 0.875rem', textAlign: 'left',
                   fontWeight: 600, color: 'var(--text-secondary)',
                   borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap',
-                }}>{col}</th>
+                }}>{columnLabels?.[col] || col}</th>
               ))}
               {hasDocColumns && (
                 <th style={{ width: 60, textAlign: 'center', padding: '0.5rem', fontWeight: 600, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>文件</th>
