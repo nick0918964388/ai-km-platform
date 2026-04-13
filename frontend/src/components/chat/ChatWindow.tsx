@@ -756,13 +756,19 @@ export default function ChatWindow() {
                     lineHeight: 1.6,
                     position: 'relative',
                   }}>
-                    {/* Thinking indicator: show when streaming but no content yet */}
+                    {/* Thinking indicator: show current step while streaming */}
                     {msg.role === 'assistant' && messageStreamingStatus[msg.id] && !msg.content && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
                         <div className="typing-indicator" style={{ display: 'inline-flex' }}>
                           <span></span><span></span><span></span>
                         </div>
-                        <span>思考中...</span>
+                        <span style={{ fontStyle: 'italic' }}>
+                          {taskSteps.length > 0
+                            ? taskSteps.filter(s => s.status === 'running').map(s => s.label).pop()
+                              || taskSteps[taskSteps.length - 1]?.label
+                              || '思考中...'
+                            : '思考中...'}
+                        </span>
                       </div>
                     )}
                     {msg.role === 'assistant' ? (

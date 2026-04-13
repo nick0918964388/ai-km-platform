@@ -96,8 +96,8 @@ async def chat_stream(request: ChatRequest):
                     return
 
             if intent in ("sql", "hybrid"):
-                # === NL→SQL Path ===
-                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'sql_generate', 'label': '產生 SQL 查詢', 'status': 'running'}}, ensure_ascii=False)}\n\n"
+                # === NL→SQL Path with granular thinking steps ===
+                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'schema', 'label': '搜尋相關資料表與欄位...', 'status': 'running'}}, ensure_ascii=False)}\n\n"
 
                 from app.services.maximo_nl2sql import MaximoNL2SQL
                 from app.db.session import get_db_context
@@ -105,12 +105,19 @@ async def chat_stream(request: ChatRequest):
                 try:
                     async with get_db_context() as db:
                         service = MaximoNL2SQL(db)
+
+                        yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'schema', 'label': '搜尋相關資料表與欄位...', 'status': 'done'}}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'sql_generate', 'label': '呼叫 AI 產生 SQL 語句...', 'status': 'running'}}, ensure_ascii=False)}\n\n"
+
                         sql_result = await service.query(query, mode="fast")
+
+                        yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'sql_generate', 'label': '呼叫 AI 產生 SQL 語句...', 'status': 'done'}}, ensure_ascii=False)}\n\n"
+
+                        if sql_result.get("success"):
+                            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'execute', 'label': '執行查詢並整理結果...', 'status': 'done'}}, ensure_ascii=False)}\n\n"
                 except Exception as sql_err:
                     log.exception("NL→SQL error")
                     sql_result = {"success": False, "error": str(sql_err)}
-
-                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'sql_generate', 'label': '產生 SQL 查詢', 'status': 'done'}}, ensure_ascii=False)}\n\n"
 
                 if sql_result.get("success"):
                     # Send brief explanation as content (for message text)
@@ -164,7 +171,7 @@ async def chat_stream(request: ChatRequest):
 
             # === RAG Path (intent == "rag" or hybrid fallthrough) ===
             # Step 1: search
-            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'search', 'label': '查詢知識庫', 'status': 'running'}})}\n\n"
+            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'search', 'label': '搜尋知識庫文件...', 'status': 'running'}})}\n\n"
             all_sources = rag.search(
                 query=request.query,
                 image_base64=request.image_base64,
@@ -172,19 +179,19 @@ async def chat_stream(request: ChatRequest):
             )
             MIN_SCORE_THRESHOLD = 0.5
             sources = [s for s in all_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
-            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'search', 'label': '查詢知識庫', 'status': 'done'}})}\n\n"
+            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'search', 'label': '搜尋知識庫文件...', 'status': 'done'}})}\n\n"
 
             # Step 2: rerank
             if sources:
-                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'rerank', 'label': '重排序結果', 'status': 'running'}})}\n\n"
-                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'rerank', 'label': '重排序結果', 'status': 'done'}})}\n\n"
+                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'rerank', 'label': '分析相關性排序...', 'status': 'running'}})}\n\n"
+                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'rerank', 'label': '分析相關性排序...', 'status': 'done'}})}\n\n"
 
             # Send sources
             sources_data = [s.model_dump() for s in sources]
             yield f"data: {json.dumps({'type': 'sources', 'data': sources_data})}\n\n"
 
             # Step 3: generate
-            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'generate', 'label': '生成回答', 'status': 'running'}})}\n\n"
+            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'generate', 'label': '組織回答內容...', 'status': 'running'}})}\n\n"
             start_time = time.time()
             total_tokens = None
             full_answer = ""
@@ -201,7 +208,7 @@ async def chat_stream(request: ChatRequest):
                 elif result.get("type") == "usage":
                     total_tokens = result.get("data")
 
-            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'generate', 'label': '生成回答', 'status': 'done'}})}\n\n"
+            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'generate', 'label': '組織回答內容...', 'status': 'done'}})}\n\n"
 
             duration_ms = int((time.time() - start_time) * 1000)
             metadata = {
