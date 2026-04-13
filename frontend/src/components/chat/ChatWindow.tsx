@@ -777,20 +777,22 @@ export default function ChatWindow() {
                     position: 'relative',
                   }}>
                     {/* Thinking indicator: show current step while streaming */}
-                    {msg.role === 'assistant' && messageStreamingStatus[msg.id] && !msg.content && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
-                        <div className="typing-indicator" style={{ display: 'inline-flex' }}>
-                          <span></span><span></span><span></span>
+                    {msg.role === 'assistant' && messageStreamingStatus[msg.id] && (() => {
+                      const hasRunningStep = taskSteps.some(s => s.status === 'running');
+                      const showThinking = !msg.content || hasRunningStep;
+                      if (!showThinking) return null;
+                      const currentLabel = taskSteps.filter(s => s.status === 'running').map(s => s.label).pop()
+                        || (taskSteps.length > 0 ? taskSteps[taskSteps.length - 1]?.label : null)
+                        || '思考中...';
+                      return (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem', marginBottom: msg.content ? '0.5rem' : 0 }}>
+                          <div className="typing-indicator" style={{ display: 'inline-flex' }}>
+                            <span></span><span></span><span></span>
+                          </div>
+                          <span style={{ fontStyle: 'italic' }}>{currentLabel}</span>
                         </div>
-                        <span style={{ fontStyle: 'italic' }}>
-                          {taskSteps.length > 0
-                            ? taskSteps.filter(s => s.status === 'running').map(s => s.label).pop()
-                              || taskSteps[taskSteps.length - 1]?.label
-                              || '思考中...'
-                            : '思考中...'}
-                        </span>
-                      </div>
-                    )}
+                      );
+                    })()}
                     {msg.role === 'assistant' ? (
                       <div className="markdown-content" style={{ display: msg.content ? 'block' : 'none' }}>
                         <ReactMarkdown
