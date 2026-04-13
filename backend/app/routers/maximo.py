@@ -48,6 +48,7 @@ class NL2SQLResponse(BaseModel):
     chart_suggestion: Optional[Any] = None
     summary: Optional[str] = None
     clarification: Optional[Any] = None
+    suggestions: List[Any] = []
 
 
 @router.post("/schema/index")

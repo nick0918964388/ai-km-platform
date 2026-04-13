@@ -20,14 +20,16 @@ interface SqlResultData {
   chart_suggestion?: any;
   cached?: boolean;
   summary?: string;
+  suggestions?: Array<{label: string; query: string; type?: string}>;
 }
 
 interface SqlResultCardProps {
   result: SqlResultData;
   question: string;  // original user question, for feedback
+  onRequery?: (query: string) => void;  // callback to re-run with different query
 }
 
-export default function SqlResultCard({ result, question }: SqlResultCardProps) {
+export default function SqlResultCard({ result, question, onRequery }: SqlResultCardProps) {
   const [showSQL, setShowSQL] = useState(false);
   const [copied, setCopied] = useState(false);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
@@ -177,6 +179,42 @@ export default function SqlResultCard({ result, question }: SqlResultCardProps) 
         {result.row_count === 0 && (
           <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '1rem', fontSize: '0.8125rem' }}>
             查無結果
+          </div>
+        )}
+
+        {result.row_count === 0 && result.suggestions && result.suggestions.length > 0 && (
+          <div style={{ padding: '0.75rem 1rem' }}>
+            <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+              查無結果。以下是一些替代建議：
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+              {result.suggestions.map((s: any, i: number) => (
+                s.type === 'info' ? (
+                  <div key={i} style={{
+                    padding: '0.5rem 0.75rem', fontSize: '0.8125rem',
+                    background: 'rgba(80,144,211,0.08)', borderRadius: 6,
+                    color: 'var(--text-secondary)', borderLeft: '3px solid var(--accent)',
+                  }}>
+                    {s.label}
+                  </div>
+                ) : (
+                  <button
+                    key={i}
+                    onClick={() => onRequery?.(s.query)}
+                    style={{
+                      padding: '0.5rem 0.875rem', borderRadius: 99,
+                      border: '2px solid var(--primary)', background: 'transparent',
+                      color: 'var(--primary)', cursor: 'pointer',
+                      fontSize: '0.8125rem', fontWeight: 600, textAlign: 'left',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--primary)'; e.currentTarget.style.color = 'white'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--primary)'; }}
+                  >
+                    {s.label}
+                  </button>
+                )
+              ))}
+            </div>
           </div>
         )}
 

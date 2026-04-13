@@ -878,6 +878,7 @@ export default function ChatWindow() {
                       <SqlResultCard
                         result={messageSqlResults[msg.id]}
                         question={messageQueries[msg.id] || ''}
+                        onRequery={(q) => handleSend(q)}
                       />
                     )}
                     {/* 來源文件 - 只在 streaming 完成後且 AI 回答引用了來源時顯示 */}

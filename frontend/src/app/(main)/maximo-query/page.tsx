@@ -75,6 +75,7 @@ interface QueryResult {
     value_key?: string;
     title?: string;
   };
+  suggestions?: Array<{label: string; query: string; type?: string}>;
 }
 
 export default function MaximoQueryPage() {
@@ -517,8 +518,33 @@ export default function MaximoQueryPage() {
           )}
 
           {result.success && result.row_count === 0 && (
-            <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem', fontSize: '0.875rem' }}>
-              查無結果
+            <div style={{ textAlign: 'center', padding: '1.5rem' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '0.75rem' }}>
+                查無結果
+              </div>
+              {result.suggestions && result.suggestions.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', alignItems: 'center' }}>
+                  <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>替代建議：</div>
+                  {result.suggestions.map((s: any, i: number) => (
+                    s.type === 'info' ? (
+                      <div key={i} style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', padding: '0.25rem 0.5rem' }}>
+                        {s.label}
+                      </div>
+                    ) : (
+                      <button key={i} onClick={() => runQuery(s.query)} style={{
+                        padding: '0.5rem 1rem', borderRadius: 99,
+                        border: '2px solid var(--primary)', background: 'transparent',
+                        color: 'var(--primary)', cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 600,
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--primary)'; e.currentTarget.style.color = 'white'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--primary)'; }}
+                      >
+                        {s.label}
+                      </button>
+                    )
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

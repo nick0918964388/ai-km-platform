@@ -766,6 +766,130 @@ class MaximoNL2SQL:
         # Default: no chart suggestion (use table)
         return None
 
+    async def _suggest_alternatives(self, sql: str, question: str, table_name: str = None) -> list:
+        """When query returns 0 results, analyze SQL and suggest alternatives."""
+        suggestions = []
+        s = sql.lower()
+
+        # Extract main table name
+        table_match = re.search(r'\bfrom\s+(\w+)', s)
+        if not table_match:
+            return suggestions
+        table = table_match.group(1)
+
+        # Extract WHERE conditions: col operator 'value'
+        conditions = re.findall(r"(\w+)\s*(?:=|!=|<>|LIKE|like|ILIKE)\s*'([^']*)'", sql)
+
+        # 1. For each string condition, check DISTINCT values
+        for col, value in conditions:
+            col_lower = col.lower()
+            # Skip date-related columns for this check
+            if any(d in col_lower for d in ['date', 'time', 'start', 'finish']):
+                continue
+            try:
+                result = await self.db.execute(text(
+                    f"SELECT DISTINCT {col} FROM {table} WHERE {col} IS NOT NULL ORDER BY {col} LIMIT 15"
+                ))
+                actual_values = [str(r[0]) for r in result.fetchall() if r[0]]
+                await self.db.rollback()  # reset any transaction state
+
+                if actual_values and value not in actual_values:
+                    # Value doesn't exist — show actual values
+                    # Find closest matches
+                    close_matches = [v for v in actual_values if value.lower() in v.lower() or v.lower() in value.lower()]
+
+                    if close_matches:
+                        for match in close_matches[:2]:
+                            new_q = question.replace(value, match)
+                            suggestions.append({
+                                "label": f"改查 {col}='{match}'",
+                                "query": new_q if new_q != question else f"{question}（{col}={match}）",
+                            })
+                    else:
+                        # Show available values as options
+                        vals_preview = "、".join(actual_values[:8])
+                        suggestions.append({
+                            "label": f"{col} 欄位現有值：{vals_preview}",
+                            "query": question,  # same query, just informational
+                            "type": "info",
+                        })
+                        # Offer top 2 actual values as clickable options
+                        for av in actual_values[:2]:
+                            suggestions.append({
+                                "label": f"查 {col}='{av}' 的資料",
+                                "query": question.replace(value, av) if value in question else f"{question}（改用 {col}={av}）",
+                            })
+            except Exception as e:
+                log.debug("Alternative check failed for %s.%s: %s", table, col, e)
+                try:
+                    await self.db.rollback()
+                except Exception:
+                    pass
+
+        # 2. For date conditions, check alternative date columns
+        date_conditions = re.findall(r"(\w+)\s*(?:>=|<=|>|<)\s*'([\d-]+)'", sql)
+        if date_conditions:
+            used_date_col = date_conditions[0][0]
+            try:
+                # Find all timestamp columns in the table
+                cols_result = await self.db.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = :tbl AND (data_type LIKE '%timestamp%' OR data_type LIKE '%date%')"
+                ), {"tbl": table})
+                date_cols = [r.column_name for r in cols_result.fetchall()]
+
+                for dcol in date_cols:
+                    if dcol.lower() == used_date_col.lower():
+                        continue
+                    try:
+                        cnt_result = await self.db.execute(text(
+                            f"SELECT COUNT(*) FROM {table} WHERE {dcol} IS NOT NULL"
+                        ))
+                        cnt = cnt_result.scalar() or 0
+                        await self.db.rollback()
+                        if cnt > 0:
+                            suggestions.append({
+                                "label": f"改用 {dcol} 欄位查詢（{cnt:,} 筆有資料）",
+                                "query": question + f"（使用 {dcol} 欄位）",
+                            })
+                    except Exception:
+                        try:
+                            await self.db.rollback()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        # 3. Suggest removing filters
+        if date_conditions or conditions:
+            clean_question = question
+            for kw in ["本月", "最近一週", "最近一個月", "今年", "上月", "去年"]:
+                clean_question = clean_question.replace(kw, "")
+            clean_question = clean_question.strip()
+            if clean_question and clean_question != question:
+                suggestions.append({
+                    "label": "移除時間條件，查看所有資料",
+                    "query": clean_question,
+                })
+
+        # 4. Suggest alternative tables
+        alt_tables = {
+            "maximo_pm_workorders": ("maximo_mxwo", "extractor 原始工單"),
+            "maximo_cm_workorders": ("maximo_mxwo", "extractor 原始工單"),
+            "maximo_assets": ("maximo_mxasset", "extractor 原始資產"),
+            "maximo_fault_reports": ("maximo_mxsr", "extractor 原始故障通報"),
+            "maximo_mxwo": ("maximo_pm_workorders", "ETL 定期工單"),
+            "maximo_mxsr": ("maximo_fault_reports", "ETL 故障通報"),
+        }
+        if table in alt_tables:
+            alt, desc = alt_tables[table]
+            suggestions.append({
+                "label": f"改查 {alt}（{desc}）",
+                "query": question + f"（使用 {alt}）",
+            })
+
+        return suggestions[:5]  # Cap at 5 suggestions
+
     async def query(self, question: str, mode: str = "accurate", user_context: dict = None, conversation_history: list = None) -> Dict[str, Any]:
         """Full pipeline with optional verification loop.
         mode: 'fast' (no verification) or 'accurate' (with verification loop)
@@ -818,6 +942,7 @@ class MaximoNL2SQL:
                         "cached": True,
                         "query_plan": None,
                         "summary": self._generate_summary(result["columns"], result["rows"], result["row_count"]),
+                        "suggestions": [],
                     }
                     if redis_conn:
                         try: await redis_conn.aclose()
@@ -1008,6 +1133,17 @@ class MaximoNL2SQL:
                 await redis_conn.aclose()
             except Exception:
                 pass
+
+        # If 0 results, generate alternative suggestions
+        if last_result.get("row_count", 0) == 0 and last_result.get("sql"):
+            try:
+                alternatives = await self._suggest_alternatives(last_result["sql"], question)
+                last_result["suggestions"] = alternatives
+            except Exception as e:
+                log.warning("Suggest alternatives failed: %s", e)
+                last_result["suggestions"] = []
+        else:
+            last_result["suggestions"] = []
 
         # Enforce max_results
         max_results = perm.get("max_results", 500)
