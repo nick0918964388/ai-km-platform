@@ -137,12 +137,14 @@ async def export_results(
     wb.save(output)
     output.seek(0)
 
-    filename = f"maximo_export_{question[:20].replace(' ', '_')}.xlsx"
+    from urllib.parse import quote
+    filename = f"maximo_export.xlsx"
+    encoded_filename = quote(f"maximo_export_{question[:20].replace(' ', '_')}.xlsx")
 
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+        headers={"Content-Disposition": f"attachment; filename={filename}; filename*=UTF-8''{encoded_filename}"},
     )
 
 
