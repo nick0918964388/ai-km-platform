@@ -291,7 +291,7 @@ export const useStore = create<AppState>((set, get) => ({
       return { conversations: newConversations };
     }),
 
-  updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string; sqlResult?: any }) =>
+  updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string; sqlResult?: any; clarification?: any }) =>
     set((state) => {
       const newConversations = state.conversations.map((conv) =>
         conv.id === conversationId
@@ -305,6 +305,7 @@ export const useStore = create<AppState>((set, get) => ({
                       ...(extra?.sources !== undefined && { sources: extra.sources }),
                       ...(extra?.query !== undefined && { query: extra.query }),
                       ...(extra?.sqlResult !== undefined && { sqlResult: extra.sqlResult }),
+                      ...(extra?.clarification !== undefined && { clarification: extra.clarification }),
                     }
                   : msg
               ),

@@ -351,7 +351,7 @@ export default function ChatWindow() {
                 } else if (data.type === 'clarification' && data.data) {
                   setPendingClarification(data.data);
                   streamedContent = data.data.message;
-                  useStore.getState().updateMessage(convId!, messageId, data.data.message);
+                  useStore.getState().updateMessage(convId!, messageId, data.data.message, { clarification: data.data });
                 } else if (data.type === 'done') {
                   setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
                   // Stop elapsed timer and record duration
@@ -876,37 +876,59 @@ export default function ChatWindow() {
                         </p>
                       ))
                     )}
-                    {/* Clarification options */}
-                    {msg.role === 'assistant' && pendingClarification && msg.id === messages[messages.length - 1]?.id && !messageStreamingStatus[msg.id] && (
-                      <div style={{
-                        display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem',
-                      }}>
-                        {pendingClarification.options.map((opt, i) => (
+                    {/* Clarification options (from live state or persisted message) */}
+                    {msg.role === 'assistant' && msg.id === messages[messages.length - 1]?.id && !messageStreamingStatus[msg.id] && (() => {
+                      const clar = pendingClarification || msg.clarification;
+                      if (!clar?.options?.length) return null;
+                      return (
+                        <div style={{ marginTop: '0.75rem' }}>
+                          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            {clar.options.map((opt: { label: string; query: string }, i: number) => (
+                              <button
+                                key={i}
+                                onClick={() => {
+                                  setPendingClarification(null);
+                                  handleSend(opt.query);
+                                }}
+                                style={{
+                                  padding: '0.5rem 0.875rem',
+                                  borderRadius: 99,
+                                  border: '2px solid var(--primary)',
+                                  background: 'transparent',
+                                  color: 'var(--primary)',
+                                  cursor: 'pointer',
+                                  fontSize: '0.8125rem',
+                                  fontWeight: 600,
+                                  transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = 'var(--primary)'; e.currentTarget.style.color = 'white'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--primary)'; }}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
                           <button
-                            key={i}
                             onClick={() => {
                               setPendingClarification(null);
-                              handleSend(opt.query);
+                              handleSend(msg.query || messages.filter(m => m.role === 'user').pop()?.content || '');
                             }}
                             style={{
-                              padding: '0.5rem 0.875rem',
-                              borderRadius: 99,
-                              border: '2px solid var(--primary)',
-                              background: 'transparent',
-                              color: 'var(--primary)',
+                              marginTop: '0.5rem',
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--text-secondary, #666)',
                               cursor: 'pointer',
-                              fontSize: '0.8125rem',
-                              fontWeight: 600,
-                              transition: 'all 0.15s',
+                              fontSize: '0.75rem',
+                              textDecoration: 'underline',
+                              padding: 0,
                             }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'var(--primary)'; e.currentTarget.style.color = 'white'; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--primary)'; }}
                           >
-                            {opt.label}
+                            直接搜尋，跳過釐清
                           </button>
-                        ))}
-                      </div>
-                    )}
+                        </div>
+                      );
+                    })()}
                     {/* SQL Result Card */}
                     {msg.role === 'assistant' && messageSqlResults[msg.id] && !messageStreamingStatus[msg.id] && (
                       <SqlResultCard

@@ -14,6 +14,7 @@ from app.models.schemas import (
     SearchResponse,
 )
 from app.services import rag
+from app.services.intent_classifier import get_intent_classifier, QueryIntent
 from app.services.intent_router import detect_intent, detect_ambiguity
 from app.config import get_settings
 
@@ -73,31 +74,55 @@ async def chat_stream(request: ChatRequest):
     settings = get_settings()
 
     async def generate():
+        def sse_event(event_type, data=None):
+            payload = {'type': event_type}
+            if data is not None:
+                payload['data'] = data
+            return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
         try:
             query = request.query
 
-            # Intent detection
-            intent_result = detect_intent(query, context=request.context)
-            intent = intent_result["intent"]
-            log.info("Intent detected: %s (confidence=%.2f) for query: %s",
-                     intent, intent_result["confidence"], query[:80])
+            # Intent detection with LLM
+            yield sse_event('step', {'id': 'intent', 'label': '分析查詢意圖...', 'status': 'running'})
 
-            reason = intent_result["reason"]
-            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'intent', 'label': '意圖偵測：' + reason, 'status': 'done'}}, ensure_ascii=False)}\n\n"
+            classifier = get_intent_classifier()
+            cls_result = await classifier.classify_with_fallback(query, context=request.context)
+
+            INTENT_MAP = {
+                QueryIntent.STRUCTURED: "sql",
+                QueryIntent.KNOWLEDGE: "rag",
+                QueryIntent.HYBRID: "hybrid",
+                QueryIntent.CLARIFICATION: "clarification",
+            }
+            intent = INTENT_MAP.get(cls_result.intent, "rag")
+            intent_result = {"intent": intent, "confidence": cls_result.confidence, "reason": cls_result.reasoning}
+
+            log.info("Intent detected: %s (confidence=%.2f) for query: %s", intent, cls_result.confidence, query[:80])
+            yield sse_event('step', {'id': 'intent', 'label': '意圖偵測：' + cls_result.reasoning, 'status': 'done'})
 
             sql_result = None
 
-            # Check for ambiguity (only for SQL intent)
+            # Clarification check: LLM-based first, then rule-based fallback for SQL
+            if intent == "clarification" and cls_result.clarification_options:
+                yield sse_event('clarification', {
+                    "message": cls_result.reasoning,
+                    "options": cls_result.clarification_options,
+                })
+                yield sse_event('done', {})
+                return
+
             if intent in ("sql", "hybrid"):
+                # Rule-based ambiguity as second layer (domain-specific Maximo disambiguation)
                 ambiguity = detect_ambiguity(query, history=request.context)
                 if ambiguity:
-                    yield f"data: {json.dumps({'type': 'clarification', 'data': ambiguity}, ensure_ascii=False)}\n\n"
-                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                    yield sse_event('clarification', ambiguity)
+                    yield sse_event('done', {})
                     return
 
             if intent in ("sql", "hybrid"):
                 # === NL→SQL Path with granular thinking steps ===
-                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'schema', 'label': '搜尋相關資料表與欄位...', 'status': 'running'}}, ensure_ascii=False)}\n\n"
+                yield sse_event('step', {'id': 'schema', 'label': '搜尋相關資料表與欄位...', 'status': 'running'})
 
                 from app.services.maximo_nl2sql import MaximoNL2SQL
                 from app.db.session import get_db_context
@@ -106,8 +131,8 @@ async def chat_stream(request: ChatRequest):
                     async with get_db_context() as db:
                         service = MaximoNL2SQL(db)
 
-                        yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'schema', 'label': '搜尋相關資料表與欄位...', 'status': 'done'}}, ensure_ascii=False)}\n\n"
-                        yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'sql_generate', 'label': '呼叫 AI 產生 SQL 語句...', 'status': 'running'}}, ensure_ascii=False)}\n\n"
+                        yield sse_event('step', {'id': 'schema', 'label': '搜尋相關資料表與欄位...', 'status': 'done'})
+                        yield sse_event('step', {'id': 'sql_generate', 'label': '呼叫 AI 產生 SQL 語句...', 'status': 'running'})
 
                         # Extract SQL history from conversation context
                         sql_history = []
@@ -118,24 +143,22 @@ async def chat_stream(request: ChatRequest):
 
                         sql_result = await service.query(query, mode="accurate", conversation_history=sql_history[-3:] if sql_history else None)
 
-                        yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'sql_generate', 'label': '呼叫 AI 產生 SQL 語句...', 'status': 'done'}}, ensure_ascii=False)}\n\n"
+                        yield sse_event('step', {'id': 'sql_generate', 'label': '呼叫 AI 產生 SQL 語句...', 'status': 'done'})
 
                         iters = sql_result.get("iterations", 1)
                         if iters > 1:
-                            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'validate', 'label': f'驗證並修正查詢（{iters} 次迭代）...', 'status': 'done'}}, ensure_ascii=False)}\n\n"
+                            yield sse_event('step', {'id': 'validate', 'label': f'驗證並修正查詢（{iters} 次迭代）...', 'status': 'done'})
 
                         if sql_result.get("success"):
-                            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'execute', 'label': '執行查詢並整理結果...', 'status': 'done'}}, ensure_ascii=False)}\n\n"
+                            yield sse_event('step', {'id': 'execute', 'label': '執行查詢並整理結果...', 'status': 'done'})
                 except Exception as sql_err:
                     log.exception("NL→SQL error")
                     sql_result = {"success": False, "error": str(sql_err)}
 
                 if sql_result.get("success"):
-                    # Send brief explanation as content (for message text)
                     explanation = sql_result.get("explanation", "查詢完成")
-                    yield f"data: {json.dumps({'type': 'content', 'data': explanation}, ensure_ascii=False)}\n\n"
+                    yield sse_event('content', explanation)
 
-                    # Send full structured result for rich rendering
                     sql_event_data = {
                         "success": True,
                         "sql": sql_result.get("sql"),
@@ -153,45 +176,37 @@ async def chat_stream(request: ChatRequest):
                         "suggestions": sql_result.get("suggestions", []),
                         "column_labels": sql_result.get("column_labels"),
                     }
-                    yield f"data: {json.dumps({'type': 'sql_result', 'data': sql_event_data}, ensure_ascii=False)}\n\n"
+                    yield sse_event('sql_result', sql_event_data)
 
-                    # Metadata
-                    yield f"data: {json.dumps({'type': 'metadata', 'data': {'model': sql_result.get('model', 'nl2sql'), 'duration_ms': sql_result.get('llm_ms', 0), 'sql': sql_result.get('sql'), 'intent': intent_result}}, ensure_ascii=False)}\n\n"
+                    yield sse_event('metadata', {'model': sql_result.get('model', 'nl2sql'), 'duration_ms': sql_result.get('llm_ms', 0), 'sql': sql_result.get('sql'), 'intent': intent_result})
 
-                    # SQL follow-up suggestions
                     follow_ups = _generate_sql_follow_ups(query, sql_result)
                     if follow_ups:
-                        yield f"data: {json.dumps({'type': 'follow_up', 'data': follow_ups}, ensure_ascii=False)}\n\n"
-
-                    # Related docs search is handled by SqlResultCard's RelatedDocsPanel on the frontend
+                        yield sse_event('follow_up', follow_ups)
 
                     if intent == "sql":
-                        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                        yield sse_event('done', {})
                         return
 
-                    # hybrid: add separator before RAG section
-                    yield f"data: {json.dumps({'type': 'content', 'data': '\\n\\n---\\n\\n**相關文件參考：**\\n\\n'}, ensure_ascii=False)}\n\n"
+                    yield sse_event('content', '\n\n---\n\n**相關文件參考：**\n\n')
 
                 else:
                     raw_error = sql_result.get("error", "查詢失敗")
                     iters = sql_result.get("iterations", 1)
                     friendly = f"查詢未能成功完成（已嘗試 {iters} 次）。"
                     if intent == "hybrid":
-                        yield f"data: {json.dumps({'type': 'content', 'data': f'*（{friendly}改用知識庫搜尋）*\\n\\n'}, ensure_ascii=False)}\n\n"
+                        yield sse_event('content', f'*（{friendly}改用知識庫搜尋）*\n\n')
                         intent = "rag"
                     else:
-                        # Friendly message + error detail in code block
                         short_error = raw_error.split('\n')[0][:150] if raw_error else "未知錯誤"
                         error_content = f"{friendly}\n\n🔧 **錯誤摘要：** `{short_error}`"
-                        yield f"data: {json.dumps({'type': 'content', 'data': error_content}, ensure_ascii=False)}\n\n"
-                        # Also send the structured result so SqlResultCard can show suggestions
+                        yield sse_event('content', error_content)
                         if sql_result.get("suggestions"):
-                            yield f"data: {json.dumps({'type': 'sql_result', 'data': sql_result}, ensure_ascii=False)}\n\n"
-                        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                            yield sse_event('sql_result', sql_result)
+                        yield sse_event('done', {})
                         return
 
             # === RAG Path (intent == "rag" or hybrid fallthrough) ===
-            # Enhance search query with conversation context
             search_query = query
             if request.context and len(request.context) > 0:
                 conv_parts = []
@@ -202,8 +217,7 @@ async def chat_stream(request: ChatRequest):
                 if conv_parts:
                     search_query = f"對話背景：{'；'.join(conv_parts)}。\n當前問題：{query}"
 
-            # Step 1: search
-            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'search', 'label': '搜尋知識庫文件...', 'status': 'running'}})}\n\n"
+            yield sse_event('step', {'id': 'search', 'label': '搜尋知識庫文件...', 'status': 'running'})
             all_sources = rag.search(
                 query=search_query,
                 image_base64=request.image_base64,
@@ -211,24 +225,20 @@ async def chat_stream(request: ChatRequest):
             )
             MIN_SCORE_THRESHOLD = 0.5
             sources = [s for s in all_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
-            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'search', 'label': '搜尋知識庫文件...', 'status': 'done'}})}\n\n"
+            yield sse_event('step', {'id': 'search', 'label': '搜尋知識庫文件...', 'status': 'done'})
 
-            # Step 2: rerank
             if sources:
-                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'rerank', 'label': '分析相關性排序...', 'status': 'running'}})}\n\n"
-                yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'rerank', 'label': '分析相關性排序...', 'status': 'done'}})}\n\n"
+                yield sse_event('step', {'id': 'rerank', 'label': '分析相關性排序...', 'status': 'running'})
+                yield sse_event('step', {'id': 'rerank', 'label': '分析相關性排序...', 'status': 'done'})
 
-            # Send sources
             sources_data = [s.model_dump() for s in sources]
-            yield f"data: {json.dumps({'type': 'sources', 'data': sources_data})}\n\n"
+            yield sse_event('sources', sources_data)
 
-            # Step 3: generate
-            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'generate', 'label': '組織回答內容...', 'status': 'running'}})}\n\n"
+            yield sse_event('step', {'id': 'generate', 'label': '組織回答內容...', 'status': 'running'})
             start_time = time.time()
             total_tokens = None
             full_answer = ""
 
-            # Build LLM query with conversation context
             llm_query = query
             if request.context and len(request.context) > 0:
                 conv_lines = []
@@ -245,11 +255,11 @@ async def chat_stream(request: ChatRequest):
                 if result.get("type") == "content":
                     content_chunk = result['data']
                     full_answer += content_chunk
-                    yield f"data: {json.dumps({'type': 'content', 'data': content_chunk})}\n\n"
+                    yield sse_event('content', content_chunk)
                 elif result.get("type") == "usage":
                     total_tokens = result.get("data")
 
-            yield f"data: {json.dumps({'type': 'step', 'data': {'id': 'generate', 'label': '組織回答內容...', 'status': 'done'}})}\n\n"
+            yield sse_event('step', {'id': 'generate', 'label': '組織回答內容...', 'status': 'done'})
 
             duration_ms = int((time.time() - start_time) * 1000)
             metadata = {
@@ -259,8 +269,8 @@ async def chat_stream(request: ChatRequest):
             }
             if intent_result:
                 metadata["intent"] = intent_result
-            yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            yield sse_event('metadata', metadata)
+            yield sse_event('done', {})
 
             try:
                 follow_up_questions = rag.generate_follow_up_questions(
@@ -269,13 +279,13 @@ async def chat_stream(request: ChatRequest):
                     max_questions=3,
                 )
                 if follow_up_questions:
-                    yield f"data: {json.dumps({'type': 'follow_up', 'data': follow_up_questions})}\n\n"
+                    yield sse_event('follow_up', follow_up_questions)
             except Exception:
                 pass
 
         except Exception as e:
             log.exception("chat_stream error")
-            yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
+            yield sse_event('error', str(e))
 
     return StreamingResponse(
         generate(),
