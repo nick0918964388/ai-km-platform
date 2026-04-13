@@ -565,6 +565,69 @@ def chat_stream_with_metadata(
         yield {"type": "content", "data": f"生成回答時發生錯誤: {str(e)}"}
 
 
+def rewrite_query(query: str, attempt: int = 1) -> str | None:
+    """Use LLM to rewrite a query for better retrieval. Returns rewritten query or None on failure."""
+    client, model = _get_llm_client(light=True)
+    if client is None:
+        return None
+
+    strategies = [
+        "擴展同義詞和相關術語（例如：煞車→制動、軔缸；保養→定期檢修、PM）",
+        "換個角度描述，使用更具體的技術術語或更廣泛的概念",
+    ]
+    strategy = strategies[min(attempt - 1, len(strategies) - 1)]
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": f"""請改寫以下查詢以提高文件檢索效果。策略：{strategy}
+
+原始查詢：{query}
+
+要求：
+- 只輸出改寫後的查詢，不要其他內容
+- 使用繁體中文
+- 保持原意但加入同義詞或相關術語
+- 不超過 50 字"""}],
+            max_tokens=100,
+            temperature=0.3,
+        )
+        content = response.choices[0].message.content or ""
+        # Strip think tags from qwen
+        import re as _re
+        content = _re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
+        rewritten = content.strip().strip('"').strip("'")
+        if rewritten and rewritten != query:
+            return rewritten
+    except Exception as e:
+        logger.warning("Query rewrite failed: %s", e)
+    return None
+
+
+def evaluate_retrieval_quality(sources: list[SearchResult], threshold: float = 0.5) -> dict:
+    """Evaluate retrieval quality based on source scores.
+    Returns: {quality: 'good'|'low'|'none', avg_score, top_score, count}
+    """
+    if not sources:
+        return {"quality": "none", "avg_score": 0, "top_score": 0, "count": 0}
+
+    scores = [s.score or 0 for s in sources]
+    avg_score = sum(scores) / len(scores)
+    top_score = max(scores)
+
+    # Also check relevance_score from reranker if available
+    rel_scores = [s.relevance_score for s in sources if s.relevance_score is not None]
+    avg_rel = sum(rel_scores) / len(rel_scores) if rel_scores else None
+
+    quality = "good"
+    if len(sources) < 2 or top_score < threshold:
+        quality = "low"
+    elif avg_rel is not None and avg_rel < 0.3:
+        quality = "low"
+
+    return {"quality": quality, "avg_score": round(avg_score, 3), "top_score": round(top_score, 3), "count": len(sources), "avg_relevance": round(avg_rel, 3) if avg_rel is not None else None}
+
+
 def generate_follow_up_questions(query: str, answer: str, max_questions: int = 3) -> list[str]:
     """
     Generate follow-up questions based on the user's query and the AI's answer.

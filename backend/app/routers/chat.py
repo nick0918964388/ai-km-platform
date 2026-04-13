@@ -222,19 +222,56 @@ async def chat_stream(request: ChatRequest):
                 if conv_parts:
                     search_query = f"對話背景：{'；'.join(conv_parts)}。\n當前問題：{query}"
 
+            # Search with self-reflection: retry with rewritten query if quality is low
+            MAX_REWRITE_ATTEMPTS = 2
+            MIN_SCORE_THRESHOLD = 0.5
+            used_query = search_query
+            rewrite_used = False
+
             yield sse_event('step', {'id': 'search', 'label': '搜尋知識庫文件...', 'status': 'running'})
             all_sources = rag.search(
-                query=search_query,
+                query=used_query,
                 image_base64=request.image_base64,
                 top_k=request.top_k,
             )
-            MIN_SCORE_THRESHOLD = 0.5
             sources = [s for s in all_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
-            yield sse_event('step', {'id': 'search', 'label': '搜尋知識庫文件...', 'status': 'done'})
+            quality = rag.evaluate_retrieval_quality(sources)
+            yield sse_event('step', {'id': 'search', 'label': f'搜尋知識庫文件（{quality["count"]} 筆）...', 'status': 'done'})
+
+            # Self-reflection: if quality is low, rewrite query and retry
+            if quality["quality"] in ("low", "none"):
+                for attempt in range(1, MAX_REWRITE_ATTEMPTS + 1):
+                    yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'檢索品質不足，改寫查詢重試（第 {attempt} 次）...', 'status': 'running'})
+                    rewritten = rag.rewrite_query(query, attempt=attempt)
+                    if not rewritten:
+                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'查詢改寫失敗', 'status': 'done'})
+                        break
+
+                    log.info("Query rewrite attempt %d: '%s' → '%s'", attempt, query[:50], rewritten[:50])
+                    new_sources = rag.search(query=rewritten, image_base64=request.image_base64, top_k=request.top_k)
+                    new_filtered = [s for s in new_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
+                    new_quality = rag.evaluate_retrieval_quality(new_filtered)
+
+                    if new_quality["quality"] == "good" or new_quality["top_score"] > quality["top_score"]:
+                        sources = new_filtered
+                        quality = new_quality
+                        used_query = rewritten
+                        rewrite_used = True
+                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'改寫為「{rewritten[:30]}」— 找到 {new_quality["count"]} 筆', 'status': 'done'})
+                        if new_quality["quality"] == "good":
+                            break
+                    else:
+                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'改寫後品質未提升', 'status': 'done'})
 
             if sources:
                 yield sse_event('step', {'id': 'rerank', 'label': '分析相關性排序...', 'status': 'running'})
                 yield sse_event('step', {'id': 'rerank', 'label': '分析相關性排序...', 'status': 'done'})
+
+            # If still no good results after retries, add a notice
+            if quality["quality"] in ("low", "none") and not sources:
+                yield sse_event('content', '⚠️ **知識庫中未找到高度相關的文件。** 以下結果僅供參考，建議嘗試換個關鍵字或更具體的描述。\n\n')
+                # Use whatever we have, even below threshold
+                sources = all_sources[:request.top_k] if all_sources else []
 
             sources_data = [s.model_dump() for s in sources]
             yield sse_event('sources', sources_data)
