@@ -501,7 +501,7 @@ def chat_stream_with_metadata(
     context = "\n\n".join(context_parts)
 
     user_content = [
-        {"type": "text", "text": f"知識庫內容:\n{context}\n\n用戶問題: {query}"}
+        {"type": "text", "text": f"/no_think\n知識庫內容:\n{context}\n\n用戶問題: {query}"}
     ]
 
     # Add user's image if provided
