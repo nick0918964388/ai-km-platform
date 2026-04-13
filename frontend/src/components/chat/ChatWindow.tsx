@@ -804,25 +804,36 @@ export default function ChatWindow() {
                     lineHeight: 1.6,
                     position: 'relative',
                   }}>
-                    {/* Thinking indicator: show current step while streaming */}
+                    {/* Thinking indicator: show step progress while streaming */}
                     {msg.role === 'assistant' && messageStreamingStatus[msg.id] && (() => {
-                      // Show thinking as long as streaming is active
-                      // Display the latest step label (running first, then last done, then default)
                       const runningStep = taskSteps.filter(s => s.status === 'running').pop();
-                      const lastStep = taskSteps[taskSteps.length - 1];
-                      const currentLabel = runningStep?.label || lastStep?.label || '思考中...';
-                      // Always show during streaming (even if content has started)
+                      const doneSteps = taskSteps.filter(s => s.status === 'done');
+                      const currentLabel = runningStep?.label || '思考中...';
                       return (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem', marginBottom: msg.content ? '0.5rem' : 0 }}>
-                          <div className="typing-indicator" style={{ display: 'inline-flex' }}>
-                            <span></span><span></span><span></span>
-                          </div>
-                          <span style={{ fontStyle: 'italic' }}>{currentLabel}</span>
-                          {elapsedSeconds > 0 && (
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                              {elapsedSeconds}s
-                            </span>
+                        <div style={{ marginBottom: msg.content ? '0.5rem' : 0 }}>
+                          {/* Show completed steps */}
+                          {doneSteps.length > 0 && (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+                              {doneSteps.map((s, i) => (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', lineHeight: 1.6 }}>
+                                  <span style={{ color: 'var(--success, #16a34a)' }}>✓</span>
+                                  <span>{s.label}</span>
+                                </div>
+                              ))}
+                            </div>
                           )}
+                          {/* Show current running step */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                            <div className="typing-indicator" style={{ display: 'inline-flex' }}>
+                              <span></span><span></span><span></span>
+                            </div>
+                            <span style={{ fontStyle: 'italic' }}>{currentLabel}</span>
+                            {elapsedSeconds > 0 && (
+                              <span style={{ fontSize: '0.7rem', fontFamily: 'monospace' }}>
+                                {elapsedSeconds}s
+                              </span>
+                            )}
+                          </div>
                         </div>
                       );
                     })()}
