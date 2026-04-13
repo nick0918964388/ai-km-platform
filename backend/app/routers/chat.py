@@ -85,6 +85,7 @@ async def chat_stream(request: ChatRequest):
 
             # Intent detection with LLM
             yield sse_event('step', {'id': 'intent', 'label': '分析查詢意圖...', 'status': 'running'})
+            t0 = time.time()
 
             classifier = get_intent_classifier()
             cls_result = await classifier.classify_with_fallback(query, context=request.context)
@@ -97,9 +98,10 @@ async def chat_stream(request: ChatRequest):
             }
             intent = INTENT_MAP.get(cls_result.intent, "rag")
             intent_result = {"intent": intent, "confidence": cls_result.confidence, "reason": cls_result.reasoning}
+            intent_ms = int((time.time() - t0) * 1000)
 
             log.info("Intent detected: %s (confidence=%.2f) for query: %s", intent, cls_result.confidence, query[:80])
-            yield sse_event('step', {'id': 'intent', 'label': '意圖偵測：' + cls_result.reasoning, 'status': 'done'})
+            yield sse_event('step', {'id': 'intent', 'label': f'意圖偵測：{cls_result.reasoning}（{intent_ms}ms）', 'status': 'done'})
 
             sql_result = None
 
@@ -128,6 +130,7 @@ async def chat_stream(request: ChatRequest):
             if intent in ("sql", "hybrid"):
                 # === NL→SQL Path with granular thinking steps ===
                 yield sse_event('step', {'id': 'schema', 'label': '搜尋相關資料表與欄位...', 'status': 'running'})
+                t0 = time.time()
 
                 from app.services.maximo_nl2sql import MaximoNL2SQL
                 from app.db.session import get_db_context
@@ -135,9 +138,11 @@ async def chat_stream(request: ChatRequest):
                 try:
                     async with get_db_context() as db:
                         service = MaximoNL2SQL(db)
+                        schema_ms = int((time.time() - t0) * 1000)
 
-                        yield sse_event('step', {'id': 'schema', 'label': '搜尋相關資料表與欄位...', 'status': 'done'})
+                        yield sse_event('step', {'id': 'schema', 'label': f'搜尋相關資料表與欄位（{schema_ms}ms）', 'status': 'done'})
                         yield sse_event('step', {'id': 'sql_generate', 'label': '呼叫 AI 產生 SQL 語句...', 'status': 'running'})
+                        t0 = time.time()
 
                         # Extract SQL history from conversation context
                         sql_history = []
@@ -147,12 +152,13 @@ async def chat_stream(request: ChatRequest):
                                     sql_history.append({"question": m.get("content", ""), "sql": m["sql"]})
 
                         sql_result = await service.query(query, mode="accurate", conversation_history=sql_history[-3:] if sql_history else None)
+                        sql_ms = int((time.time() - t0) * 1000)
 
-                        yield sse_event('step', {'id': 'sql_generate', 'label': '呼叫 AI 產生 SQL 語句...', 'status': 'done'})
+                        yield sse_event('step', {'id': 'sql_generate', 'label': f'AI 產生 SQL 語句（{sql_ms}ms）', 'status': 'done'})
 
                         iters = sql_result.get("iterations", 1)
                         if iters > 1:
-                            yield sse_event('step', {'id': 'validate', 'label': f'驗證並修正查詢（{iters} 次迭代）...', 'status': 'done'})
+                            yield sse_event('step', {'id': 'validate', 'label': f'驗證並修正查詢（{iters} 次迭代）', 'status': 'done'})
 
                         if sql_result.get("success"):
                             yield sse_event('step', {'id': 'execute', 'label': '執行查詢並整理結果...', 'status': 'done'})
@@ -229,6 +235,7 @@ async def chat_stream(request: ChatRequest):
             rewrite_used = False
 
             yield sse_event('step', {'id': 'search', 'label': '搜尋知識庫文件...', 'status': 'running'})
+            t0 = time.time()
             all_sources = rag.search(
                 query=used_query,
                 image_base64=request.image_base64,
@@ -238,21 +245,25 @@ async def chat_stream(request: ChatRequest):
             quality = rag.evaluate_retrieval_quality(all_sources)
             sources = [s for s in all_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
             best_all_sources = all_sources  # Track best unfiltered results across attempts
-            yield sse_event('step', {'id': 'search', 'label': f'搜尋知識庫文件（{len(sources)} 筆相關）...', 'status': 'done'})
+            search_ms = int((time.time() - t0) * 1000)
+            yield sse_event('step', {'id': 'search', 'label': f'搜尋知識庫文件（{len(sources)} 筆相關，{search_ms}ms）', 'status': 'done'})
 
             # Self-reflection: if quality is low, rewrite query and retry
             if quality["quality"] in ("low", "none"):
                 for attempt in range(1, MAX_REWRITE_ATTEMPTS + 1):
                     yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'檢索品質不足，改寫查詢重試（第 {attempt} 次）...', 'status': 'running'})
+                    t0 = time.time()
                     rewritten = rag.rewrite_query(query, attempt=attempt)
                     if not rewritten:
-                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': '無替代查詢', 'status': 'done'})
+                        rw_ms = int((time.time() - t0) * 1000)
+                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'無替代查詢（{rw_ms}ms）', 'status': 'done'})
                         break
 
                     log.info("Query rewrite attempt %d: '%s' → '%s'", attempt, query[:50], rewritten[:50])
                     new_sources = rag.search(query=rewritten, image_base64=request.image_base64, top_k=request.top_k)
                     new_quality = rag.evaluate_retrieval_quality(new_sources)
                     new_filtered = [s for s in new_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
+                    rw_ms = int((time.time() - t0) * 1000)
 
                     # Accept if quality improved (check both score and count)
                     better = (new_quality["quality"] == "good"
@@ -263,11 +274,11 @@ async def chat_stream(request: ChatRequest):
                         quality = new_quality
                         used_query = rewritten
                         rewrite_used = True
-                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'改寫為「{rewritten[:30]}」— 找到 {len(new_filtered)} 筆', 'status': 'done'})
+                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'改寫為「{rewritten[:30]}」— {len(new_filtered)} 筆（{rw_ms}ms）', 'status': 'done'})
                         if new_quality["quality"] == "good":
                             break
                     else:
-                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': '改寫後品質未提升', 'status': 'done'})
+                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'改寫後品質未提升（{rw_ms}ms）', 'status': 'done'})
 
             if sources:
                 yield sse_event('step', {'id': 'rerank', 'label': '分析相關性排序...', 'status': 'running'})
@@ -306,9 +317,10 @@ async def chat_stream(request: ChatRequest):
                 elif result.get("type") == "usage":
                     total_tokens = result.get("data")
 
-            yield sse_event('step', {'id': 'generate', 'label': '組織回答內容...', 'status': 'done'})
+            gen_ms = int((time.time() - start_time) * 1000)
+            yield sse_event('step', {'id': 'generate', 'label': f'回答生成完成（{gen_ms}ms）', 'status': 'done'})
 
-            duration_ms = int((time.time() - start_time) * 1000)
+            duration_ms = gen_ms
             metadata = {
                 "model": request.model or settings.ollama_chat_model,
                 "duration_ms": duration_ms,
