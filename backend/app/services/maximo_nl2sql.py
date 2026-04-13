@@ -129,7 +129,7 @@ class MaximoNL2SQL:
 
     # Column name → Chinese display label
     _COL_LABELS = {
-        "wonum": "工單號", "assetnum": "車號", "status": "狀態",
+        "wonum": "系統工單號", "wojp3": "工單號", "assetnum": "車號", "status": "狀態",
         "description": "說明", "worktype": "工作類型", "work_type": "工作類型",
         "reportdate": "通報日期", "report_date": "通報日期",
         "changedate": "變更日期", "act_start": "實際開始", "act_finish": "實際完工",
