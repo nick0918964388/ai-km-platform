@@ -109,7 +109,7 @@ export default function ChatWindow() {
   const [messageQueries, setMessageQueries] = useState<{ [msgId: string]: string }>({});
   const [expandedSources, setExpandedSources] = useState<{ [key: string]: boolean }>({});
   const [taskSteps, setTaskSteps] = useState<Step[]>([]);
-  const [messageSqlResults, setMessageSqlResults] = useState<Record<string, any>>({});
+  const [messageSqlResults, setMessageSqlResults] = useState<Record<string, any[]>>({});
   const [pendingClarification, setPendingClarification] = useState<{message: string; options: {label: string; query: string}[]} | null>(null);
   const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -163,7 +163,8 @@ export default function ChatWindow() {
           newQueries[msg.id] = msg.query;
         }
         if (msg.sqlResult) {
-          newSqlResults[msg.id] = msg.sqlResult;
+          // Normalize: old format is single object, new format is array
+          newSqlResults[msg.id] = Array.isArray(msg.sqlResult) ? msg.sqlResult : [msg.sqlResult];
         }
       });
       setMessageSources(newSources);
@@ -248,10 +249,10 @@ export default function ChatWindow() {
       return prevMsgs.map(m => ({
         role: m.role,
         content: (m.content || '').substring(0, 200),
-        intent: messageSqlResults[m.id]
+        intent: messageSqlResults[m.id]?.length
           ? 'sql'
           : messageMetadata[m.id]?.intent?.intent || undefined,
-        sql: messageSqlResults[m.id]?.sql || undefined,
+        sql: messageSqlResults[m.id]?.[0]?.sql || undefined,
       }));
     };
 
@@ -346,9 +347,13 @@ export default function ChatWindow() {
                     return [...prev, step];
                   });
                 } else if (data.type === 'sql_result' && data.data) {
-                  setMessageSqlResults(prev => ({ ...prev, [messageId]: data.data }));
-                  // Persist sqlResult to message store for history reload
-                  useStore.getState().updateMessage(convId!, messageId, streamedContent, { sqlResult: data.data });
+                  setMessageSqlResults(prev => ({
+                    ...prev,
+                    [messageId]: [...(prev[messageId] || []), data.data],
+                  }));
+                  // Persist sqlResult to message store for history reload (store array)
+                  const updatedResults = [...(messageSqlResults[messageId] || []), data.data];
+                  useStore.getState().updateMessage(convId!, messageId, streamedContent, { sqlResult: updatedResults });
                 } else if (data.type === 'clarification' && data.data) {
                   setPendingClarification(data.data);
                   streamedContent = data.data.message;
@@ -758,7 +763,7 @@ export default function ChatWindow() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               {messages.map((msg, msgIdx) => {
                 // Skip empty assistant messages (no content, no sqlResult, not streaming)
-                if (msg.role === 'assistant' && !msg.content && !messageSqlResults[msg.id] && !msg.sqlResult && !messageStreamingStatus[msg.id]) return null;
+                if (msg.role === 'assistant' && !msg.content && !messageSqlResults[msg.id]?.length && !msg.sqlResult && !messageStreamingStatus[msg.id]) return null;
                 return (
                 <div key={msg.id} style={{
                   display: 'flex',
@@ -925,12 +930,17 @@ export default function ChatWindow() {
                       );
                     })()}
                     {/* SQL Result Card */}
-                    {msg.role === 'assistant' && messageSqlResults[msg.id] && !messageStreamingStatus[msg.id] && (
-                      <SqlResultCard
-                        result={messageSqlResults[msg.id]}
-                        question={messageQueries[msg.id] || ''}
-                        onRequery={(q) => handleSend(q)}
-                      />
+                    {msg.role === 'assistant' && messageSqlResults[msg.id]?.length > 0 && !messageStreamingStatus[msg.id] && (
+                      <>
+                        {messageSqlResults[msg.id].map((sqlRes: any, idx: number) => (
+                          <SqlResultCard
+                            key={idx}
+                            result={sqlRes}
+                            question={messageQueries[msg.id] || ''}
+                            onRequery={(q) => handleSend(q)}
+                          />
+                        ))}
+                      </>
                     )}
                     {/* Duration badge */}
                     {msg.role === 'assistant' && !messageStreamingStatus[msg.id] && messageDurations[msg.id] > 0 && (

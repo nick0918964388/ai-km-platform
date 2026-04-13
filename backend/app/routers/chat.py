@@ -128,7 +128,101 @@ async def chat_stream(request: ChatRequest):
                     yield sse_event('done', {})
                     return
 
-            if intent in ("sql", "hybrid"):
+            # === Multi-Agent Path (for hybrid queries that need parallel sub-tasks) ===
+            if intent == "hybrid":
+                from app.services.orchestrator import decompose_query, run_parallel_agents, synthesize_results
+
+                yield sse_event('step', {'id': 'decompose', 'label': '分解查詢為子任務...', 'status': 'running'})
+                t0 = time.time()
+                decomposition = await decompose_query(query, context=request.context)
+                dec_ms = int((time.time() - t0) * 1000)
+
+                # If only 1 sub-task, fall through to sequential path
+                if len(decomposition.sub_tasks) <= 1:
+                    yield sse_event('step', {'id': 'decompose', 'label': f'單一來源查詢（{dec_ms}ms）', 'status': 'done'})
+                    # Reclassify: single sql task → sql intent, single rag task → rag intent
+                    if decomposition.sub_tasks and decomposition.sub_tasks[0].type == "sql":
+                        intent = "sql"
+                    else:
+                        intent = "rag"
+                else:
+                    yield sse_event('step', {'id': 'decompose', 'label': f'分解為 {len(decomposition.sub_tasks)} 個子任務（{dec_ms}ms）', 'status': 'done'})
+
+                    # Show running state for each sub-task
+                    for st in decomposition.sub_tasks:
+                        yield sse_event('step', {'id': st.id, 'label': f'{st.label}...', 'status': 'running'})
+
+                    # Extract SQL history
+                    sql_history = []
+                    if request.context:
+                        for m in request.context:
+                            if m.get("intent") == "sql" and m.get("sql"):
+                                sql_history.append({"question": m.get("content", ""), "sql": m["sql"]})
+
+                    # Run sub-agents in parallel, stream results as they complete
+                    all_results = []
+                    all_sources = []
+                    async for result in run_parallel_agents(decomposition.sub_tasks, query, request.top_k, sql_history[-3:] if sql_history else None):
+                        all_results.append(result)
+                        task_id = result["task_id"]
+                        dur = result.get("duration_ms", 0)
+
+                        if result.get("error"):
+                            yield sse_event('step', {'id': task_id, 'label': f'{task_id} 失敗（{dur}ms）', 'status': 'done'})
+                            continue
+
+                        if result["type"] == "sql" and result.get("result", {}).get("success"):
+                            sr = result["result"]
+                            yield sse_event('step', {'id': task_id, 'label': f'{task_id} 完成 — {sr.get("row_count", 0)} 筆（{dur}ms）', 'status': 'done'})
+                            yield sse_event('sql_result', {
+                                "success": True,
+                                "sql": sr.get("sql"),
+                                "explanation": sr.get("explanation"),
+                                "columns": sr.get("columns", []),
+                                "data": sr.get("data", [])[:50],
+                                "row_count": sr.get("row_count", 0),
+                                "execution_ms": sr.get("execution_ms"),
+                                "llm_ms": sr.get("llm_ms"),
+                                "model": sr.get("model"),
+                                "confidence": sr.get("confidence"),
+                                "chart_suggestion": sr.get("chart_suggestion"),
+                                "summary": sr.get("summary"),
+                                "column_labels": sr.get("column_labels"),
+                                "source_label": task_id,
+                            })
+                        elif result["type"] == "sql":
+                            yield sse_event('step', {'id': task_id, 'label': f'{task_id} 查詢失敗（{dur}ms）', 'status': 'done'})
+                        elif result["type"] == "rag" and result.get("sources"):
+                            sources_list = result["sources"]
+                            all_sources.extend(sources_list)
+                            yield sse_event('step', {'id': task_id, 'label': f'{task_id} 找到 {len(sources_list)} 筆文件（{dur}ms）', 'status': 'done'})
+                            yield sse_event('sources', [s.model_dump() for s in sources_list])
+                        else:
+                            yield sse_event('step', {'id': task_id, 'label': f'{task_id} 無結果（{dur}ms）', 'status': 'done'})
+
+                    # Synthesize all results
+                    yield sse_event('step', {'id': 'synthesize', 'label': '綜合分析結果...', 'status': 'running'})
+                    t0 = time.time()
+                    full_answer = ""
+                    for chunk in synthesize_results(query, all_results, decomposition.synthesis_instruction):
+                        if chunk.get("type") == "content":
+                            full_answer += chunk["data"]
+                            yield sse_event('content', chunk["data"])
+                    syn_ms = int((time.time() - t0) * 1000)
+                    yield sse_event('step', {'id': 'synthesize', 'label': f'綜合分析完成（{syn_ms}ms）', 'status': 'done'})
+
+                    yield sse_event('metadata', {'model': settings.ollama_chat_model, 'duration_ms': syn_ms, 'intent': intent_result})
+                    yield sse_event('done', {})
+
+                    try:
+                        follow_ups = rag.generate_follow_up_questions(query=query, answer=full_answer, max_questions=3)
+                        if follow_ups:
+                            yield sse_event('follow_up', follow_ups)
+                    except Exception:
+                        pass
+                    return
+
+            if intent in ("sql",):
                 # === NL→SQL Path with granular thinking steps ===
                 yield sse_event('step', {'id': 'schema', 'label': '搜尋相關資料表與欄位...', 'status': 'running'})
                 t0 = time.time()
