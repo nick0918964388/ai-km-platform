@@ -111,6 +111,10 @@ export default function ChatWindow() {
   const [taskSteps, setTaskSteps] = useState<Step[]>([]);
   const [messageSqlResults, setMessageSqlResults] = useState<Record<string, any>>({});
   const [pendingClarification, setPendingClarification] = useState<{message: string; options: {label: string; query: string}[]} | null>(null);
+  const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [messageDurations, setMessageDurations] = useState<Record<string, number>>({});
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [selectedModel, setSelectedModel] = useState('qwen3-vl:32b');
   const [historyOpen, setHistoryOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -279,6 +283,14 @@ export default function ChatWindow() {
       addMessage(convId!, assistantMessage);
       setIsStreaming(true);
       setMessageStreamingStatus(prev => ({ ...prev, [messageId]: true }));
+      // Start elapsed timer
+      const startTs = Date.now();
+      setStreamStartTime(startTs);
+      setElapsedSeconds(0);
+      if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = setInterval(() => {
+        setElapsedSeconds(Math.round((Date.now() - startTs) / 1000));
+      }, 1000);
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
@@ -342,6 +354,11 @@ export default function ChatWindow() {
                   useStore.getState().updateMessage(convId!, messageId, data.data.message);
                 } else if (data.type === 'done') {
                   setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
+                  // Stop elapsed timer and record duration
+                  if (elapsedTimerRef.current) { clearInterval(elapsedTimerRef.current); elapsedTimerRef.current = null; }
+                  const duration = streamStartTime ? Math.round((Date.now() - streamStartTime) / 1000) : 0;
+                  setMessageDurations(prev => ({ ...prev, [messageId]: duration }));
+                  setStreamStartTime(null);
                   // Save sources to message for persistence
                   if (receivedSources.length > 0) {
                     useStore.getState().updateMessage(convId!, messageId, streamedContent, { sources: receivedSources, query: userQuery });
@@ -797,6 +814,11 @@ export default function ChatWindow() {
                             <span></span><span></span><span></span>
                           </div>
                           <span style={{ fontStyle: 'italic' }}>{currentLabel}</span>
+                          {elapsedSeconds > 0 && (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                              {elapsedSeconds}s
+                            </span>
+                          )}
                         </div>
                       );
                     })()}
@@ -889,6 +911,12 @@ export default function ChatWindow() {
                         question={messageQueries[msg.id] || ''}
                         onRequery={(q) => handleSend(q)}
                       />
+                    )}
+                    {/* Duration badge */}
+                    {msg.role === 'assistant' && !messageStreamingStatus[msg.id] && messageDurations[msg.id] > 0 && (
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', fontFamily: 'monospace' }}>
+                        ⏱ 回應耗時 {messageDurations[msg.id]}s
+                      </div>
                     )}
                     {/* 來源文件 - 只在 streaming 完成後且 AI 回答引用了來源時顯示 */}
                     {msg.role === 'assistant' && 
