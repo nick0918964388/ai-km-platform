@@ -347,13 +347,11 @@ export default function ChatWindow() {
                     return [...prev, step];
                   });
                 } else if (data.type === 'sql_result' && data.data) {
-                  setMessageSqlResults(prev => ({
-                    ...prev,
-                    [messageId]: [...(prev[messageId] || []), data.data],
-                  }));
-                  // Persist sqlResult to message store for history reload (store array)
-                  const updatedResults = [...(messageSqlResults[messageId] || []), data.data];
-                  useStore.getState().updateMessage(convId!, messageId, streamedContent, { sqlResult: updatedResults });
+                  setMessageSqlResults(prev => {
+                    const updated = [...(prev[messageId] || []), data.data];
+                    useStore.getState().updateMessage(convId!, messageId, streamedContent, { sqlResult: updated });
+                    return { ...prev, [messageId]: updated };
+                  });
                 } else if (data.type === 'clarification' && data.data) {
                   setPendingClarification(data.data);
                   streamedContent = data.data.message;

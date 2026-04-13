@@ -204,7 +204,7 @@ async def chat_stream(request: ChatRequest):
                     yield sse_event('step', {'id': 'synthesize', 'label': '綜合分析結果...', 'status': 'running'})
                     t0 = time.time()
                     full_answer = ""
-                    for chunk in synthesize_results(query, all_results, decomposition.synthesis_instruction):
+                    async for chunk in synthesize_results(query, all_results, decomposition.synthesis_instruction):
                         if chunk.get("type") == "content":
                             full_answer += chunk["data"]
                             yield sse_event('content', chunk["data"])

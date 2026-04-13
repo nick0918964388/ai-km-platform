@@ -8,7 +8,7 @@ import re
 import time
 import logging
 from dataclasses import dataclass, field
-from typing import Optional, AsyncGenerator, Generator
+from typing import Optional, AsyncGenerator
 
 from openai import AsyncOpenAI
 
@@ -236,7 +236,7 @@ async def _run_rag_task(task: SubTask, top_k: int = 5) -> dict:
     try:
         from app.services import rag
 
-        sources = rag.search(query=task.sub_query, top_k=top_k)
+        sources = await asyncio.to_thread(rag.search, query=task.sub_query, top_k=top_k)
         return {
             "task_id": task.id,
             "type": "rag",
@@ -312,11 +312,11 @@ def _build_synthesis_context(results: list[dict]) -> str:
     return "\n\n".join(parts) if parts else "所有子任務均無結果"
 
 
-def synthesize_results(
+async def synthesize_results(
     query: str,
     results: list[dict],
     instruction: str,
-) -> Generator[dict, None, None]:
+) -> AsyncGenerator[dict, None]:
     settings = get_settings()
     client = AsyncOpenAI(api_key="ollama", base_url=settings.ollama_chat_url)
 
@@ -333,39 +333,22 @@ def synthesize_results(
 
 請根據以上資料進行綜合分析回答。"""
 
-    import httpx
-
-    # Use sync httpx for streaming since this is a generator
-    with httpx.Client(timeout=60.0) as http_client:
-        response = http_client.post(
-            f"{settings.ollama_chat_url}/chat/completions",
-            json={
-                "model": settings.ollama_chat_model,
-                "messages": [
-                    {"role": "system", "content": SYNTHESIS_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.3,
-                "stream": True,
-            },
-            headers={"Authorization": "Bearer ollama"},
+    try:
+        stream = await client.chat.completions.create(
+            model=settings.ollama_chat_model,
+            messages=[
+                {"role": "system", "content": SYNTHESIS_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.3,
+            stream=True,
         )
-        response.raise_for_status()
-
-        for line in response.iter_lines():
-            if not line or not line.startswith("data: "):
-                continue
-            data = line[6:]
-            if data.strip() == "[DONE]":
-                break
-            try:
-                chunk = json.loads(data)
-                delta = chunk.get("choices", [{}])[0].get("delta", {})
-                content = delta.get("content", "")
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                content = _strip_think_tags(content)
                 if content:
-                    # Strip think tags from streaming chunks
-                    content = _strip_think_tags(content)
-                    if content:
-                        yield {"type": "content", "data": content}
-            except json.JSONDecodeError:
-                continue
+                    yield {"type": "content", "data": content}
+    except Exception as e:
+        log.error("Synthesis streaming failed: %s", e)
+        yield {"type": "content", "data": f"綜合分析失敗: {e}"}
