@@ -18,6 +18,7 @@ export interface Message {
   attachments?: Attachment[];
   sources?: SearchResult[];
   query?: string; // Store original query for highlighting
+  sqlResult?: any; // NL→SQL structured result (persisted for history reload)
 }
 
 export interface Attachment {

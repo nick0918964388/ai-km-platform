@@ -150,6 +150,7 @@ export default function ChatWindow() {
     if (messages.length > 0) {
       const newSources: MessageSources = {};
       const newQueries: { [msgId: string]: string } = {};
+      const newSqlResults: Record<string, any> = {};
       messages.forEach((msg) => {
         if (msg.sources && msg.sources.length > 0) {
           newSources[msg.id] = msg.sources;
@@ -157,9 +158,13 @@ export default function ChatWindow() {
         if (msg.query) {
           newQueries[msg.id] = msg.query;
         }
+        if (msg.sqlResult) {
+          newSqlResults[msg.id] = msg.sqlResult;
+        }
       });
       setMessageSources(newSources);
       setMessageQueries(newQueries);
+      setMessageSqlResults(newSqlResults);
     } else {
       // Reset when no messages
       setMessageSources({});
@@ -329,6 +334,8 @@ export default function ChatWindow() {
                   });
                 } else if (data.type === 'sql_result' && data.data) {
                   setMessageSqlResults(prev => ({ ...prev, [messageId]: data.data }));
+                  // Persist sqlResult to message store for history reload
+                  useStore.getState().updateMessage(convId!, messageId, streamedContent, { sqlResult: data.data });
                 } else if (data.type === 'clarification' && data.data) {
                   setPendingClarification(data.data);
                   streamedContent = data.data.message;
