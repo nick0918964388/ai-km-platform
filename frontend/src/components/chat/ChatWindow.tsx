@@ -802,12 +802,12 @@ export default function ChatWindow() {
                   }}>
                     {/* Thinking indicator: show current step while streaming */}
                     {msg.role === 'assistant' && messageStreamingStatus[msg.id] && (() => {
-                      const hasRunningStep = taskSteps.some(s => s.status === 'running');
-                      const showThinking = !msg.content || hasRunningStep;
-                      if (!showThinking) return null;
-                      const currentLabel = taskSteps.filter(s => s.status === 'running').map(s => s.label).pop()
-                        || (taskSteps.length > 0 ? taskSteps[taskSteps.length - 1]?.label : null)
-                        || '思考中...';
+                      // Show thinking as long as streaming is active
+                      // Display the latest step label (running first, then last done, then default)
+                      const runningStep = taskSteps.filter(s => s.status === 'running').pop();
+                      const lastStep = taskSteps[taskSteps.length - 1];
+                      const currentLabel = runningStep?.label || lastStep?.label || '思考中...';
+                      // Always show during streaming (even if content has started)
                       return (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem', marginBottom: msg.content ? '0.5rem' : 0 }}>
                           <div className="typing-indicator" style={{ display: 'inline-flex' }}>
