@@ -16,8 +16,8 @@ class Settings(BaseSettings):
 
     # Ollama Chat
     ollama_chat_url: str = "http://192.168.1.161:11434/v1"
-    ollama_chat_model: str = "qwen3-vl:32b"
-    ollama_light_model: str = "qwen3.5:9b"
+    ollama_chat_model: str = "minimax-m2.7:cloud"
+    ollama_light_model: str = "minimax-m2.7:cloud"
 
     # Embedding models
     text_embedding_model: str = "all-MiniLM-L6-v2"
