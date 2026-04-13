@@ -13,7 +13,7 @@ import { useStore } from '@/store/useStore';
 import SqlResultCard from '@/components/maximo/SqlResultCard';
 import { Message, SearchResult } from '@/types';
 import SourcePreview from './SourcePreview';
-import { getApiHeaders, API_URL, TIMEOUTS, fetchWithTimeout, TimeoutError, getErrorMessage } from '@/lib/api';
+import { getApiHeaders, API_URL, STREAM_API_URL, TIMEOUTS, fetchWithTimeout, TimeoutError, getErrorMessage } from '@/lib/api';
 import TaskProgress, { Step } from './TaskProgress';
 import ChatInput from './ChatInput';
 
@@ -256,7 +256,7 @@ export default function ChatWindow() {
     };
 
     try {
-      const response = await fetchWithTimeout(`${API_URL}/api/chat/stream`, {
+      const response = await fetchWithTimeout(`${STREAM_API_URL}/api/chat/stream`, {
         method: 'POST',
         headers: getApiHeaders(),
         body: JSON.stringify({

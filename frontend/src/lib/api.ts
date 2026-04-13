@@ -9,6 +9,11 @@ const API_URL = typeof window !== 'undefined'
   : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
 
+// Direct backend URL for SSE streaming (bypass Next.js rewrite proxy which buffers SSE)
+const STREAM_API_URL = typeof window !== 'undefined'
+  ? (process.env.NEXT_PUBLIC_API_URL || `${window.location.protocol}//${window.location.hostname}:8000`)
+  : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
+
 /**
  * Timeout configuration for different types of requests
  */
@@ -373,4 +378,4 @@ export function getApiHeaders(): HeadersInit {
   return headers;
 }
 
-export { API_URL, API_KEY };
+export { API_URL, API_KEY, STREAM_API_URL };
