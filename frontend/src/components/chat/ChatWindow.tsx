@@ -1291,13 +1291,25 @@ export default function ChatWindow() {
                                   <strong>回應時長：</strong>{(messageMetadata[msg.id].duration_ms / 1000).toFixed(2)} 秒
                                 </div>
                                 {messageMetadata[msg.id].tokens && (
-                                  <div>
+                                  <div style={{ marginBottom: '0.25rem' }}>
                                     <strong>Token 使用量：</strong>
                                     {messageMetadata[msg.id].tokens?.total_tokens}
                                     <span style={{ marginLeft: '0.5rem', opacity: 0.7 }}>
                                       (輸入: {messageMetadata[msg.id].tokens?.prompt_tokens},
                                       輸出: {messageMetadata[msg.id].tokens?.completion_tokens})
                                     </span>
+                                  </div>
+                                )}
+                                {messageMetadata[msg.id].request_id && (
+                                  <div style={{ marginBottom: '0.25rem' }}>
+                                    <strong>Request ID：</strong>
+                                    <span style={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>{messageMetadata[msg.id].request_id}</span>
+                                  </div>
+                                )}
+                                {msg.jobId && (
+                                  <div>
+                                    <strong>Job ID：</strong>
+                                    <span style={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>{msg.jobId}</span>
                                   </div>
                                 )}
                               </>
