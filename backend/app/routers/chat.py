@@ -7,7 +7,7 @@ import urllib.request
 import urllib.error
 from typing import Optional
 from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -70,6 +70,55 @@ def _generate_sql_follow_ups(query: str, result: dict) -> list:
     if "資產" in query or "asset" in query.lower():
         suggestions.append("這些車輛的最近工單？")
     return suggestions[:3]
+
+
+# --- Async Chat Job endpoints ---
+
+@router.post("/chat/jobs")
+async def submit_chat_job(request: ChatRequest):
+    """Submit a chat query as an async background job. Returns job_id immediately."""
+    from app.services import chat_job_manager as jm
+    from app.services.chat_job_runner import run_chat_job
+    job_id = jm.create_job(request.query)
+    asyncio.create_task(run_chat_job(job_id, request.model_dump()))
+    return {"job_id": job_id, "status": "pending"}
+
+
+@router.get("/chat/jobs/{job_id}")
+async def get_chat_job(job_id: str, after: int = 0):
+    """Poll a chat job's status and events. Use ?after=N for incremental polling."""
+    from app.services import chat_job_manager as jm
+    status = jm.get_status(job_id)
+    if not status:
+        return JSONResponse({"error": "Job not found"}, status_code=404)
+    if after > 0:
+        status["events"] = jm.get_events(job_id, after)
+    return status
+
+
+@router.get("/chat/jobs/{job_id}/stream")
+async def stream_chat_job(job_id: str):
+    """Stream a chat job's events as SSE. Polls Redis every 300ms."""
+    from app.services import chat_job_manager as jm
+
+    async def event_stream():
+        cursor = 0
+        while True:
+            status = jm.get_status(job_id)
+            if not status:
+                yield f"data: {json.dumps({'type': 'error', 'data': 'Job not found'})}\n\n"
+                break
+            events = jm.get_events(job_id, cursor)
+            for event in events:
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                cursor += 1
+            if status.get("status") in ("done", "error"):
+                break
+            await asyncio.sleep(0.3)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no",
+    })
 
 
 @router.post("/chat/stream")
