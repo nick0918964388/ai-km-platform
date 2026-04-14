@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     # Ollama Chat / OpenAI-compatible LLM endpoint
     ollama_chat_url: str = "http://ollama.webtw.xyz:11434/v1"
     ollama_chat_api_key: str = "ollama"
-    ollama_chat_model: str = "gemma4:31b-cloud"
-    ollama_light_model: str = "gemma4:31b-cloud"
+    ollama_chat_model: str = "qwen3.5:397b-cloud"
+    ollama_light_model: str = "qwen3.5:397b-cloud"
 
     # Fast local LLM for intent classification (low latency, smaller model)
     intent_llm_url: str = "http://ollama.webtw.xyz:11434/v1"
