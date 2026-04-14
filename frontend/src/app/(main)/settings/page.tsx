@@ -171,14 +171,28 @@ export default function SettingsPage() {
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const cardStyle: React.CSSProperties = {
+    background: 'var(--bg-secondary, #fff)',
+    borderRadius: 'var(--radius-lg, 12px)',
+    border: '1px solid var(--border)',
+    padding: '1.25rem',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+  };
+  const cardTitle: React.CSSProperties = {
+    fontSize: '1rem', fontWeight: 600, margin: '0 0 1rem', color: 'var(--text-primary)',
+  };
+
   return (
-    <div style={{ padding: '1.5rem 2rem', maxWidth: 720 }}>
+    <div style={{ padding: '1.5rem 2rem' }}>
       <h1 style={{ fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>系統設定</h1>
       <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', margin: '0.25rem 0 1.5rem' }}>管理系統參數、AI 模型與使用者設定</p>
 
-      {/* General Settings */}
-      <div style={{ marginBottom: '1rem' }}>
-        <h2 style={{ fontSize: '1.125rem', fontWeight: 600, margin: '1.5rem 0 0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>一般設定</h2>
+      {/* 2-column grid for small settings cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+
+      {/* General Settings Card */}
+      <div style={cardStyle}>
+        <h2 style={cardTitle}>一般設定</h2>
 
         <div className="form-group">
           <label className="form-label">系統名稱</label>
@@ -218,9 +232,9 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* AI Settings */}
-      <div style={{ marginBottom: '1rem' }}>
-        <h2 style={{ fontSize: '1.125rem', fontWeight: 600, margin: '1.5rem 0 0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>AI 設定</h2>
+      {/* AI Settings Card */}
+      <div style={cardStyle}>
+        <h2 style={cardTitle}>AI 設定</h2>
 
         <div className="form-group">
           <label className="form-label">AI 模型</label>
@@ -252,10 +266,10 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* User Settings (Admin only) */}
+      {/* User Settings Card (Admin only) */}
       {user?.role === 'admin' && (
-        <div style={{ marginBottom: '1rem' }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 600, margin: '1.5rem 0 0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>使用者設定</h2>
+        <div style={cardStyle}>
+          <h2 style={cardTitle}>使用者設定</h2>
 
           <div className="form-group">
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
@@ -284,10 +298,23 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Column Label Management (Admin only) */}
+      </div>{/* end grid */}
+
+      {/* Save button */}
+      <div style={{ margin: '1rem 0' }}>
+        <button onClick={handleSave} style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.625rem 1.25rem', background: 'var(--primary)', color: 'white',
+          border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontWeight: 600,
+        }}>
+          <Save size={16} /> {saved ? '已儲存 ✓' : '儲存設定'}
+        </button>
+      </div>
+
+      {/* Column Label Management (Admin only) - Full width card */}
       {user?.role === 'admin' && (
-        <div style={{ marginBottom: '1rem' }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 600, margin: '1.5rem 0 0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>欄位名稱映射</h2>
+        <div style={{ ...cardStyle, marginBottom: '1rem' }}>
+          <h2 style={cardTitle}>欄位名稱映射</h2>
           <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
             管理 SQL 查詢結果的欄位中文顯示名稱
           </p>
@@ -384,10 +411,10 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Table Column Configuration (Admin only) */}
+      {/* Table Column Configuration (Admin only) - Full width card */}
       {user?.role === 'admin' && (
-        <div style={{ marginBottom: '1rem' }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 600, margin: '1.5rem 0 0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>表格欄位設定</h2>
+        <div style={{ ...cardStyle, marginBottom: '1rem' }}>
+          <h2 style={cardTitle}>表格欄位設定</h2>
           <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
             設定每張資料表的預設顯示欄位與順序
           </p>
@@ -529,17 +556,8 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Save Button */}
-      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button className="btn btn-primary" onClick={handleSave}>
-          <Save size={16} />
-          儲存設定
-        </button>
-        {saved && (
-          <span style={{ color: '#198038', fontSize: '0.875rem' }}>
-            ✓ 設定已儲存
-          </span>
-        )}
+      {/* Save Button (duplicate removed — primary save is above the cards) */}
+      <div style={{ display: 'none' }}>
       </div>
     </div>
   );
