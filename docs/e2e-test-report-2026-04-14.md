@@ -96,7 +96,58 @@
 
 ---
 
+## Test 6: Multi-turn Follow-up SQL Query
+
+### Steps
+1. New conversation → type "EMU共有多少種車型？" → send
+2. Wait for result (should return count = 7)
+3. Type "列出這些車型" → send
+4. Wait for result
+
+### Expected
+- First query: COUNT with WHERE vehicle_class = 'EMU'
+- Follow-up: SELECT DISTINCT vehicle_type with WHERE vehicle_class = 'EMU' (延續)
+
+### Result: ⚠️ PARTIAL PASS
+- First query: ✅ 7 種 (WHERE vehicle_class = 'EMU' AND status = 'OPERATING')
+- Follow-up: ⚠️ 50 筆 — 延續了 OPERATING 但漏掉 EMU 條件
+- Model (gemma4:31b-cloud) partially understood follow-up context
+
+### Notes
+- Context injection working (前次 SQL visible in prompt)
+- Model capability limitation — larger model would perform better
+
+---
+
+## Test 7: Settings - Column Label + Table Column Config
+
+### Steps
+1. Navigate to /settings
+2. Scroll to "欄位名稱映射" section
+3. Add: column_name=wojp3, label=工單編號
+4. Scroll to "表格欄位設定" section
+5. Select maximo_mxwo, add columns, save
+
+### Result: ✅ PASS (visual verification)
+
+---
+
+## Test 8: Details show Job ID + Request ID
+
+### Steps
+1. Send any query in chat
+2. Expand "詳細資訊" section
+
+### Expected
+- Request ID displayed (monospace)
+- Job ID displayed (monospace)
+
+### Result: ✅ PASS
+
+---
+
 ## Known Issues
 - Intent classifier (llama3.2:3b) often triggers clarification for clear queries
 - gemma4:31b-cloud occasionally generates wrong column names
+- gemma4:31b-cloud partial follow-up: retains some but not all WHERE conditions
 - <think> tags sometimes leak into older conversations (pre-fix)
