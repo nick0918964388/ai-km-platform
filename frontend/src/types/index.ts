@@ -25,6 +25,7 @@ export interface Message {
   query?: string; // Store original query for highlighting
   sqlResult?: any; // NL→SQL structured result (persisted for history reload)
   clarification?: ClarificationData; // Agentic RAG clarification options
+  jobId?: string; // For async job recovery
 }
 
 export interface Attachment {

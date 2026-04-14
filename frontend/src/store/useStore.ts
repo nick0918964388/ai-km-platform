@@ -132,7 +132,7 @@ interface AppState {
   deleteConversation: (conversationId: string) => void;
   updateConversationTitle: (conversationId: string, title: string) => void;
   addMessage: (conversationId: string, message: Message) => void;
-  updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string; sqlResult?: any; clarification?: any }) => void;
+  updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string; sqlResult?: any; clarification?: any; jobId?: string }) => void;
   loadUserData: () => void;
 
   // UI
@@ -291,7 +291,7 @@ export const useStore = create<AppState>((set, get) => ({
       return { conversations: newConversations };
     }),
 
-  updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string; sqlResult?: any; clarification?: any }) =>
+  updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string; sqlResult?: any; clarification?: any; jobId?: string }) =>
     set((state) => {
       const newConversations = state.conversations.map((conv) =>
         conv.id === conversationId
@@ -306,6 +306,7 @@ export const useStore = create<AppState>((set, get) => ({
                       ...(extra?.query !== undefined && { query: extra.query }),
                       ...(extra?.sqlResult !== undefined && { sqlResult: extra.sqlResult }),
                       ...(extra?.clarification !== undefined && { clarification: extra.clarification }),
+                      ...(extra?.jobId !== undefined && { jobId: extra.jobId }),
                     }
                   : msg
               ),
