@@ -162,112 +162,97 @@ export default function ProfileForm() {
     return null;
   }
 
+  const cardStyle: React.CSSProperties = {
+    background: 'var(--bg-secondary, #fff)',
+    borderRadius: 'var(--radius-lg, 12px)',
+    border: '1px solid var(--border)',
+    padding: '1.25rem',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+  };
+  const cardTitle: React.CSSProperties = {
+    fontSize: '1rem', fontWeight: 600, margin: '0 0 1rem', color: 'var(--text-primary)',
+  };
+
   return (
-    <div className="max-w-2xl">
-      <Form onSubmit={handleSubmit}>
-        <Stack gap={6}>
-          {/* Success notification */}
-          {successMessage && (
-            <InlineNotification
-              kind="success"
-              title="Success"
-              subtitle={successMessage}
-              onCloseButtonClick={() => setSuccessMessage(null)}
-            />
-          )}
+    <Form onSubmit={handleSubmit}>
+      {/* Notifications */}
+      {successMessage && (
+        <div style={{ marginBottom: '1rem' }}>
+          <InlineNotification kind="success" title="Success" subtitle={successMessage} onCloseButtonClick={() => setSuccessMessage(null)} />
+        </div>
+      )}
+      {validationError && (
+        <div style={{ marginBottom: '1rem' }}>
+          <InlineNotification kind="error" title="Validation Error" subtitle={validationError} hideCloseButton />
+        </div>
+      )}
 
-          {/* Error notification */}
-          {validationError && (
-            <InlineNotification
-              kind="error"
-              title="Validation Error"
-              subtitle={validationError}
-              hideCloseButton
-            />
-          )}
+      {/* Card grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
 
-          {/* Avatar Uploader */}
-          <div className="mb-6">
-            <AvatarUploader />
-          </div>
+        {/* Avatar Card */}
+        <div style={{ ...cardStyle, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <h3 style={cardTitle}>頭像</h3>
+          <AvatarUploader />
+        </div>
 
-          <FormGroup legendText="">
-            {/* Display Name - Editable */}
+        {/* Personal Info Card */}
+        <div style={cardStyle}>
+          <h3 style={cardTitle}>個人資訊</h3>
+          <div style={{ marginBottom: '1rem' }}>
             <TextInput
               id="display-name"
-              labelText="Display Name"
-              placeholder="Enter your display name"
+              labelText="顯示名稱"
+              placeholder="輸入顯示名稱"
               value={displayName}
               onChange={handleDisplayNameChange}
               invalid={!!validationError}
               invalidText={validationError || ''}
               disabled={isSaving}
-              helperText="2-50 characters"
+              helperText="2-50 字元"
             />
-
-            {/* Email - Read-only */}
-            <div className="mt-4">
-              <TextInput
-                id="email"
-                labelText="Email"
-                value={profile.email}
-                readOnly
-                disabled
-                helperText="Email cannot be changed"
-              />
-            </div>
-
-            {/* Account Level - Read-only */}
-            <div className="mt-4">
-              <TextInput
-                id="account-level"
-                labelText="Account Level"
-                value={
-                  profile.account_level === 'free'
-                    ? 'Free'
-                    : profile.account_level === 'pro'
-                    ? 'Pro'
-                    : 'Enterprise'
-                }
-                readOnly
-                disabled
-                helperText="Contact support to upgrade your account"
-              />
-            </div>
-
-            {/* Created At - Read-only */}
-            <div className="mt-4">
-              <TextInput
-                id="created-at"
-                labelText="Account Created"
-                value={profile.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                }) : ''}
-                readOnly
-                disabled
-              />
-            </div>
-          </FormGroup>
-
-          {/* Save Button */}
-          <div className="flex items-center gap-4 mt-6">
-            <Button
-              type="submit"
-              kind="primary"
-              renderIcon={Save}
-              disabled={!isFormValid || !hasChanges || isSaving}
-            >
-              {isSaving ? 'Saving...' : 'Save Changes'}
-            </Button>
-
-            {hasChanges && !isSaving && (
-              <span className="text-sm text-gray-500">You have unsaved changes</span>
-            )}
           </div>
-        </Stack>
-      </Form>
-    </div>
+          <TextInput
+            id="email"
+            labelText="電子郵件"
+            value={profile.email}
+            readOnly
+            disabled
+            helperText="電子郵件無法修改"
+          />
+        </div>
+
+        {/* Account Info Card */}
+        <div style={cardStyle}>
+          <h3 style={cardTitle}>帳戶資訊</h3>
+          <div style={{ marginBottom: '1rem' }}>
+            <TextInput
+              id="account-level"
+              labelText="帳戶等級"
+              value={profile.account_level === 'free' ? '免費版' : profile.account_level === 'pro' ? '專業版' : '企業版'}
+              readOnly
+              disabled
+            />
+          </div>
+          <TextInput
+            id="created-at"
+            labelText="建立時間"
+            value={profile.created_at ? new Date(profile.created_at).toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric' }) : ''}
+            readOnly
+            disabled
+          />
+        </div>
+      </div>
+
+      {/* Save Button */}
+      <div style={{ marginTop: '1rem' }}>
+        <Button type="submit" kind="primary" renderIcon={Save} disabled={!isFormValid || !hasChanges || isSaving}>
+          {isSaving ? '儲存中...' : '儲存變更'}
+        </Button>
+        {hasChanges && !isSaving && (
+          <span style={{ marginLeft: '1rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>有未儲存的變更</span>
+        )}
+      </div>
+    </Form>
   );
 }
