@@ -20,6 +20,7 @@ from app.models.schemas import (
 from app.services import rag
 from app.services.intent_classifier import get_intent_classifier, QueryIntent
 from app.services.intent_router import detect_intent, detect_ambiguity
+from app.services.context_manager import build_optimized_context
 from app.config import get_settings
 from app.db.session import get_db_context
 
@@ -338,10 +339,13 @@ async def chat_stream(request: ChatRequest):
                         return
 
             # === RAG Path (intent == "rag" or hybrid fallthrough) ===
+            # Build optimized context (dynamic token budget, replaces hardcoded 3-turn limit)
+            optimized_context = build_optimized_context(request.context)
+
             search_query = query
-            if request.context and len(request.context) > 0:
+            if optimized_context:
                 conv_parts = []
-                for m in request.context[-3:]:
+                for m in optimized_context[-3:]:
                     role = "用戶" if m.get("role") == "user" else "AI"
                     content = m.get("content", "")[:100]
                     conv_parts.append(f"{role}：{content}")
@@ -430,9 +434,9 @@ async def chat_stream(request: ChatRequest):
             full_answer = ""
 
             llm_query = query
-            if request.context and len(request.context) > 0:
+            if optimized_context:
                 conv_lines = []
-                for m in request.context[-3:]:
+                for m in optimized_context:
                     role = "用戶" if m.get("role") == "user" else "AI"
                     conv_lines.append(f"{role}：{m.get('content', '')[:150]}")
                 llm_query = "以下是之前的對話：\n" + "\n".join(conv_lines) + f"\n\n請根據以上對話脈絡回答：{query}"

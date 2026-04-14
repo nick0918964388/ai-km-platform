@@ -245,7 +245,7 @@ export default function ChatWindow() {
       const conv = conversations.find(c => c.id === convId);
       if (!conv?.messages) return [];
       // Exclude the message we just added (current user query) to avoid duplication
-      const prevMsgs = conv.messages.slice(0, -1).slice(-6);
+      const prevMsgs = conv.messages.slice(0, -1).slice(-20);
       return prevMsgs.map(m => ({
         role: m.role,
         content: (m.content || '').substring(0, 200),
