@@ -751,12 +751,14 @@ SQL：{sql}
             user_email = (user_context or {}).get("email", "")
             tables = re.findall(r'\b(?:from|join)\s+(\w+)', (sql or "").lower())
             await self.db.execute(text("""
-                INSERT INTO query_audit_log (user_id, user_email, question, sql_generated, tables_accessed, row_count, mode)
-                VALUES (:uid, :email, :q, :sql, :tables, :rows, :mode)
+                INSERT INTO query_audit_log (user_id, user_email, question, sql_generated, tables_accessed, row_count, execution_ms, mode)
+                VALUES (:uid, :email, :q, :sql, :tables, :rows, :exec_ms, :mode)
             """), {
                 "uid": user_id, "email": user_email, "q": question,
                 "sql": sql, "tables": list(set(tables)),
-                "rows": result.get("row_count", 0), "mode": "nl2sql",
+                "rows": result.get("row_count", 0),
+                "exec_ms": result.get("execution_ms"),
+                "mode": "nl2sql",
             })
             await self.db.commit()
         except Exception as e:
