@@ -19,7 +19,7 @@ export default function ProfileForm() {
 
   const [displayName, setDisplayName] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Load profile on mount only once
@@ -35,13 +35,13 @@ export default function ProfileForm() {
     }
   }, [profile]);
 
-  // Clear success message after 5 seconds
+  // Clear saved state after 2 seconds
   useEffect(() => {
-    if (successMessage) {
-      const timer = setTimeout(() => setSuccessMessage(null), 5000);
+    if (saved) {
+      const timer = setTimeout(() => setSaved(false), 2000);
       return () => clearTimeout(timer);
     }
-  }, [successMessage]);
+  }, [saved]);
 
   /**
    * Validate display name
@@ -77,7 +77,7 @@ export default function ProfileForm() {
     const value = e.target.value;
     setDisplayName(value);
     setValidationError(validateDisplayName(value));
-    setSuccessMessage(null);
+    setSaved(false);
   };
 
   /**
@@ -95,18 +95,18 @@ export default function ProfileForm() {
 
     // Check if name actually changed
     if (profile && displayName === profile.display_name) {
-      setSuccessMessage('No changes to save');
+      setSaved(true);
       return;
     }
 
     setIsSaving(true);
     setValidationError(null);
-    setSuccessMessage(null);
+    setSaved(false);
 
     try {
       // Optimistic update happens inside the hook
       await updateDisplayName(displayName);
-      setSuccessMessage('Profile updated successfully!');
+      setSaved(true);
     } catch (error) {
       const errorMsg =
         error instanceof Error ? error.message : 'Failed to update profile';
@@ -171,11 +171,6 @@ export default function ProfileForm() {
   return (
     <form onSubmit={handleSubmit}>
       {/* Notifications */}
-      {successMessage && (
-        <div style={{ marginBottom: '1rem' }}>
-          <InlineNotification kind="success" title="Success" subtitle={successMessage} onCloseButtonClick={() => setSuccessMessage(null)} />
-        </div>
-      )}
       {validationError && (
         <div style={{ marginBottom: '1rem' }}>
           <InlineNotification kind="error" title="Validation Error" subtitle={validationError} hideCloseButton />
@@ -257,7 +252,7 @@ export default function ProfileForm() {
           border: 'none', borderRadius: 'var(--radius-md)', cursor: (!isFormValid || !hasChanges || isSaving) ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '0.9375rem',
           opacity: (!isFormValid || !hasChanges || isSaving) ? 0.5 : 1,
         }}>
-          <Save size={18} /> {isSaving ? '儲存中...' : '儲存變更'}
+          <Save size={18} /> {isSaving ? '儲存中...' : saved ? '已儲存 ✓' : '儲存變更'}
         </button>
       </div>
     </form>

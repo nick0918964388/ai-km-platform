@@ -158,6 +158,9 @@ export default function AuditPage() {
             if (traceRes.ok) {
               const traceData = await traceRes.json();
               setTraces(prev => ({ ...prev, [key]: traceData }));
+              if (traceData.length > 0) {
+                setTraceOpen(prev => ({ ...prev, [key]: true }));
+              }
             }
           }
         }
@@ -336,6 +339,14 @@ export default function AuditPage() {
                                     <SqlDetail detail={det} />
                                   ) : (
                                     <RagDetail detail={det} />
+                                  )}
+                                  {/* Total duration from traces */}
+                                  {traces[key]?.length > 0 && !det.execution_ms && (
+                                    <div style={{ marginBottom: '0.5rem' }}>
+                                      <strong>總耗時：</strong>
+                                      {(traces[key].reduce((sum, t) => sum + (t.duration_ms || 0), 0) / 1000).toFixed(1)}s
+                                      （{traces[key].length} 步驟）
+                                    </div>
                                   )}
                                   {/* System Call Chain */}
                                   {traces[key]?.length > 0 && (
