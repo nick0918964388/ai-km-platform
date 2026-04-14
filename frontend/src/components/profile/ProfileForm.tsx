@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Button,
   InlineNotification,
 } from '@carbon/react';
 import { Save } from '@carbon/icons-react';
@@ -250,14 +249,16 @@ export default function ProfileForm() {
         </div>
       </div>
 
-      {/* Save Button */}
-      <div style={{ marginTop: '1rem' }}>
-        <Button type="submit" kind="primary" renderIcon={Save} disabled={!isFormValid || !hasChanges || isSaving}>
-          {isSaving ? '儲存中...' : '儲存變更'}
-        </Button>
-        {hasChanges && !isSaving && (
-          <span style={{ marginLeft: '1rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>有未儲存的變更</span>
-        )}
+      {/* Save Button — 與系統設定頁一致 */}
+      <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+        <button type="submit" disabled={!isFormValid || !hasChanges || isSaving} style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.75rem 1.5rem', background: (!isFormValid || !hasChanges || isSaving) ? 'var(--text-muted)' : 'var(--primary)', color: 'white',
+          border: 'none', borderRadius: 'var(--radius-md)', cursor: (!isFormValid || !hasChanges || isSaving) ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '0.9375rem',
+          opacity: (!isFormValid || !hasChanges || isSaving) ? 0.5 : 1,
+        }}>
+          <Save size={18} /> {isSaving ? '儲存中...' : '儲存變更'}
+        </button>
       </div>
     </form>
   );
