@@ -2,14 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import {
-  TextInput,
   Button,
   InlineNotification,
-  Form,
-  FormGroup,
-  Stack,
 } from '@carbon/react';
-import { UserAvatar, Save } from '@carbon/icons-react';
+import { Save } from '@carbon/icons-react';
 import { useProfile } from '@/hooks/useProfile';
 import AvatarUploader from './AvatarUploader';
 
@@ -174,7 +170,7 @@ export default function ProfileForm() {
   };
 
   return (
-    <Form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit}>
       {/* Notifications */}
       {successMessage && (
         <div style={{ marginBottom: '1rem' }}>
@@ -199,48 +195,58 @@ export default function ProfileForm() {
         {/* Personal Info Card */}
         <div style={cardStyle}>
           <h3 style={cardTitle}>個人資訊</h3>
-          <div style={{ marginBottom: '1rem' }}>
-            <TextInput
-              id="display-name"
-              labelText="顯示名稱"
+          <div className="form-group" style={{ marginBottom: '1rem' }}>
+            <label className="form-label">顯示名稱</label>
+            <input
+              type="text"
+              className="form-input"
+              style={{ width: '100%' }}
               placeholder="輸入顯示名稱"
               value={displayName}
               onChange={handleDisplayNameChange}
-              invalid={!!validationError}
-              invalidText={validationError || ''}
               disabled={isSaving}
-              helperText="2-50 字元"
             />
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>2-50 字元</span>
           </div>
-          <TextInput
-            id="email"
-            labelText="電子郵件"
-            value={profile.email}
-            readOnly
-            disabled
-            helperText="電子郵件無法修改"
-          />
+          <div className="form-group">
+            <label className="form-label">電子郵件</label>
+            <input
+              type="text"
+              className="form-input"
+              style={{ width: '100%', opacity: 0.6 }}
+              value={profile.email}
+              readOnly
+              disabled
+            />
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>電子郵件無法修改</span>
+          </div>
         </div>
 
         {/* Account Info Card */}
         <div style={cardStyle}>
           <h3 style={cardTitle}>帳戶資訊</h3>
-          <div style={{ marginBottom: '1rem' }}>
-            <TextInput
-              id="account-level"
-              labelText="帳戶等級"
+          <div className="form-group" style={{ marginBottom: '1rem' }}>
+            <label className="form-label">帳戶等級</label>
+            <input
+              type="text"
+              className="form-input"
+              style={{ width: '100%', opacity: 0.6 }}
               value={profile.account_level === 'free' ? '免費版' : profile.account_level === 'pro' ? '專業版' : '企業版'}
               readOnly
               disabled
             />
           </div>
-          <TextInput
-            id="created-at"
-            labelText="建立時間"
-            value={profile.created_at ? new Date(profile.created_at).toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric' }) : ''}
-            readOnly
-            disabled
-          />
+          <div className="form-group">
+            <label className="form-label">建立時間</label>
+            <input
+              type="text"
+              className="form-input"
+              style={{ width: '100%', opacity: 0.6 }}
+              value={profile.created_at ? new Date(profile.created_at).toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric' }) : ''}
+              readOnly
+              disabled
+            />
+          </div>
         </div>
       </div>
 
@@ -253,6 +259,6 @@ export default function ProfileForm() {
           <span style={{ marginLeft: '1rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>有未儲存的變更</span>
         )}
       </div>
-    </Form>
+    </form>
   );
 }

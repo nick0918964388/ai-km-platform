@@ -5,6 +5,7 @@ from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
 from app.db.session import get_db
 from app.models.profile import UserProfile, ProfileUpdateRequest, AvatarUploadResponse
@@ -36,9 +37,35 @@ async def get_profile(
         profile = await get_user_profile(db, user["id"])
 
         if not profile:
-            raise HTTPException(
-                status_code=404,
-                detail=f"User profile not found for user_id: {user['id']}"
+            # Auto-create profile from auth user data (handles edge cases
+            # where ORM query fails but user exists in the users table)
+            user_id = user["id"]
+            if user_id == "guest":
+                raise HTTPException(status_code=401, detail="請先登入")
+
+            logger.info(f"Profile not found via ORM for user {user_id}, attempting direct query")
+            result = await db.execute(text(
+                "SELECT id, email, display_name, avatar_url, account_level, created_at, updated_at "
+                "FROM users WHERE id = :id"
+            ), {"id": user_id})
+            auth_user = result.fetchone()
+
+            if not auth_user:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"User profile not found for user_id: {user_id}"
+                )
+
+            # Build profile response directly from raw query
+            from datetime import datetime
+            return UserProfile(
+                id=auth_user.id,
+                email=auth_user.email,
+                display_name=auth_user.display_name or auth_user.email.split("@")[0],
+                avatar_url=auth_user.avatar_url,
+                account_level=auth_user.account_level or "free",
+                created_at=auth_user.created_at or datetime.utcnow(),
+                updated_at=auth_user.updated_at or datetime.utcnow(),
             )
 
         return profile
