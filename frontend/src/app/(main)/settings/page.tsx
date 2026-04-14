@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
-import { Save, Add, Edit as EditIcon, TrashCan } from '@carbon/icons-react';
+import { Save, Add, Edit as EditIcon, TrashCan, ChevronUp, ChevronDown, Close } from '@carbon/icons-react';
 import { STREAM_API_URL, getApiHeaders } from '@/lib/api';
 
 interface ColumnLabel {
@@ -22,6 +22,94 @@ export default function SettingsPage() {
   const [editingCol, setEditingCol] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState('');
   const [labelsLoading, setLabelsLoading] = useState(false);
+
+  // Table column configuration state
+  const [selectedTable, setSelectedTable] = useState('');
+  const [availableCols, setAvailableCols] = useState<{column_name: string; data_type: string}[]>([]);
+  const [selectedCols, setSelectedCols] = useState<{column_name: string; display_order: number}[]>([]);
+  const [tableConfigs, setTableConfigs] = useState<Record<string, {column_name: string; display_order: number}[]>>({});
+  const [tables] = useState(['maximo_mxwo', 'maximo_mxsr', 'maximo_mxasset', 'maximo_fault_reports', 'maximo_cm_workorders', 'maximo_pm_workorders']);
+  const [colConfigSaving, setColConfigSaving] = useState(false);
+  const [colConfigSaved, setColConfigSaved] = useState(false);
+
+  const fetchTableConfigs = useCallback(async () => {
+    try {
+      const res = await fetch(`${STREAM_API_URL}/api/admin/table-columns`, { headers: getApiHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        const configs: Record<string, {column_name: string; display_order: number}[]> = {};
+        for (const item of data) {
+          if (!configs[item.table_name]) configs[item.table_name] = [];
+          configs[item.table_name].push({ column_name: item.column_name, display_order: item.display_order });
+        }
+        for (const key of Object.keys(configs)) {
+          configs[key].sort((a, b) => a.display_order - b.display_order);
+        }
+        setTableConfigs(configs);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  const fetchAvailableCols = useCallback(async (table: string) => {
+    try {
+      const res = await fetch(`${STREAM_API_URL}/api/admin/table-columns/${table}/available`, { headers: getApiHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableCols(data);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (user?.role === 'admin') fetchTableConfigs();
+  }, [user?.role, fetchTableConfigs]);
+
+  useEffect(() => {
+    if (selectedTable) {
+      fetchAvailableCols(selectedTable);
+      setSelectedCols(tableConfigs[selectedTable] || []);
+    }
+  }, [selectedTable, tableConfigs, fetchAvailableCols]);
+
+  const addColToSelected = (colName: string) => {
+    if (selectedCols.some(c => c.column_name === colName)) return;
+    setSelectedCols(prev => [...prev, { column_name: colName, display_order: prev.length + 1 }]);
+  };
+
+  const removeColFromSelected = (colName: string) => {
+    setSelectedCols(prev => prev.filter(c => c.column_name !== colName).map((c, i) => ({ ...c, display_order: i + 1 })));
+  };
+
+  const moveCol = (index: number, direction: 'up' | 'down') => {
+    setSelectedCols(prev => {
+      const arr = [...prev];
+      const swapIdx = direction === 'up' ? index - 1 : index + 1;
+      if (swapIdx < 0 || swapIdx >= arr.length) return prev;
+      [arr[index], arr[swapIdx]] = [arr[swapIdx], arr[index]];
+      return arr.map((c, i) => ({ ...c, display_order: i + 1 }));
+    });
+  };
+
+  const saveTableColumns = async () => {
+    if (!selectedTable) return;
+    setColConfigSaving(true);
+    try {
+      await fetch(`${STREAM_API_URL}/api/admin/table-columns`, {
+        method: 'POST',
+        headers: { ...getApiHeaders() as Record<string, string>, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table_name: selectedTable, columns: selectedCols }),
+      });
+      setTableConfigs(prev => ({ ...prev, [selectedTable]: [...selectedCols] }));
+      setColConfigSaved(true);
+      setTimeout(() => setColConfigSaved(false), 2000);
+    } catch { /* ignore */ }
+    setColConfigSaving(false);
+  };
+
+  const getColLabel = (colName: string) => {
+    const found = labels.find(l => l.column_name === colName);
+    return found ? found.label : '';
+  };
 
   const fetchLabels = useCallback(async () => {
     setLabelsLoading(true);
@@ -292,6 +380,151 @@ export default function SettingsPage() {
                 ))}
               </tbody>
             </table>
+          )}
+        </div>
+      )}
+
+      {/* Table Column Configuration (Admin only) */}
+      {user?.role === 'admin' && (
+        <div style={{ marginBottom: '1rem' }}>
+          <h2 style={{ fontSize: '1.125rem', fontWeight: 600, margin: '1.5rem 0 0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>表格欄位設定</h2>
+          <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+            設定每張資料表的預設顯示欄位與順序
+          </p>
+
+          {/* Table selector */}
+          <div className="form-group">
+            <select
+              className="form-input"
+              value={selectedTable}
+              onChange={e => setSelectedTable(e.target.value)}
+              style={{ width: '100%' }}
+            >
+              <option value="">選擇資料表...</option>
+              {tables.map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+
+          {selectedTable && (
+            <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+              {/* Available columns */}
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>可用欄位</h3>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '0.5rem', maxHeight: 320, overflowY: 'auto' }}>
+                  {availableCols.length === 0 ? (
+                    <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', padding: '0.25rem' }}>載入中...</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+                      {availableCols.map(col => {
+                        const isSelected = selectedCols.some(c => c.column_name === col.column_name);
+                        const label = getColLabel(col.column_name);
+                        return (
+                          <button
+                            key={col.column_name}
+                            onClick={() => !isSelected && addColToSelected(col.column_name)}
+                            disabled={isSelected}
+                            style={{
+                              padding: '0.25rem 0.5rem',
+                              fontSize: '0.8125rem',
+                              fontFamily: 'monospace',
+                              border: '1px solid var(--border)',
+                              borderRadius: 4,
+                              background: isSelected ? 'var(--bg-tertiary, #f4f4f4)' : 'var(--bg-secondary, #fff)',
+                              color: isSelected ? 'var(--text-muted)' : 'var(--text-primary)',
+                              cursor: isSelected ? 'default' : 'pointer',
+                              opacity: isSelected ? 0.5 : 1,
+                              textDecoration: 'none',
+                            }}
+                            title={label ? `${col.column_name} (${label})` : col.column_name}
+                          >
+                            {col.column_name}
+                            {label && <span style={{ fontFamily: 'sans-serif', fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '0.25rem' }}>({label})</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Selected columns */}
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>已選欄位（排序）</h3>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '0.5rem', maxHeight: 320, overflowY: 'auto' }}>
+                  {selectedCols.length === 0 ? (
+                    <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', padding: '0.25rem' }}>點擊左側欄位加入</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                      {selectedCols.map((col, idx) => {
+                        const label = getColLabel(col.column_name);
+                        return (
+                          <div
+                            key={col.column_name}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.375rem',
+                              padding: '0.25rem 0.5rem',
+                              background: 'var(--bg-secondary, #fff)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 4,
+                              fontSize: '0.8125rem',
+                            }}
+                          >
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', minWidth: 20 }}>{idx + 1}.</span>
+                            <span style={{ flex: 1, fontFamily: 'monospace' }}>
+                              {col.column_name}
+                              {label && <span style={{ fontFamily: 'sans-serif', fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '0.25rem' }}>({label})</span>}
+                            </span>
+                            <button
+                              onClick={() => moveCol(idx, 'up')}
+                              disabled={idx === 0}
+                              style={{ background: 'none', border: 'none', cursor: idx === 0 ? 'default' : 'pointer', padding: '0.125rem', color: idx === 0 ? 'var(--text-muted)' : 'var(--text-secondary)', opacity: idx === 0 ? 0.3 : 1 }}
+                              title="上移"
+                            >
+                              <ChevronUp size={14} />
+                            </button>
+                            <button
+                              onClick={() => moveCol(idx, 'down')}
+                              disabled={idx === selectedCols.length - 1}
+                              style={{ background: 'none', border: 'none', cursor: idx === selectedCols.length - 1 ? 'default' : 'pointer', padding: '0.125rem', color: idx === selectedCols.length - 1 ? 'var(--text-muted)' : 'var(--text-secondary)', opacity: idx === selectedCols.length - 1 ? 0.3 : 1 }}
+                              title="下移"
+                            >
+                              <ChevronDown size={14} />
+                            </button>
+                            <button
+                              onClick={() => removeColFromSelected(col.column_name)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.125rem', color: '#da1e28' }}
+                              title="移除"
+                            >
+                              <Close size={14} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={saveTableColumns}
+                    disabled={colConfigSaving || selectedCols.length === 0}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.5rem 0.75rem' }}
+                  >
+                    <Save size={16} />
+                    {colConfigSaving ? '儲存中...' : '儲存此表設定'}
+                  </button>
+                  {colConfigSaved && (
+                    <span style={{ color: '#198038', fontSize: '0.875rem' }}>
+                      ✓ 已儲存
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </div>
       )}

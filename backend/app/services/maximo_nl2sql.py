@@ -409,6 +409,17 @@ class MaximoNL2SQL:
             log.warning("Failed to load examples: %s", e)
             return ""
 
+    async def _get_preferred_columns(self, table_name: str) -> list[str]:
+        """Get admin-configured preferred columns for a table."""
+        try:
+            result = await self.db.execute(text(
+                "SELECT column_name FROM table_column_config WHERE table_name = :t ORDER BY display_order"
+            ), {"t": table_name})
+            cols = [r[0] for r in result.fetchall()]
+            return cols if cols else []
+        except Exception:
+            return []
+
     async def generate_sql(self, question: str, feedback: str = None, history: list = None) -> Dict[str, Any]:
         """Generate SQL from natural language question."""
         # 優先嘗試 RAG schema（只傳相關表與欄位）
@@ -434,6 +445,14 @@ class MaximoNL2SQL:
         metadata = await self._load_field_metadata()
         examples = await self._load_examples()
 
+        # Load preferred columns hint per table
+        preferred_hints = []
+        for tbl in sorted(allowed_tables):
+            preferred_cols = await self._get_preferred_columns(tbl)
+            if preferred_cols:
+                preferred_hints.append(f"注意：{tbl} 的預設顯示欄位為：{', '.join(preferred_cols)}。請優先使用這些欄位。")
+        preferred_section = "\n".join(preferred_hints)
+
         table_list = ", ".join(sorted(allowed_tables))
         system_prompt = f"""你是台鐵車輛維修資料庫的 SQL 專家。
 將使用者的自然語言問題轉換為 PostgreSQL SELECT 語句。
@@ -443,6 +462,8 @@ class MaximoNL2SQL:
 {metadata}
 
 {examples}
+
+{preferred_section}
 
 規則：
 1. 只產生 SELECT 查詢（不允許 INSERT/UPDATE/DELETE）

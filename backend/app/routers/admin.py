@@ -209,3 +209,45 @@ async def delete_column_label(column_name: str):
             {"name": column_name},
         )
     return {"status": "ok"}
+
+
+# ── Table Column Config ───────────────────────────────────────────────
+
+@router.get("/admin/table-columns")
+async def get_table_column_configs():
+    """Get all table column configurations grouped by table."""
+    async with get_db_context() as session:
+        result = await session.execute(text(
+            "SELECT table_name, column_name, display_order FROM table_column_config ORDER BY table_name, display_order"
+        ))
+        configs = {}
+        for r in result.fetchall():
+            table = r[0]
+            if table not in configs:
+                configs[table] = []
+            configs[table].append({"column_name": r[1], "display_order": r[2]})
+        return configs
+
+
+@router.post("/admin/table-columns")
+async def save_table_column_config(data: dict):
+    """Save column config for a table. data = {table_name: str, columns: [{column_name, display_order}]}"""
+    table_name = data.get("table_name")
+    columns = data.get("columns", [])
+    async with get_db_context() as session:
+        await session.execute(text("DELETE FROM table_column_config WHERE table_name = :t"), {"t": table_name})
+        for col in columns:
+            await session.execute(text(
+                "INSERT INTO table_column_config (table_name, column_name, display_order) VALUES (:t, :c, :o)"
+            ), {"t": table_name, "c": col["column_name"], "o": col.get("display_order", 0)})
+    return {"status": "ok"}
+
+
+@router.get("/admin/table-columns/{table_name}/available")
+async def get_available_columns(table_name: str):
+    """Get all available columns for a table from information_schema."""
+    async with get_db_context() as session:
+        result = await session.execute(text(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = :t ORDER BY ordinal_position"
+        ), {"t": table_name})
+        return [{"column_name": r[0], "data_type": r[1]} for r in result.fetchall()]
