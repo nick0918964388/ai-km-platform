@@ -107,8 +107,9 @@ SYSTEM_PROMPT = f"""你是一個車輛維修知識管理系統的意圖分類器
 class IntentClassifierService:
     def __init__(self):
         settings = get_settings()
-        self.client = AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url)
-        self.model = settings.ollama_light_model
+        # Use fast local model for intent classification (low latency)
+        self.client = AsyncOpenAI(api_key="ollama", base_url=settings.intent_llm_url)
+        self.model = settings.intent_llm_model
 
     async def classify(self, query: str, context: list = None) -> IntentResult:
         user_prompt = f"/no_think\n使用者查詢: {query}"
@@ -177,7 +178,7 @@ class IntentClassifierService:
                 clarification_options=[{"label": "請重新描述您的問題", "query": query}],
             )
 
-    async def classify_with_fallback(self, query: str, context: list = None, timeout: float = 8.0) -> IntentResult:
+    async def classify_with_fallback(self, query: str, context: list = None, timeout: float = 5.0) -> IntentResult:
         try:
             return await asyncio.wait_for(self.classify(query, context), timeout=timeout)
         except (asyncio.TimeoutError, Exception) as e:

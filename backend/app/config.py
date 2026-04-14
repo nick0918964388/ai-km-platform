@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     ollama_chat_model: str = "minimaxai/minimax-m2.7"
     ollama_light_model: str = "minimaxai/minimax-m2.7"
 
+    # Fast local LLM for intent classification (low latency, smaller model)
+    intent_llm_url: str = "http://ollama.webtw.xyz:11434/v1"
+    intent_llm_model: str = "llama3.2:3b"
+
     # Embedding models
     text_embedding_model: str = "all-MiniLM-L6-v2"
     clip_model: str = "openai/clip-vit-base-patch32"
