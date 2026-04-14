@@ -1805,3 +1805,8 @@ a.btn, a.nav-item, a[role="button"] {
      it uses overflow:hidden + height:100dvh. Padding goes on .main-content instead. */
   /* .app-container padding-bottom intentionally omitted */
 }
+
+/* Hide elements on mobile screens */
+@media (max-width: 480px) {
+  .hide-on-mobile { display: none !important; }
+}

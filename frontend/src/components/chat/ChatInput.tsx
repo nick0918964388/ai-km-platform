@@ -190,6 +190,7 @@ export default function ChatInput({
             rows={1}
             style={{
               flex: 1,
+              minWidth: 0, // prevent flex item from overflowing
               border: 'none',
               background: 'transparent',
               padding: '0.375rem 0',
@@ -205,7 +206,9 @@ export default function ChatInput({
 
           {/* Right: model + voice + send/stop */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0 }}>
-            <ModelSelector selectedModel={selectedModel} onModelChange={onModelChange} />
+            <div className="hide-on-mobile" style={{ display: 'flex' }}>
+              <ModelSelector selectedModel={selectedModel} onModelChange={onModelChange} />
+            </div>
             <VoiceInputButton
               onTranscriptionReceived={(text) => {
                 setInput((prev) => prev ? `${prev} ${text}` : text);
