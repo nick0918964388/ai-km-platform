@@ -1,5 +1,8 @@
 """Admin API endpoints for RAG metrics and monitoring."""
-from fastapi import APIRouter
+from typing import Optional
+
+from fastapi import APIRouter, Query, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.db.session import get_db_context
@@ -43,3 +46,112 @@ async def get_rag_metrics():
         }
         for row in rows
     ]
+
+
+@router.get("/admin/audit-logs")
+async def get_audit_logs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    type_filter: Optional[str] = Query(None),
+):
+    """Return paginated audit logs from both SQL and RAG queries."""
+    offset = (page - 1) * page_size
+
+    sql_select = """
+        SELECT id, 'sql' as type, user_email, question as query,
+               sql_generated as detail, tables_accessed,
+               row_count, execution_ms as duration_ms, mode,
+               cached, created_at
+        FROM query_audit_log
+    """
+    rag_select = """
+        SELECT id, 'rag' as type, NULL as user_email, query,
+               search_query as detail, NULL as tables_accessed,
+               source_count as row_count, duration_ms,
+               quality as mode, rewrite_used as cached, created_at
+        FROM rag_search_log
+    """
+
+    if type_filter == "sql":
+        data_query = f"{sql_select} ORDER BY created_at DESC LIMIT :page_size OFFSET :offset"
+        count_query = "SELECT COUNT(*) FROM query_audit_log"
+    elif type_filter == "rag":
+        data_query = f"{rag_select} ORDER BY created_at DESC LIMIT :page_size OFFSET :offset"
+        count_query = "SELECT COUNT(*) FROM rag_search_log"
+    else:
+        data_query = f"""
+            SELECT * FROM (
+                {sql_select}
+                UNION ALL
+                {rag_select}
+            ) combined
+            ORDER BY created_at DESC
+            LIMIT :page_size OFFSET :offset
+        """
+        count_query = """
+            SELECT (SELECT COUNT(*) FROM query_audit_log)
+                 + (SELECT COUNT(*) FROM rag_search_log)
+        """
+
+    try:
+        async with get_db_context() as session:
+            count_result = await session.execute(text(count_query))
+            total = count_result.scalar() or 0
+
+            result = await session.execute(
+                text(data_query), {"page_size": page_size, "offset": offset}
+            )
+            rows = result.fetchall()
+            columns = result.keys()
+
+        logs = []
+        for row in rows:
+            row_dict = dict(zip(columns, row))
+            row_dict["created_at"] = str(row_dict["created_at"]) if row_dict["created_at"] else None
+            if row_dict.get("tables_accessed") and isinstance(row_dict["tables_accessed"], list):
+                row_dict["tables_accessed"] = row_dict["tables_accessed"]
+            logs.append(row_dict)
+
+        return JSONResponse(content={
+            "logs": logs,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/admin/audit-logs/{log_id}")
+async def get_audit_log_detail(
+    log_id: int,
+    type: str = Query(..., regex="^(sql|rag)$"),
+):
+    """Return detailed info for a single audit log entry."""
+    try:
+        async with get_db_context() as session:
+            if type == "sql":
+                result = await session.execute(
+                    text("SELECT * FROM query_audit_log WHERE id = :id"),
+                    {"id": log_id},
+                )
+            else:
+                result = await session.execute(
+                    text("SELECT * FROM rag_search_log WHERE id = :id"),
+                    {"id": log_id},
+                )
+
+            row = result.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Log not found")
+
+            columns = result.keys()
+            detail = dict(zip(columns, row))
+            detail["type"] = type
+            detail["created_at"] = str(detail["created_at"]) if detail.get("created_at") else None
+
+        return JSONResponse(content=detail)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
