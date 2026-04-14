@@ -354,6 +354,7 @@ export default function ChatWindow() {
       let streamedContent = '';
       let buffer = '';
       let receivedSources: any[] = [];
+      let receivedSqlResults: any[] = [];
 
       if (reader) {
         while (true) {
@@ -402,6 +403,7 @@ export default function ChatWindow() {
                     return [...prev, step];
                   });
                 } else if (data.type === 'sql_result' && data.data) {
+                  receivedSqlResults.push(data.data);
                   setMessageSqlResults(prev => {
                     const updated = [...(prev[messageId] || []), data.data];
                     useStore.getState().updateMessage(convId!, messageId, streamedContent, { sqlResult: updated });
@@ -418,9 +420,13 @@ export default function ChatWindow() {
                   const duration = streamStartTime ? Math.round((Date.now() - streamStartTime) / 1000) : 0;
                   setMessageDurations(prev => ({ ...prev, [messageId]: duration }));
                   setStreamStartTime(null);
-                  // Save sources to message for persistence
-                  if (receivedSources.length > 0) {
-                    useStore.getState().updateMessage(convId!, messageId, streamedContent, { sources: receivedSources, query: userQuery });
+                  // Save sources + SQL results to message for persistence
+                  if (receivedSources.length > 0 || receivedSqlResults.length > 0) {
+                    useStore.getState().updateMessage(convId!, messageId, streamedContent, {
+                      sources: receivedSources.length > 0 ? receivedSources : undefined,
+                      query: userQuery,
+                      sqlResult: receivedSqlResults.length > 0 ? receivedSqlResults : undefined,
+                    });
                   }
                 } else if (data.type === 'error') {
                   useStore.getState().updateMessage(convId!, messageId, getSimulatedResponse(userQuery));
