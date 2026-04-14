@@ -496,14 +496,25 @@ class MaximoNL2SQL:
             {"role": "system", "content": system_prompt},
         ]
 
-        # Add conversation history as context
+        # Build user message with explicit context from previous queries
+        user_msg = question
         if history:
-            for h in history[-3:]:  # Last 3 turns max
-                messages.append({"role": "user", "content": h.get("question", "")})
-                if h.get("sql"):
-                    messages.append({"role": "assistant", "content": json.dumps({"sql": h["sql"], "explanation": "前一個查詢"}, ensure_ascii=False)})
+            prev_parts = []
+            for h in history[-3:]:
+                q = h.get("question", "")
+                sql = h.get("sql", "")
+                if q and sql:
+                    prev_parts.append(f"問題：{q}\nSQL：{sql}")
+            if prev_parts:
+                context_block = "\n---\n".join(prev_parts)
+                user_msg = f"""以下是之前的對話查詢紀錄：
+{context_block}
 
-        messages.append({"role": "user", "content": question})
+---
+當前問題：{question}
+（如果當前問題是延續前次查詢，請保留前次的 WHERE 條件；如果是新主題則忽略前次條件）"""
+
+        messages.append({"role": "user", "content": user_msg})
 
         if feedback:
             messages.append({"role": "assistant", "content": "我上次產生的 SQL 有問題。"})
