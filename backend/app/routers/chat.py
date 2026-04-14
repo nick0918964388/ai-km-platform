@@ -417,6 +417,7 @@ async def chat_stream(request: ChatRequest):
                 query=llm_query,
                 sources=sources,
                 image_base64=request.image_base64,
+                model=request.model,
             ):
                 if result.get("type") == "content":
                     content_chunk = result['data']
@@ -445,6 +446,7 @@ async def chat_stream(request: ChatRequest):
                     query=request.query,
                     answer=full_answer,
                     max_questions=3,
+                    model=request.model,
                 )
                 if follow_up_questions:
                     yield sse_event('follow_up', follow_up_questions)

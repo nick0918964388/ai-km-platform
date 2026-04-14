@@ -19,18 +19,24 @@ from app.models.schemas import SearchResult, RerankerMetadata, ChunkType
 logger = logging.getLogger(__name__)
 
 
-def _get_llm_client(light: bool = False):
-    """Return (client, model) based on configured LLM provider."""
+def _get_llm_client(light: bool = False, model_override: str = None):
+    """Return (client, model) based on configured LLM provider. model_override takes precedence."""
     settings = get_settings()
     if settings.llm_provider == "ollama":
         client = OpenAI(base_url=settings.ollama_chat_url, api_key=settings.ollama_chat_api_key)
-        model = settings.ollama_light_model if light else settings.ollama_chat_model
+        if model_override:
+            model = model_override
+        else:
+            model = settings.ollama_light_model if light else settings.ollama_chat_model
     else:
         api_key = os.environ.get("OPENAI_API_KEY", settings.openai_api_key)
         if not api_key:
             return None, None
         client = OpenAI(api_key=api_key)
-        model = "gpt-4o-mini" if light else settings.openai_model
+        if model_override:
+            model = model_override
+        else:
+            model = "gpt-4o-mini" if light else settings.openai_model
     return client, model
 
 
@@ -474,6 +480,7 @@ def chat_stream_with_metadata(
     query: str,
     sources: list[SearchResult],
     image_base64: Optional[str] = None,
+    model: Optional[str] = None,
 ):
     """
     Streaming RAG chat with metadata: generate answer using GPT-4o with streaming.
@@ -519,14 +526,15 @@ def chat_stream_with_metadata(
                 "image_url": {"url": f"data:image/jpeg;base64,{source.image_base64}"}
             })
 
-    # Call LLM with streaming
-    client, model = _get_llm_client()
+    # Call LLM with streaming (use model override from frontend if provided)
+    client, resolved_model = _get_llm_client(model_override=model)
     if client is None:
         yield {"type": "content", "data": "錯誤：未設定 OpenAI API Key。請在環境變數中設定 OPENAI_API_KEY。"}
         return
 
     settings = get_settings()
     is_openai = settings.llm_provider != "ollama"
+    model = resolved_model  # use resolved model for the actual call
 
     try:
         create_kwargs = dict(
@@ -629,7 +637,7 @@ def evaluate_retrieval_quality(sources: list[SearchResult], threshold: float = 0
     return {"quality": quality, "avg_score": round(avg_score, 3), "top_score": round(top_score, 3), "count": above_threshold, "avg_relevance": round(avg_rel, 3) if avg_rel is not None else None}
 
 
-def generate_follow_up_questions(query: str, answer: str, max_questions: int = 3) -> list[str]:
+def generate_follow_up_questions(query: str, answer: str, max_questions: int = 3, model: str = None) -> list[str]:
     """
     Generate follow-up questions based on the user's query and the AI's answer.
     
@@ -641,7 +649,7 @@ def generate_follow_up_questions(query: str, answer: str, max_questions: int = 3
     Returns:
         List of follow-up question strings
     """
-    client, model = _get_llm_client(light=True)
+    client, resolved_model = _get_llm_client(light=True, model_override=model)
 
     if client is None:
         return []
@@ -663,7 +671,7 @@ AI 回答：{answer[:1000]}...
 只輸出問題，不要其他內容。"""
 
         response = client.chat.completions.create(
-            model=model,
+            model=resolved_model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=200,
             temperature=0.7,
