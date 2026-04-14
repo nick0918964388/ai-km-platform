@@ -1,11 +1,15 @@
 """Chat and search router for RAG queries."""
+import asyncio
 import json
 import time
 import logging
 import urllib.request
 import urllib.error
+from typing import Optional
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy import text
 
 from app.models.schemas import (
     ChatRequest,
@@ -17,9 +21,17 @@ from app.services import rag
 from app.services.intent_classifier import get_intent_classifier, QueryIntent
 from app.services.intent_router import detect_intent, detect_ambiguity
 from app.config import get_settings
+from app.db.session import get_db_context
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["chat"])
+
+
+class ChatFeedback(BaseModel):
+    message_id: str
+    query: str
+    rating: str  # "up" or "down"
+    comment: Optional[str] = None
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -397,6 +409,18 @@ async def chat_stream(request: ChatRequest):
                 yield sse_event('content', '⚠️ **知識庫中未找到高度相關的文件。** 以下結果僅供參考，建議嘗試換個關鍵字或更具體的描述。\n\n')
                 sources = best_all_sources[:request.top_k] if best_all_sources else []
 
+            # Log RAG search metrics in background
+            asyncio.create_task(rag.log_search_metrics(
+                query=query,
+                search_query=used_query,
+                sources=sources,
+                quality=quality.get("quality", "unknown"),
+                rewrite_used=rewrite_used,
+                rewrite_query=used_query if rewrite_used else None,
+                duration_ms=int((time.time() - total_start) * 1000),
+                intent=intent,
+            ))
+
             sources_data = [s.model_dump() for s in sources]
             yield sse_event('sources', sources_data)
 
@@ -511,3 +535,22 @@ async def search(request: SearchRequest):
         results=results,
         total=len(results),
     )
+
+
+@router.post("/chat/feedback")
+async def submit_feedback(feedback: ChatFeedback):
+    """Submit user feedback for a RAG response."""
+    async with get_db_context() as session:
+        await session.execute(
+            text("""
+                INSERT INTO rag_feedback (message_id, query, rating, comment)
+                VALUES (:message_id, :query, :rating, :comment)
+            """),
+            {
+                "message_id": feedback.message_id,
+                "query": feedback.query,
+                "rating": feedback.rating,
+                "comment": feedback.comment,
+            },
+        )
+    return {"status": "ok"}

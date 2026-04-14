@@ -940,6 +940,29 @@ export default function ChatWindow() {
                         ))}
                       </>
                     )}
+                    {/* RAG Feedback buttons */}
+                    {msg.role === 'assistant' && !messageStreamingStatus[msg.id] && msg.content && messageSources[msg.id]?.length > 0 && !messageSqlResults[msg.id]?.length && (() => {
+                      const fbKey = `feedback_${msg.id}`;
+                      const sent = typeof window !== 'undefined' && sessionStorage.getItem(fbKey);
+                      if (sent) return <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>感謝回饋</div>;
+                      const submit = async (rating: string) => {
+                        try {
+                          await fetch(`${STREAM_API_URL}/api/chat/feedback`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message_id: msg.id, query: messages.filter(m => m.role === 'user').pop()?.content || '', rating }),
+                          });
+                          sessionStorage.setItem(fbKey, rating);
+                          // Force re-render
+                          setMessageDurations(prev => ({ ...prev }));
+                        } catch {}
+                      };
+                      return (
+                        <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.5rem' }}>
+                          <button onClick={() => submit('up')} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '0.2rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem' }}>👍</button>
+                          <button onClick={() => submit('down')} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '0.2rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem' }}>👎</button>
+                        </div>
+                      );
+                    })()}
                     {/* Duration badge */}
                     {msg.role === 'assistant' && !messageStreamingStatus[msg.id] && messageDurations[msg.id] > 0 && (
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', fontFamily: 'monospace' }}>

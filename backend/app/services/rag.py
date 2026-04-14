@@ -15,8 +15,53 @@ from app.services import cache as cache_service
 from app.services import file_storage
 from app.services.terminology import expand_query, RAIL_TERMINOLOGY
 from app.models.schemas import SearchResult, RerankerMetadata, ChunkType
+from app.db.session import get_db_context
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
+
+
+async def log_search_metrics(
+    query: str,
+    search_query: Optional[str],
+    sources: list,
+    quality: str,
+    rewrite_used: bool = False,
+    rewrite_query: Optional[str] = None,
+    duration_ms: int = 0,
+    intent: Optional[str] = None,
+):
+    """Insert RAG search metrics into rag_search_log."""
+    try:
+        scores = [s.score if hasattr(s, 'score') else s.get('score', 0) for s in sources]
+        top_score = max(scores) if scores else 0.0
+        avg_score = sum(scores) / len(scores) if scores else 0.0
+
+        async with get_db_context() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO rag_search_log
+                        (query, search_query, top_score, avg_score, source_count,
+                         rewrite_used, rewrite_query, quality, duration_ms, intent)
+                    VALUES
+                        (:query, :search_query, :top_score, :avg_score, :source_count,
+                         :rewrite_used, :rewrite_query, :quality, :duration_ms, :intent)
+                """),
+                {
+                    "query": query,
+                    "search_query": search_query,
+                    "top_score": top_score,
+                    "avg_score": avg_score,
+                    "source_count": len(sources),
+                    "rewrite_used": rewrite_used,
+                    "rewrite_query": rewrite_query,
+                    "quality": quality,
+                    "duration_ms": duration_ms,
+                    "intent": intent,
+                },
+            )
+    except Exception as e:
+        logger.error(f"Failed to log search metrics: {e}")
 
 
 def _get_llm_client(light: bool = False, model_override: str = None):
