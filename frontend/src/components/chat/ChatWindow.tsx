@@ -11,7 +11,7 @@ import ReactMarkdown from 'react-markdown';
 import { useStore } from '@/store/useStore';
 import { Message, SearchResult } from '@/types';
 import SourcePreview from './SourcePreview';
-import { getApiHeaders, API_URL, TIMEOUTS, fetchWithTimeout, TimeoutError, getErrorMessage } from '@/lib/api';
+import { getApiHeaders, API_URL, STREAM_API_URL, TIMEOUTS, fetchWithTimeout, TimeoutError, getErrorMessage } from '@/lib/api';
 import { VoiceInputButton } from '@/components/VoiceInput';
 
 interface MessageSources {
