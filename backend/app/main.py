@@ -3,7 +3,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import JSONResponse
 
 from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile, maximo, admin
 from app.routers.auth import router as auth_router
@@ -23,27 +23,40 @@ ALLOWED_ORIGINS = [
 ]
 
 
-class APIKeyMiddleware(BaseHTTPMiddleware):
-    """Middleware to verify API key for protected endpoints."""
-    
-    # Endpoints that don't require API key
-    PUBLIC_PATHS = ["/", "/health", "/docs", "/openapi.json", "/redoc"]
+class APIKeyMiddleware:
+    """Pure ASGI middleware for API key verification (avoids BaseHTTPMiddleware SSE blocking)."""
 
-    async def dispatch(self, request: Request, call_next):
-        # Skip API key check for public paths
-        if request.url.path in self.PUBLIC_PATHS or request.url.path.startswith("/api/auth/"):
-            return await call_next(request)
-        
-        # Skip if no API key is configured (development mode)
+    PUBLIC_PREFIXES = ("/health", "/docs", "/openapi.json", "/redoc", "/api/auth/")
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+
+        # Skip public paths
+        if path == "/" or any(path.startswith(p) for p in self.PUBLIC_PREFIXES):
+            await self.app(scope, receive, send)
+            return
+
+        # Skip if no API key configured
         if not API_KEY:
-            return await call_next(request)
-        
-        # Check API key in header
-        request_api_key = request.headers.get("X-API-Key")
-        if request_api_key != API_KEY:
-            raise HTTPException(status_code=401, detail="Invalid or missing API key")
-        
-        return await call_next(request)
+            await self.app(scope, receive, send)
+            return
+
+        # Check API key in headers
+        headers = dict(scope.get("headers", []))
+        api_key = headers.get(b"x-api-key", b"").decode()
+        if api_key != API_KEY:
+            response = JSONResponse(status_code=401, content={"detail": "Invalid or missing API key"})
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
 
 
 @asynccontextmanager
