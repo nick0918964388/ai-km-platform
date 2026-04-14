@@ -84,14 +84,13 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="settings-container" style={{ maxWidth: 720, padding: '1.5rem 2rem', boxSizing: 'border-box' }}>
-      <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '1.5rem' }}>
-        系統設定
-      </h1>
+    <div style={{ padding: '1.5rem 2rem', maxWidth: 720 }}>
+      <h1 style={{ fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>系統設定</h1>
+      <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', margin: '0.25rem 0 1.5rem' }}>管理系統參數、AI 模型與使用者設定</p>
 
       {/* General Settings */}
-      <div className="settings-section">
-        <h2 className="settings-title">一般設定</h2>
+      <div style={{ marginBottom: '1rem' }}>
+        <h2 style={{ fontSize: '1.125rem', fontWeight: 600, margin: '1.5rem 0 0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>一般設定</h2>
 
         <div className="form-group">
           <label className="form-label">系統名稱</label>
@@ -132,8 +131,8 @@ export default function SettingsPage() {
       </div>
 
       {/* AI Settings */}
-      <div className="settings-section">
-        <h2 className="settings-title">AI 設定</h2>
+      <div style={{ marginBottom: '1rem' }}>
+        <h2 style={{ fontSize: '1.125rem', fontWeight: 600, margin: '1.5rem 0 0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>AI 設定</h2>
 
         <div className="form-group">
           <label className="form-label">AI 模型</label>
@@ -167,8 +166,8 @@ export default function SettingsPage() {
 
       {/* User Settings (Admin only) */}
       {user?.role === 'admin' && (
-        <div className="settings-section">
-          <h2 className="settings-title">使用者設定</h2>
+        <div style={{ marginBottom: '1rem' }}>
+          <h2 style={{ fontSize: '1.125rem', fontWeight: 600, margin: '1.5rem 0 0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>使用者設定</h2>
 
           <div className="form-group">
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
@@ -199,8 +198,8 @@ export default function SettingsPage() {
 
       {/* Column Label Management (Admin only) */}
       {user?.role === 'admin' && (
-        <div className="settings-section">
-          <h2 className="settings-title">欄位名稱映射</h2>
+        <div style={{ marginBottom: '1rem' }}>
+          <h2 style={{ fontSize: '1.125rem', fontWeight: 600, margin: '1.5rem 0 0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>欄位名稱映射</h2>
           <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
             管理 SQL 查詢結果的欄位中文顯示名稱
           </p>
