@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import {
@@ -8,6 +8,8 @@ import {
   Document,
   Search,
   Analytics,
+  ViewFilled,
+  ViewOffFilled,
 } from '@carbon/icons-react';
 
 export default function LoginPage() {
@@ -18,6 +20,16 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Load remembered email on mount
+  useEffect(() => {
+    const remembered = localStorage.getItem('remembered_email');
+    if (remembered) {
+      setEmail(remembered);
+      setRememberMe(true);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +51,13 @@ export default function LoginPage() {
       }
 
       const data = await res.json();
+
+      // Remember email preference
+      if (rememberMe) {
+        localStorage.setItem('remembered_email', email);
+      } else {
+        localStorage.removeItem('remembered_email');
+      }
 
       // Store JWT token
       localStorage.setItem('auth_token', data.token);
@@ -158,14 +177,37 @@ export default function LoginPage() {
 
             <div className="form-group">
               <label className="form-label">密碼</label>
-              <input
-                type="password"
-                className="form-input"
-                placeholder="請輸入密碼"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  className="form-input"
+                  placeholder="請輸入密碼"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  style={{ paddingRight: '2.5rem' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{
+                    position: 'absolute',
+                    right: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-muted)',
+                    padding: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                  aria-label={showPassword ? '隱藏密碼' : '顯示密碼'}
+                >
+                  {showPassword ? <ViewOffFilled size={18} /> : <ViewFilled size={18} />}
+                </button>
+              </div>
             </div>
 
             <div className="login-options">
