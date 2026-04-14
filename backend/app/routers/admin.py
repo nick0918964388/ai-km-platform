@@ -173,3 +173,39 @@ async def get_audit_log_detail(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Column Label Management ──────────────────────────────────────────
+
+@router.get("/admin/column-labels")
+async def get_column_labels():
+    """Get all custom column labels."""
+    async with get_db_context() as session:
+        result = await session.execute(
+            text("SELECT column_name, label FROM custom_column_labels ORDER BY column_name")
+        )
+        return [{"column_name": r[0], "label": r[1]} for r in result.fetchall()]
+
+
+@router.post("/admin/column-labels")
+async def upsert_column_label(data: dict):
+    """Create or update a column label."""
+    async with get_db_context() as session:
+        await session.execute(
+            text("""INSERT INTO custom_column_labels (column_name, label, updated_at)
+                    VALUES (:name, :label, NOW())
+                    ON CONFLICT (column_name) DO UPDATE SET label = :label, updated_at = NOW()"""),
+            {"name": data["column_name"], "label": data["label"]},
+        )
+    return {"status": "ok"}
+
+
+@router.delete("/admin/column-labels/{column_name}")
+async def delete_column_label(column_name: str):
+    """Delete a column label."""
+    async with get_db_context() as session:
+        await session.execute(
+            text("DELETE FROM custom_column_labels WHERE column_name = :name"),
+            {"name": column_name},
+        )
+    return {"status": "ok"}

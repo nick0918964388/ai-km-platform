@@ -724,10 +724,25 @@ SQL：{sql}
             log.warning("寫入稽核日誌失敗: %s", e)
 
     async def _get_column_labels(self, columns: list) -> Dict[str, str]:
-        """Get Chinese labels for columns. Uses maximo_zz_maxattribute title, falls back to static _COL_LABELS."""
+        """Get Chinese labels for columns. Priority: custom_column_labels DB > static _COL_LABELS > maximo_zz_maxattribute."""
         labels = {}
+
+        # 1) Load custom labels from DB first
+        try:
+            result = await self.db.execute(text("SELECT column_name, label FROM custom_column_labels"))
+            custom = {r[0]: r[1] for r in result.fetchall()}
+            for c in columns:
+                col_lower = c.lower()
+                if col_lower in custom:
+                    labels[c] = custom[col_lower]
+        except Exception:
+            pass
+
+        # 2) Static _COL_LABELS fallback
         missing = []
         for c in columns:
+            if c in labels:
+                continue
             static = self._COL_LABELS.get(c.lower())
             if static:
                 labels[c] = static
