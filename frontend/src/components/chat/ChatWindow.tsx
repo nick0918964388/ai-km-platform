@@ -219,25 +219,71 @@ export default function ChatWindow() {
           });
         }
       } else if (data.status === 'running') {
-        // Show loading indicator while polling
+        // Reconnect via SSE stream to get real-time step events
         setIsStreaming(true);
         setMessageStreamingStatus(prev => ({ ...prev, [messageId]: true }));
-        const poll = setInterval(async () => {
-          try {
-            const r = await fetch(`${STREAM_API_URL}/api/chat/jobs/${jobId}`, { headers: getApiHeaders() });
-            const d = await r.json();
-            if (d.status === 'done' || d.status === 'error') {
-              clearInterval(poll);
-              setIsStreaming(false);
-              setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
-              recoverJob(jobId, messageId, convId);
+        try {
+          const streamRes = await fetch(`${STREAM_API_URL}/api/chat/jobs/${jobId}/stream`, { headers: getApiHeaders() });
+          if (!streamRes.ok) throw new Error('Stream reconnect failed');
+          const reader = streamRes.body?.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let streamContent = '';
+          let streamSources: any[] = [];
+          let streamSqlResults: any[] = [];
+          if (reader) {
+            while (true) {
+              const { done: rdone, value } = await reader.read();
+              if (rdone) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+              for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                  const event = JSON.parse(line.slice(6));
+                  if (event.type === 'step' && event.data) {
+                    setTaskSteps(prev => {
+                      const idx = prev.findIndex((s: any) => s.id === event.data.id);
+                      if (idx >= 0) { const next = [...prev]; next[idx] = event.data; return next; }
+                      return [...prev, event.data];
+                    });
+                  } else if (event.type === 'content' && event.data) {
+                    streamContent += event.data;
+                    useStore.getState().updateMessage(convId, messageId, streamContent);
+                  } else if (event.type === 'sources' && event.data) {
+                    streamSources = event.data;
+                    setMessageSources(prev => ({ ...prev, [messageId]: event.data }));
+                  } else if (event.type === 'sql_result' && event.data) {
+                    streamSqlResults.push(event.data);
+                    setMessageSqlResults(prev => ({ ...prev, [messageId]: [...(prev[messageId] || []), event.data] }));
+                  } else if (event.type === 'metadata') {
+                    setMessageMetadata(prev => ({ ...prev, [messageId]: event.data }));
+                  } else if (event.type === 'follow_up' && event.data) {
+                    setMessageFollowUps(prev => ({ ...prev, [messageId]: event.data }));
+                  } else if (event.type === 'clarification' && event.data) {
+                    setPendingClarification(event.data);
+                    streamContent = event.data.message;
+                    useStore.getState().updateMessage(convId, messageId, event.data.message, { clarification: event.data });
+                  } else if (event.type === 'done') {
+                    break;
+                  }
+                } catch {}
+              }
             }
-          } catch {
-            clearInterval(poll);
-            setIsStreaming(false);
-            setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
           }
-        }, 2000);
+          // Persist final state
+          if (streamContent || streamSqlResults.length > 0) {
+            useStore.getState().updateMessage(convId, messageId, streamContent, {
+              sources: streamSources.length > 0 ? streamSources : undefined,
+              sqlResult: streamSqlResults.length > 0 ? streamSqlResults : undefined,
+            });
+          }
+        } catch (e) {
+          console.error('Stream recovery failed:', e);
+        }
+        setIsStreaming(false);
+        setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
       }
     } catch (e) { console.error('Job recovery failed:', e); }
   }, []);
