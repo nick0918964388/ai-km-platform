@@ -1,92 +1,83 @@
-"""Chat job runner — executes chat queries as background tasks."""
+"""Chat job runner — executes chat queries as background tasks.
+
+Consumes the same generate() async generator from chat.py,
+writing events to Redis instead of SSE streaming.
+"""
 import json
+import re
 import time
 import logging
 
 from app.models.schemas import ChatRequest
-from app.services import rag
 from app.services import chat_job_manager as jm
 
 log = logging.getLogger(__name__)
 
+THINK_TAG_RE = re.compile(r'<think>[\s\S]*?</think>')
+
+
+def _strip_think(text: str) -> str:
+    """Remove <think>...</think> tags from LLM output."""
+    return THINK_TAG_RE.sub('', text).strip()
+
 
 async def run_chat_job(job_id: str, request_data: dict):
-    """Run a chat query as a background job.
+    """Run a chat query as a background job using the full Agentic RAG pipeline.
 
-    Mirrors the same flow as chat.py's generate() function,
-    but writes events to Redis instead of yielding SSE.
+    Imports and calls the same generate() logic from chat.py,
+    consuming events and writing them to Redis.
     """
     jm.set_status(job_id, "running")
     start_time = time.time()
 
-    def emit(event_type: str, data=None):
-        jm.append_event(job_id, {"type": event_type, "data": data})
-
     try:
+        # Import here to avoid circular imports
+        from app.routers.chat import chat_stream
+        from app.config import get_settings
+
         request = ChatRequest(**request_data)
+        settings = get_settings()
 
-        # Search for relevant documents
-        sources = rag.search(
-            query=request.query,
-            image_base64=request.image_base64,
-            top_k=request.top_k,
-        )
+        # Call chat_stream to get the StreamingResponse, then consume its body_iterator
+        response = await chat_stream(request)
 
-        # Emit sources
-        sources_data = [s.model_dump() for s in sources]
-        emit("sources", sources_data)
-
-        # Stream the answer
-        total_tokens = None
         full_answer = ""
+        async for chunk_bytes in response.body_iterator:
+            chunk = chunk_bytes if isinstance(chunk_bytes, str) else chunk_bytes.decode()
+            # Parse SSE lines
+            for line in chunk.strip().split('\n'):
+                if not line.startswith('data: '):
+                    continue
+                try:
+                    event = json.loads(line[6:])
+                except json.JSONDecodeError:
+                    continue
 
-        for result in rag.chat_stream_with_metadata(
-            query=request.query,
-            sources=sources,
-            image_base64=request.image_base64,
-        ):
-            if result.get("type") == "content":
-                content_chunk = result["data"]
-                full_answer += content_chunk
-                emit("content", content_chunk)
-            elif result.get("type") == "usage":
-                total_tokens = result.get("data")
+                event_type = event.get("type")
+                event_data = event.get("data")
 
-        # Calculate duration
+                # Strip think tags from content
+                if event_type == "content" and isinstance(event_data, str):
+                    cleaned = _strip_think(event_data)
+                    if cleaned:
+                        event["data"] = cleaned
+                        full_answer += cleaned
+                    else:
+                        continue  # Skip empty content after stripping
+
+                # Write event to Redis
+                jm.append_event(job_id, event)
+
+                if event_type == "done":
+                    break
+
         duration_ms = int((time.time() - start_time) * 1000)
-
-        # Emit metadata
-        metadata = {
-            "model": "gpt-4o",
-            "duration_ms": duration_ms,
-            "tokens": total_tokens,
-        }
-        emit("metadata", metadata)
-
-        # Emit done
-        emit("done")
-
-        # Generate follow-up questions
-        try:
-            follow_up_questions = rag.generate_follow_up_questions(
-                query=request.query,
-                answer=full_answer,
-                max_questions=3,
-            )
-            if follow_up_questions:
-                emit("follow_up", follow_up_questions)
-        except Exception:
-            pass
-
-        # Complete job
         jm.complete_job(job_id, {
             "answer": full_answer,
-            "sources": sources_data,
-            "metadata": metadata,
             "duration_ms": duration_ms,
         })
 
     except Exception as e:
         log.exception(f"Chat job {job_id} failed: {e}")
-        emit("error", str(e))
+        jm.append_event(job_id, {"type": "error", "data": str(e)})
         jm.fail_job(job_id, str(e))
