@@ -750,15 +750,17 @@ SQL：{sql}
             user_id = (user_context or {}).get("id", "guest")
             user_email = (user_context or {}).get("email", "")
             tables = re.findall(r'\b(?:from|join)\s+(\w+)', (sql or "").lower())
+            request_id = result.get("request_id") or getattr(self, '_request_id', None)
             await self.db.execute(text("""
-                INSERT INTO query_audit_log (user_id, user_email, question, sql_generated, tables_accessed, row_count, execution_ms, mode)
-                VALUES (:uid, :email, :q, :sql, :tables, :rows, :exec_ms, :mode)
+                INSERT INTO query_audit_log (user_id, user_email, question, sql_generated, tables_accessed, row_count, execution_ms, mode, request_id)
+                VALUES (:uid, :email, :q, :sql, :tables, :rows, :exec_ms, :mode, :rid)
             """), {
                 "uid": user_id, "email": user_email, "q": question,
                 "sql": sql, "tables": list(set(tables)),
                 "rows": result.get("row_count", 0),
                 "exec_ms": result.get("execution_ms"),
                 "mode": "nl2sql",
+                "rid": request_id,
             })
             await self.db.commit()
         except Exception as e:

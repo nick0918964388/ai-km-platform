@@ -309,6 +309,7 @@ async def chat_stream(request: ChatRequest):
                 try:
                     async with get_db_context() as db:
                         service = MaximoNL2SQL(db)
+                        service._request_id = tracer.request_id
                         schema_ms = int((time.time() - t0) * 1000)
 
                         yield sse_event('step', {'id': 'schema', 'label': f'搜尋相關資料表與欄位（{schema_ms}ms）', 'status': 'done'})
@@ -490,6 +491,7 @@ async def chat_stream(request: ChatRequest):
                 rewrite_query=used_query if rewrite_used else None,
                 duration_ms=int((time.time() - total_start) * 1000),
                 intent=intent,
+                request_id=tracer.request_id,
             ))
 
             sources_data = [s.model_dump() for s in sources]
