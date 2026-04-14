@@ -111,6 +111,40 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Permission migration skipped: {e}")
 
+    # System settings table migration
+    try:
+        from app.db.session import get_db_context
+        from sqlalchemy import text as _text
+        import pathlib
+        settings_sql = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "system_settings.sql"
+        if settings_sql.exists():
+            sql_content = settings_sql.read_text()
+            async with get_db_context() as db:
+                for stmt in sql_content.split(";"):
+                    stmt = stmt.strip()
+                    if stmt:
+                        await db.execute(_text(stmt))
+            print("✅ System settings table ensured")
+    except Exception as e:
+        print(f"⚠️ System settings migration skipped: {e}")
+
+    # Load DB settings and override config singleton
+    try:
+        from app.services import settings_service
+        await settings_service.load_settings()
+        db_settings = await settings_service.get_all_settings()
+        settings = get_settings()
+        override_keys = [
+            'ollama_chat_url', 'ollama_chat_api_key', 'ollama_chat_model',
+            'ollama_light_model', 'intent_llm_url', 'intent_llm_model',
+        ]
+        for key in override_keys:
+            if db_settings.get(key):
+                setattr(settings, key, db_settings[key])
+        print(f"✅ DB settings loaded: {len(db_settings)} keys")
+    except Exception as e:
+        print(f"⚠️ DB settings load skipped: {e}")
+
     yield
 
     # Shutdown

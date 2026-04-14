@@ -251,3 +251,30 @@ async def get_available_columns(table_name: str):
             "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = :t ORDER BY ordinal_position"
         ), {"t": table_name})
         return [{"column_name": r[0], "data_type": r[1]} for r in result.fetchall()]
+
+
+# ── System Settings ──────────────────────────────────────────────────
+
+@router.get("/admin/settings")
+async def get_system_settings():
+    """Get all system settings."""
+    from app.services import settings_service
+    return await settings_service.get_all_settings()
+
+
+@router.post("/admin/settings")
+async def update_system_settings(data: dict):
+    """Update system settings. Accepts {key: value, ...}."""
+    from app.services import settings_service
+    from app.config import get_settings
+
+    for key, value in data.items():
+        await settings_service.set_setting(key, str(value))
+
+    # Reload into config singleton
+    settings = get_settings()
+    for key, value in data.items():
+        if hasattr(settings, key):
+            setattr(settings, key, str(value))
+
+    return {"status": "ok"}

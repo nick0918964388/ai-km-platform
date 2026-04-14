@@ -15,6 +15,16 @@ export default function SettingsPage() {
   const [localSettings, setLocalSettings] = useState(settings);
   const [saved, setSaved] = useState(false);
 
+  // LLM settings state
+  const [llmSettings, setLlmSettings] = useState({
+    ollama_chat_url: '',
+    ollama_chat_api_key: '',
+    ollama_chat_model: '',
+    ollama_light_model: '',
+    intent_llm_url: '',
+    intent_llm_model: '',
+  });
+
   // Column label management state
   const [labels, setLabels] = useState<ColumnLabel[]>([]);
   const [newCol, setNewCol] = useState('');
@@ -59,6 +69,32 @@ export default function SettingsPage() {
       }
     } catch { /* ignore */ }
   }, []);
+
+  // Fetch settings from backend on mount
+  useEffect(() => {
+    if (user?.role === 'admin') {
+      fetch(`${STREAM_API_URL}/api/admin/settings`, { headers: getApiHeaders() })
+        .then(r => r.json())
+        .then(data => {
+          setLocalSettings(prev => ({
+            ...prev,
+            siteName: data.site_name || prev.siteName,
+            primaryColor: data.primary_color || prev.primaryColor,
+            aiModel: data.ollama_chat_model || prev.aiModel,
+            maxTokens: parseInt(data.max_tokens) || prev.maxTokens,
+          }));
+          setLlmSettings({
+            ollama_chat_url: data.ollama_chat_url || '',
+            ollama_chat_api_key: data.ollama_chat_api_key || '',
+            ollama_chat_model: data.ollama_chat_model || '',
+            ollama_light_model: data.ollama_light_model || '',
+            intent_llm_url: data.intent_llm_url || '',
+            intent_llm_model: data.intent_llm_model || '',
+          });
+        })
+        .catch(() => {});
+    }
+  }, [user?.role]);
 
   useEffect(() => {
     if (user?.role === 'admin') fetchTableConfigs();
@@ -165,7 +201,21 @@ export default function SettingsPage() {
     } catch { /* ignore */ }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    // Save to backend
+    try {
+      await fetch(`${STREAM_API_URL}/api/admin/settings`, {
+        method: 'POST',
+        headers: { ...getApiHeaders() as Record<string, string>, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          site_name: localSettings.siteName,
+          primary_color: localSettings.primaryColor,
+          max_tokens: String(localSettings.maxTokens),
+          ...llmSettings,
+        }),
+      });
+    } catch { /* ignore */ }
+    // Also save to local store
     updateSettings(localSettings);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -234,34 +284,53 @@ export default function SettingsPage() {
 
       {/* AI Settings Card */}
       <div style={cardStyle}>
-        <h2 style={cardTitle}>AI 設定</h2>
-
-        <div className="form-group">
-          <label className="form-label">AI 模型</label>
-          <select
-            className="form-input"
-            value={localSettings.aiModel}
-            onChange={(e) => setLocalSettings({ ...localSettings, aiModel: e.target.value })}
-            style={{ width: '100%' }}
-          >
-            <option value="gpt-4">GPT-4</option>
-            <option value="gpt-4o">GPT-4o</option>
-            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-            <option value="claude-3">Claude 3</option>
-          </select>
+        <h2 style={cardTitle}>AI 模型設定</h2>
+        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+          <label className="form-label">Chat 模型</label>
+          <input type="text" className="form-input" style={{ width: '100%' }}
+            value={llmSettings.ollama_chat_model}
+            onChange={e => setLlmSettings(s => ({ ...s, ollama_chat_model: e.target.value }))}
+          />
         </div>
-
+        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+          <label className="form-label">Light 模型</label>
+          <input type="text" className="form-input" style={{ width: '100%' }}
+            value={llmSettings.ollama_light_model}
+            onChange={e => setLlmSettings(s => ({ ...s, ollama_light_model: e.target.value }))}
+          />
+        </div>
+        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+          <label className="form-label">LLM 端點 URL</label>
+          <input type="text" className="form-input" style={{ width: '100%' }}
+            value={llmSettings.ollama_chat_url}
+            onChange={e => setLlmSettings(s => ({ ...s, ollama_chat_url: e.target.value }))}
+          />
+        </div>
         <div className="form-group">
-          <label className="form-label">最大 Token 數</label>
-          <input
-            type="number"
-            className="form-input"
-            value={localSettings.maxTokens}
-            onChange={(e) => setLocalSettings({ ...localSettings, maxTokens: parseInt(e.target.value) })}
-            min={256}
-            max={32000}
-            step={256}
-            style={{ width: '100%' }}
+          <label className="form-label">API Key</label>
+          <input type="password" className="form-input" style={{ width: '100%' }}
+            value={llmSettings.ollama_chat_api_key}
+            onChange={e => setLlmSettings(s => ({ ...s, ollama_chat_api_key: e.target.value }))}
+            placeholder="ollama"
+          />
+        </div>
+      </div>
+
+      {/* Intent Model Card */}
+      <div style={cardStyle}>
+        <h2 style={cardTitle}>Intent 分類模型</h2>
+        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+          <label className="form-label">模型名稱</label>
+          <input type="text" className="form-input" style={{ width: '100%' }}
+            value={llmSettings.intent_llm_model}
+            onChange={e => setLlmSettings(s => ({ ...s, intent_llm_model: e.target.value }))}
+          />
+        </div>
+        <div className="form-group">
+          <label className="form-label">端點 URL</label>
+          <input type="text" className="form-input" style={{ width: '100%' }}
+            value={llmSettings.intent_llm_url}
+            onChange={e => setLlmSettings(s => ({ ...s, intent_llm_url: e.target.value }))}
           />
         </div>
       </div>
