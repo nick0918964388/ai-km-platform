@@ -8,6 +8,14 @@ import { UserProfile, ProfileUpdateRequest, AvatarUploadResponse } from '@/types
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
 
+function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (API_KEY) headers['X-API-Key'] = API_KEY;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
+}
+
 /**
  * Get the current user's profile
  * @returns UserProfile object
@@ -17,10 +25,7 @@ export async function getProfile(): Promise<UserProfile> {
   try {
     const response = await fetch(`${API_URL}/api/profile`, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(API_KEY && { 'X-API-Key': API_KEY }),
-      },
+      headers: getAuthHeaders(),
     });
 
     if (!response.ok) {
@@ -51,10 +56,7 @@ export async function updateProfile(displayName: string): Promise<UserProfile> {
 
     const response = await fetch(`${API_URL}/api/profile`, {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(API_KEY && { 'X-API-Key': API_KEY }),
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify(requestData),
     });
 
@@ -119,10 +121,7 @@ export async function deleteAvatar(): Promise<{ message: string }> {
   try {
     const response = await fetch(`${API_URL}/api/profile/avatar`, {
       method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(API_KEY && { 'X-API-Key': API_KEY }),
-      },
+      headers: getAuthHeaders(),
     });
 
     if (!response.ok) {
