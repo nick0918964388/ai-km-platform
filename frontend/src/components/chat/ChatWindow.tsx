@@ -219,12 +219,24 @@ export default function ChatWindow() {
           });
         }
       } else if (data.status === 'running') {
+        // Show loading indicator while polling
+        setIsStreaming(true);
+        setMessageStreamingStatus(prev => ({ ...prev, [messageId]: true }));
         const poll = setInterval(async () => {
           try {
             const r = await fetch(`${STREAM_API_URL}/api/chat/jobs/${jobId}`, { headers: getApiHeaders() });
             const d = await r.json();
-            if (d.status === 'done' || d.status === 'error') { clearInterval(poll); recoverJob(jobId, messageId, convId); }
-          } catch { clearInterval(poll); }
+            if (d.status === 'done' || d.status === 'error') {
+              clearInterval(poll);
+              setIsStreaming(false);
+              setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
+              recoverJob(jobId, messageId, convId);
+            }
+          } catch {
+            clearInterval(poll);
+            setIsStreaming(false);
+            setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
+          }
         }, 2000);
       }
     } catch (e) { console.error('Job recovery failed:', e); }
