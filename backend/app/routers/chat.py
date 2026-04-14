@@ -21,6 +21,7 @@ from app.services import rag
 from app.services.intent_classifier import get_intent_classifier, QueryIntent
 from app.services.intent_router import detect_intent, detect_ambiguity
 from app.services.context_manager import build_optimized_context
+from app.services.call_tracer import CallTracer, trace_llm_call
 from app.config import get_settings
 from app.db.session import get_db_context
 
@@ -97,6 +98,7 @@ async def chat_stream(request: ChatRequest):
         try:
             query = request.query
             total_start = time.time()
+            tracer = CallTracer()
 
             # Intent detection with LLM
             yield sse_event('step', {'id': 'intent', 'label': '分析查詢意圖...', 'status': 'running'})
@@ -116,6 +118,8 @@ async def chat_stream(request: ChatRequest):
             intent_ms = int((time.time() - t0) * 1000)
 
             log.info("Intent detected: %s (confidence=%.2f) for query: %s", intent, cls_result.confidence, query[:80])
+            trace_llm_call(tracer, "intent_classification", settings.intent_llm_url, settings.intent_llm_model,
+                [{"query": query}], cls_result.reasoning, intent_ms)
             yield sse_event('step', {'id': 'intent', 'label': f'意圖偵測：{cls_result.reasoning}（{intent_ms}ms）', 'status': 'done'})
 
             sql_result = None
@@ -126,6 +130,7 @@ async def chat_stream(request: ChatRequest):
                     "message": cls_result.reasoning,
                     "options": cls_result.clarification_options,
                 })
+                asyncio.create_task(tracer.save())
                 yield sse_event('done', {})
                 return
 
@@ -139,6 +144,7 @@ async def chat_stream(request: ChatRequest):
                 ambiguity = detect_ambiguity(query, history=request.context)
                 if ambiguity:
                     yield sse_event('clarification', ambiguity)
+                    asyncio.create_task(tracer.save())
                     yield sse_event('done', {})
                     return
 
@@ -150,6 +156,8 @@ async def chat_stream(request: ChatRequest):
                 t0 = time.time()
                 decomposition = await decompose_query(query, context=request.context)
                 dec_ms = int((time.time() - t0) * 1000)
+                trace_llm_call(tracer, "query_decompose", settings.ollama_chat_url, settings.ollama_chat_model,
+                    [{"query": query}], json.dumps([t.id for t in decomposition.sub_tasks], ensure_ascii=False), dec_ms)
 
                 # If only 1 sub-task, fall through to sequential path
                 if len(decomposition.sub_tasks) <= 1:
@@ -223,10 +231,14 @@ async def chat_stream(request: ChatRequest):
                             full_answer += chunk["data"]
                             yield sse_event('content', chunk["data"])
                     syn_ms = int((time.time() - t0) * 1000)
+                    trace_llm_call(tracer, "synthesis", settings.ollama_chat_url, settings.ollama_chat_model,
+                        [{"query": query, "sub_results": len(all_results)}], full_answer[:500], syn_ms)
                     yield sse_event('step', {'id': 'synthesize', 'label': f'綜合分析完成（{syn_ms}ms）', 'status': 'done'})
 
                     total_ms = int((time.time() - total_start) * 1000)
-                    yield sse_event('metadata', {'model': settings.ollama_chat_model, 'duration_ms': total_ms, 'intent': intent_result})
+                    metadata = {'model': settings.ollama_chat_model, 'duration_ms': total_ms, 'intent': intent_result, 'request_id': tracer.request_id}
+                    yield sse_event('metadata', metadata)
+                    asyncio.create_task(tracer.save())
                     yield sse_event('done', {})
 
                     try:
@@ -278,6 +290,10 @@ async def chat_stream(request: ChatRequest):
                             timing_parts.append(f'執行 {exec_ms}ms')
                         timing_str = '，'.join(timing_parts)
 
+                        trace_llm_call(tracer, "sql_generation", settings.ollama_chat_url, sql_result.get("model", settings.ollama_chat_model),
+                            [{"query": query}], sql_result.get("sql", ""), sql_ms,
+                            status="ok" if sql_result.get("success") else "error",
+                            error=sql_result.get("error", "")[:200])
                         yield sse_event('step', {'id': 'sql_generate', 'label': f'AI 產生 SQL（{timing_str}，{iters} 次迭代）', 'status': 'done'})
 
                         if sql_result.get("success"):
@@ -310,13 +326,14 @@ async def chat_stream(request: ChatRequest):
                     yield sse_event('sql_result', sql_event_data)
 
                     total_ms = int((time.time() - total_start) * 1000)
-                    yield sse_event('metadata', {'model': sql_result.get('model', 'nl2sql'), 'duration_ms': total_ms, 'sql': sql_result.get('sql'), 'intent': intent_result})
+                    yield sse_event('metadata', {'model': sql_result.get('model', 'nl2sql'), 'duration_ms': total_ms, 'sql': sql_result.get('sql'), 'intent': intent_result, 'request_id': tracer.request_id})
 
                     follow_ups = _generate_sql_follow_ups(query, sql_result)
                     if follow_ups:
                         yield sse_event('follow_up', follow_ups)
 
                     if intent == "sql":
+                        asyncio.create_task(tracer.save())
                         yield sse_event('done', {})
                         return
 
@@ -335,6 +352,7 @@ async def chat_stream(request: ChatRequest):
                         yield sse_event('content', error_content)
                         if sql_result.get("suggestions"):
                             yield sse_event('sql_result', sql_result)
+                        asyncio.create_task(tracer.save())
                         yield sse_event('done', {})
                         return
 
@@ -455,6 +473,8 @@ async def chat_stream(request: ChatRequest):
                     total_tokens = result.get("data")
 
             gen_ms = int((time.time() - start_time) * 1000)
+            trace_llm_call(tracer, "rag_answer", settings.ollama_chat_url, request.model or settings.ollama_chat_model,
+                [{"query": llm_query, "sources_count": len(sources)}], full_answer[:500], gen_ms)
             yield sse_event('step', {'id': 'generate', 'label': f'回答生成完成（{gen_ms}ms）', 'status': 'done'})
 
             duration_ms = gen_ms
@@ -463,10 +483,12 @@ async def chat_stream(request: ChatRequest):
                 "model": request.model or settings.ollama_chat_model,
                 "duration_ms": total_ms,
                 "tokens": total_tokens,
+                "request_id": tracer.request_id,
             }
             if intent_result:
                 metadata["intent"] = intent_result
             yield sse_event('metadata', metadata)
+            asyncio.create_task(tracer.save())
             yield sse_event('done', {})
 
             try:

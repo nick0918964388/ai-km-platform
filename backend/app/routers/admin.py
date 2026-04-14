@@ -122,6 +122,24 @@ async def get_audit_logs(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/admin/call-traces/{request_id}")
+async def get_call_traces(request_id: str):
+    """Return all LLM call traces for a given request_id."""
+    try:
+        async with get_db_context() as session:
+            result = await session.execute(
+                text("SELECT * FROM call_traces WHERE request_id = :rid ORDER BY id"),
+                {"rid": request_id},
+            )
+            traces = [dict(r._mapping) for r in result.fetchall()]
+            for t in traces:
+                if t.get("created_at"):
+                    t["created_at"] = str(t["created_at"])
+        return traces
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/admin/audit-logs/{log_id}")
 async def get_audit_log_detail(
     log_id: int,

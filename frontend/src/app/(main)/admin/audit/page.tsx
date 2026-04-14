@@ -29,6 +29,7 @@ interface AuditLog {
 
 interface AuditDetail {
   type: string;
+  request_id?: string;
   // SQL fields
   sql_generated?: string;
   tables_accessed?: string[];
@@ -45,6 +46,17 @@ interface AuditDetail {
   rewrite_query?: string;
   source_count?: number;
   intent?: string;
+}
+
+interface CallTrace {
+  step: string;
+  status: string;
+  duration_ms: number;
+  url: string;
+  model: string;
+  request_body?: string;
+  response_body?: string;
+  error?: string;
 }
 
 type FilterType = 'all' | 'sql' | 'rag';
@@ -85,6 +97,9 @@ export default function AuditPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, AuditDetail>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
+  const [traces, setTraces] = useState<Record<string, CallTrace[]>>({});
+  const [traceOpen, setTraceOpen] = useState<Record<string, boolean>>({});
+  const toggleTraceView = (id: string) => setTraceOpen(prev => ({ ...prev, [id]: !prev[id] }));
   const pageSize = 20;
 
   const fetchLogs = useCallback(async () => {
@@ -135,6 +150,16 @@ export default function AuditPage() {
         if (res.ok) {
           const d = await res.json();
           setDetails(prev => ({ ...prev, [key]: d }));
+          if (d.request_id) {
+            const traceRes = await fetch(
+              `${STREAM_API_URL}/api/admin/call-traces/${d.request_id}`,
+              { headers: getApiHeaders() }
+            );
+            if (traceRes.ok) {
+              const traceData = await traceRes.json();
+              setTraces(prev => ({ ...prev, [key]: traceData }));
+            }
+          }
         }
       } catch { /* ignore */ }
       setLoadingDetail(null);
@@ -306,11 +331,99 @@ export default function AuditPage() {
                                   <InProgress size={16} className="spinner" /> 載入詳情...
                                 </div>
                               ) : det ? (
-                                log.type === 'sql' ? (
-                                  <SqlDetail detail={det} />
-                                ) : (
-                                  <RagDetail detail={det} />
-                                )
+                                <>
+                                  {log.type === 'sql' ? (
+                                    <SqlDetail detail={det} />
+                                  ) : (
+                                    <RagDetail detail={det} />
+                                  )}
+                                  {/* System Call Chain */}
+                                  {traces[key]?.length > 0 && (
+                                    <div style={{ marginTop: '0.75rem' }}>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); toggleTraceView(key); }}
+                                        style={{
+                                          background: 'none',
+                                          border: 'none',
+                                          cursor: 'pointer',
+                                          color: 'var(--text-secondary)',
+                                          fontSize: '0.8125rem',
+                                          fontWeight: 600,
+                                          padding: '0.25rem 0',
+                                        }}
+                                      >
+                                        {traceOpen[key] ? '▼' : '▶'} 系統呼叫鏈 ({traces[key].length} calls)
+                                      </button>
+                                      {traceOpen[key] && (
+                                        <div style={{
+                                          marginTop: '0.5rem',
+                                          background: '#1e1e1e',
+                                          borderRadius: 8,
+                                          padding: '1rem',
+                                          fontFamily: 'monospace',
+                                          fontSize: '0.75rem',
+                                          color: '#d4d4d4',
+                                          maxHeight: 400,
+                                          overflow: 'auto',
+                                        }}>
+                                          {traces[key].map((trace, idx) => (
+                                            <div key={idx} style={{ marginBottom: '1rem', borderBottom: '1px solid #333', paddingBottom: '0.75rem' }}>
+                                              <div style={{ color: '#569cd6', fontWeight: 'bold' }}>
+                                                [{idx + 1}] {trace.step}
+                                                <span style={{ color: trace.status === 'ok' ? '#4ec9b0' : '#f44747', marginLeft: 8 }}>
+                                                  {trace.status === 'ok' ? '✓' : '✗'} {trace.duration_ms}ms
+                                                </span>
+                                              </div>
+                                              <div style={{ color: '#9cdcfe', marginTop: 4 }}>
+                                                URL: {trace.url}
+                                              </div>
+                                              <div style={{ color: '#9cdcfe' }}>
+                                                Model: {trace.model}
+                                              </div>
+                                              {trace.request_body && (
+                                                <details style={{ marginTop: 4 }}>
+                                                  <summary style={{ cursor: 'pointer', color: '#dcdcaa' }}>Request Body</summary>
+                                                  <pre style={{
+                                                    whiteSpace: 'pre-wrap',
+                                                    wordBreak: 'break-all',
+                                                    color: '#ce9178',
+                                                    margin: '4px 0',
+                                                    padding: '0.5rem',
+                                                    background: '#2d2d2d',
+                                                    borderRadius: 4,
+                                                    maxHeight: 200,
+                                                    overflow: 'auto',
+                                                  }}>{trace.request_body}</pre>
+                                                </details>
+                                              )}
+                                              {trace.response_body && (
+                                                <details style={{ marginTop: 4 }}>
+                                                  <summary style={{ cursor: 'pointer', color: '#dcdcaa' }}>Response</summary>
+                                                  <pre style={{
+                                                    whiteSpace: 'pre-wrap',
+                                                    wordBreak: 'break-all',
+                                                    color: '#b5cea8',
+                                                    margin: '4px 0',
+                                                    padding: '0.5rem',
+                                                    background: '#2d2d2d',
+                                                    borderRadius: 4,
+                                                    maxHeight: 200,
+                                                    overflow: 'auto',
+                                                  }}>{trace.response_body}</pre>
+                                                </details>
+                                              )}
+                                              {trace.error && (
+                                                <div style={{ color: '#f44747', marginTop: 4 }}>
+                                                  Error: {trace.error}
+                                                </div>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </>
                               ) : (
                                 <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
                                   無詳細資料
