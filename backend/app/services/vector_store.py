@@ -12,7 +12,7 @@ from qdrant_client.models import (
     FieldCondition,
     MatchValue,
 )
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -119,7 +119,7 @@ async def add_document(
     file_size: int,
     chunk_count: int,
 ) -> None:
-    """Add document metadata to PostgreSQL."""
+    """Add document metadata to PostgreSQL and create version record."""
     async with get_db_context() as db:
         doc = Document(
             id=document_id,
@@ -127,10 +127,27 @@ async def add_document(
             doc_type=doc_type,
             file_size=file_size,
             chunk_count=chunk_count,
+            current_version=1,
             uploaded_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
         db.add(doc)
+        await db.flush()
+
+        # Insert version record
+        try:
+            await db.execute(text("""
+                INSERT INTO document_versions (document_id, version, filename, file_size, chunk_count)
+                VALUES (:doc_id, 1, :filename, :file_size, :chunk_count)
+            """), {
+                "doc_id": document_id,
+                "filename": filename,
+                "file_size": file_size,
+                "chunk_count": chunk_count,
+            })
+        except Exception as e:
+            logger.warning(f"Failed to insert version record (table may not exist): {e}")
+
         await db.commit()
         logger.info(f"Document {document_id} ({filename}) saved to database")
 

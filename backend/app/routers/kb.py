@@ -2,8 +2,12 @@
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.session import get_db
 
 from app.models.schemas import (
     DocumentType,
@@ -101,6 +105,7 @@ async def list_documents():
             chunk_count=doc["chunk_count"],
             uploaded_at=datetime.fromisoformat(doc["uploaded_at"]),
             file_size=doc["file_size"],
+            current_version=doc.get("current_version", 1),
         )
         for doc in docs
     ]
@@ -192,6 +197,25 @@ async def get_document_file(document_id: str):
         media_type=file_info["content_type"],
         headers={"Content-Disposition": content_disposition},
     )
+
+
+# ============================================================================
+# Document Version Endpoints
+# ============================================================================
+
+@router.get("/documents/{document_id}/versions")
+async def get_document_versions(document_id: str, db: AsyncSession = Depends(get_db)):
+    """Get version history for a document."""
+    try:
+        result = await db.execute(
+            text("SELECT * FROM document_versions WHERE document_id = :id ORDER BY version DESC"),
+            {"id": document_id}
+        )
+        versions = [dict(r._mapping) for r in result.fetchall()]
+        return {"document_id": document_id, "versions": versions}
+    except Exception as e:
+        # Table may not exist yet
+        return {"document_id": document_id, "versions": []}
 
 
 # ============================================================================

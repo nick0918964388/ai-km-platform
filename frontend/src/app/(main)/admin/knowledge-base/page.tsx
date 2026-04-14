@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Notification,
+  Time,
 } from '@carbon/icons-react';
 import { UploadProgress } from '@/components/upload/UploadProgress';
 import type { ProgressMessage } from '@/hooks/useUploadProgress';
@@ -29,6 +30,20 @@ interface KBDocument {
   status: 'processing' | 'ready' | 'error';
   chunks?: number;
   taskId?: string;
+  currentVersion?: number;
+}
+
+interface VersionRecord {
+  id: number;
+  document_id: string;
+  version: number;
+  filename: string;
+  file_size: number;
+  chunk_count: number;
+  file_hash: string | null;
+  change_note: string | null;
+  uploaded_by: string | null;
+  created_at: string;
 }
 
 const API_BASE = API_URL;
@@ -40,18 +55,16 @@ export default function KnowledgeBasePage() {
   const [dragOver, setDragOver] = useState(false);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [loadingDocs, setLoadingDocs] = useState(true);
+  const [versionHistoryId, setVersionHistoryId] = useState<string | null>(null);
+  const [versionRecords, setVersionRecords] = useState<VersionRecord[]>([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadQueue, setUploadQueue] = useState<{name: string; status: 'pending'|'processing'|'done'|'error'; chunks?: number; error?: string}[]>([]);
 
   // Fetch documents from API on mount
   const fetchDocuments = useCallback(async () => {
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      const headers: Record<string, string> = {};
-      if (API_KEY) headers['X-API-Key'] = API_KEY;
-      if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetchWithTimeout(`${API_BASE}/api/kb/documents`, {
-        headers,
+        headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
         timeout: TIMEOUTS.DEFAULT,
       });
       if (res.ok) {
@@ -65,6 +78,7 @@ export default function KnowledgeBasePage() {
             uploadedAt: new Date(doc.uploaded_at),
             status: 'ready',
             chunks: doc.chunk_count,
+            currentVersion: doc.current_version || 1,
           }))
         );
       }
@@ -113,25 +127,16 @@ export default function KnowledgeBasePage() {
   const handleFileSelect = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
-    const fileArr = Array.from(files);
     setUploading(true);
-    setUploadQueue(fileArr.map(f => ({ name: f.name, status: 'pending' })));
 
-    for (let i = 0; i < fileArr.length; i++) {
-      const file = fileArr[i];
-      setUploadQueue(prev => prev.map((q, idx) => idx === i ? { ...q, status: 'processing' } : q));
-
+    for (const file of Array.from(files)) {
       const formData = new FormData();
       formData.append('file', file);
 
       try {
-        const uploadToken = localStorage.getItem('auth_token');
-        const uploadHeaders: Record<string, string> = {};
-        if (API_KEY) uploadHeaders['X-API-Key'] = API_KEY;
-        if (uploadToken) uploadHeaders['Authorization'] = `Bearer ${uploadToken}`;
         const res = await fetchWithTimeout(`${API_BASE}/api/kb/upload`, {
           method: 'POST',
-          headers: uploadHeaders,
+          headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
           body: formData,
           timeout: TIMEOUTS.UPLOAD,
         });
@@ -142,8 +147,8 @@ export default function KnowledgeBasePage() {
         }
 
         const result = await res.json();
-        setUploadQueue(prev => prev.map((q, idx) => idx === i ? { ...q, status: 'done', chunks: result.chunk_count } : q));
 
+        // Add document to list
         const newDoc: KBDocument = {
           id: result.document_id,
           name: file.name,
@@ -152,29 +157,38 @@ export default function KnowledgeBasePage() {
           uploadedAt: new Date(),
           status: 'ready',
           chunks: result.chunk_count,
+          taskId: result.task_id,
         };
+
         setDocuments(prev => [newDoc, ...prev]);
-      } catch (error: any) {
+
+        // If there's a task ID, track progress via WebSocket
+        if (result.task_id) {
+          setActiveTaskId(result.task_id);
+          // Update doc status to processing
+          setDocuments(prev =>
+            prev.map(doc =>
+              doc.id === result.document_id
+                ? { ...doc, status: 'processing', taskId: result.task_id }
+                : doc
+            )
+          );
+        }
+      } catch (error) {
         console.error('Upload error:', error);
-        setUploadQueue(prev => prev.map((q, idx) => idx === i ? { ...q, status: 'error', error: error.message || '上傳失敗' } : q));
+        // Could add error state to document here
       }
     }
 
     setUploading(false);
-    // 3 秒後清除上傳佇列
-    setTimeout(() => setUploadQueue([]), 3000);
   };
 
   const handleDelete = async (id: string) => {
     if (confirm('確定要刪除此文件？相關的知識庫內容也會被移除。')) {
       try {
-        const deleteToken = localStorage.getItem('auth_token');
-        const deleteHeaders: Record<string, string> = {};
-        if (API_KEY) deleteHeaders['X-API-Key'] = API_KEY;
-        if (deleteToken) deleteHeaders['Authorization'] = `Bearer ${deleteToken}`;
         const res = await fetchWithTimeout(`${API_BASE}/api/kb/documents/${id}`, {
           method: 'DELETE',
-          headers: deleteHeaders,
+          headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
           timeout: TIMEOUTS.DEFAULT,
         });
         if (res.ok) {
@@ -206,6 +220,31 @@ export default function KnowledgeBasePage() {
     handleFileSelect(e.dataTransfer.files);
   };
 
+  const toggleVersionHistory = async (docId: string) => {
+    if (versionHistoryId === docId) {
+      setVersionHistoryId(null);
+      setVersionRecords([]);
+      return;
+    }
+    setVersionHistoryId(docId);
+    setLoadingVersions(true);
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/api/kb/documents/${docId}/versions`, {
+        headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
+        timeout: TIMEOUTS.DEFAULT,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVersionRecords(data.versions || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch versions:', getErrorMessage(error));
+      setVersionRecords([]);
+    } finally {
+      setLoadingVersions(false);
+    }
+  };
+
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -225,32 +264,26 @@ export default function KnowledgeBasePage() {
   );
 
   return (
-    <div
-      onDragOver={handleDragOver}
-      style={{
+    <div style={{
+      padding: '2rem',
       height: '100%',
       overflow: 'auto',
-      background: 'var(--bg-primary)',
-      padding: '1.5rem 2rem',
+      background: 'var(--bg-primary)'
     }}>
       {/* Header */}
-      <div className="kb-page-header" style={{
+      <div style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'flex-start',
-        marginBottom: '1.5rem',
-        flexWrap: 'wrap',
-        gap: '0.75rem',
+        marginBottom: '1.5rem'
       }}>
         <div>
           <h1 style={{
-            fontSize: '1.5rem',
+            fontSize: '1.75rem',
             fontWeight: 700,
             color: 'var(--text-primary)',
             marginBottom: '0.25rem'
-          }}
-            className="sm:text-[1.75rem]"
-          >
+          }}>
             知識庫管理
           </h1>
           <p style={{
@@ -266,17 +299,12 @@ export default function KnowledgeBasePage() {
       </div>
 
       {/* Stats Grid */}
-      <div className="kb-stats-grid" style={{
+      <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(2, 1fr)',
+        gridTemplateColumns: 'repeat(4, 1fr)',
         gap: '1.25rem',
-        marginBottom: '2rem'
+        marginBottom: '1.5rem'
       }}>
-        <style>{`
-          @media (min-width: 1024px) {
-            .kb-stats-grid { grid-template-columns: repeat(4, 1fr) !important; gap: 1.5rem !important; }
-          }
-        `}</style>
         <div className="stat-card">
           <div className="stat-card-header">
             <span className="stat-card-title">文件數量</span>
@@ -320,17 +348,11 @@ export default function KnowledgeBasePage() {
       </div>
 
       {/* Search and Upload Row */}
-      <div className="kb-controls-row" style={{
+      <div style={{
         display: 'flex',
-        flexDirection: 'column',
-        gap: '0.75rem',
+        gap: '1rem',
         marginBottom: '1.5rem'
       }}>
-        <style>{`
-          @media (min-width: 640px) {
-            .kb-controls-row { flex-direction: row !important; gap: 1rem !important; }
-          }
-        `}</style>
         <div style={{ flex: 1, position: 'relative' }}>
           <Search
             size={18}
@@ -355,8 +377,7 @@ export default function KnowledgeBasePage() {
               paddingLeft: 48,
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border)',
-              height: 48,
-              width: '100%',
+              height: 48
             }}
           />
         </div>
@@ -367,11 +388,9 @@ export default function KnowledgeBasePage() {
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
             gap: '0.5rem',
             padding: '0 1.5rem',
-            height: 48,
-            flexShrink: 0,
+            height: 48
           }}
         >
           <Upload size={18} />
@@ -381,7 +400,7 @@ export default function KnowledgeBasePage() {
           type="file"
           ref={fileInputRef}
           onChange={(e) => handleFileSelect(e.target.files)}
-          accept=".pdf,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg,.webp"
+          accept=".pdf,.docx,.png,.jpg,.jpeg,.webp"
           multiple
           style={{ display: 'none' }}
           disabled={uploading}
@@ -410,52 +429,24 @@ export default function KnowledgeBasePage() {
             放開以上傳文件
           </div>
           <div style={{ color: 'var(--text-muted)' }}>
-            支援 PDF、Word、Excel、PNG、JPG、WEBP 格式
+            支援 PDF、Word、PNG、JPG、WEBP 格式
           </div>
         </div>
       )}
 
-      {/* Batch Upload Progress */}
-      {uploadQueue.length > 0 && (
-        <div style={{
-          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-md)', padding: '1rem',
-        }}>
-          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            上傳進度（{uploadQueue.filter(q => q.status === 'done').length} / {uploadQueue.length}）
-          </div>
-          {uploadQueue.map((q, i) => (
-            <div key={i} style={{
-              display: 'flex', alignItems: 'center', gap: '0.5rem',
-              padding: '0.375rem 0', fontSize: '0.8125rem',
-              color: q.status === 'error' ? '#da1e28' : 'var(--text-primary)',
-            }}>
-              <span style={{ width: 18, textAlign: 'center', flexShrink: 0 }}>
-                {q.status === 'done' ? '✓' : q.status === 'error' ? '✗' : q.status === 'processing' ? '⟳' : '○'}
-              </span>
-              <span style={{
-                flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                fontWeight: q.status === 'processing' ? 600 : 400,
-              }}>
-                {q.name}
-              </span>
-              {q.status === 'done' && q.chunks && (
-                <span style={{ fontSize: '0.75rem', color: '#42be65' }}>{q.chunks} chunks</span>
-              )}
-              {q.status === 'error' && (
-                <span style={{ fontSize: '0.75rem', color: '#da1e28' }}>{q.error}</span>
-              )}
-              {q.status === 'processing' && (
-                <span style={{ fontSize: '0.75rem', color: 'var(--accent)' }}>處理中...</span>
-              )}
-            </div>
-          ))}
-        </div>
+      {/* Upload Progress (WebSocket) */}
+      {activeTaskId && (
+        <UploadProgress
+          taskId={activeTaskId}
+          onComplete={handleUploadComplete}
+          onError={handleUploadError}
+          className="mt-4"
+        />
       )}
 
       {/* Document Table */}
-      <div className="table-container" style={{ overflowX: 'auto' }}>
-        <table className="data-table" style={{ minWidth: 600 }}>
+      <div className="table-container">
+        <table className="data-table">
           <thead>
             <tr>
               <th>文件名稱</th>
@@ -470,7 +461,7 @@ export default function KnowledgeBasePage() {
           <tbody>
             {paginatedDocuments.map((doc) => (
               <tr key={doc.id}>
-                <td data-label="文件名稱">
+                <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     <div style={{
                       width: 36,
@@ -500,14 +491,14 @@ export default function KnowledgeBasePage() {
                     </span>
                   </div>
                 </td>
-                <td data-label="類型">
+                <td>
                   <span className={`badge ${doc.type === 'pdf' ? 'badge-admin' : 'badge-user'}`}>
                     {doc.type.toUpperCase()}
                   </span>
                 </td>
-                <td data-label="大小" style={{ color: 'var(--text-muted)' }}>{formatSize(doc.size)}</td>
-                <td data-label="知識片段" style={{ color: 'var(--text-muted)' }}>{doc.chunks || '-'}</td>
-                <td data-label="狀態">
+                <td style={{ color: 'var(--text-muted)' }}>{formatSize(doc.size)}</td>
+                <td style={{ color: 'var(--text-muted)' }}>{doc.chunks || '-'}</td>
+                <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     {doc.status === 'ready' && (
                       <>
@@ -529,21 +520,86 @@ export default function KnowledgeBasePage() {
                     )}
                   </div>
                 </td>
-                <td data-label="上傳時間" style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                <td style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
                   {doc.uploadedAt.toLocaleDateString('zh-TW')}
                 </td>
-                <td data-label="操作" style={{ textAlign: 'center' }}>
-                  <button
-                    className="btn-icon"
-                    title="刪除"
-                    onClick={() => handleDelete(doc.id)}
-                    style={{ color: 'var(--error)' }}
-                    disabled={doc.status === 'processing'}
-                  >
-                    <TrashCan size={16} />
-                  </button>
+                <td style={{ textAlign: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
+                    <button
+                      onClick={() => toggleVersionHistory(doc.id)}
+                      style={{
+                        background: versionHistoryId === doc.id ? 'var(--accent)' : 'var(--bg-secondary)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        fontSize: '0.7rem',
+                        color: versionHistoryId === doc.id ? 'white' : 'var(--text-muted)',
+                        padding: '2px 6px',
+                        fontWeight: 600,
+                        lineHeight: 1.4,
+                      }}
+                      title="版本歷史"
+                    >
+                      v{doc.currentVersion || 1}
+                    </button>
+                    <button
+                      className="btn-icon"
+                      title="刪除"
+                      onClick={() => handleDelete(doc.id)}
+                      style={{ color: 'var(--error)' }}
+                      disabled={doc.status === 'processing'}
+                    >
+                      <TrashCan size={16} />
+                    </button>
+                  </div>
                 </td>
               </tr>
+              {versionHistoryId === doc.id && (
+                <tr key={`${doc.id}-versions`}>
+                  <td colSpan={7} style={{ padding: 0 }}>
+                    <div style={{
+                      background: 'var(--bg-secondary)',
+                      borderTop: '1px solid var(--border)',
+                      borderBottom: '1px solid var(--border)',
+                      padding: '0.75rem 1.5rem',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                        <Time size={14} style={{ color: 'var(--text-muted)' }} />
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          版本歷史
+                        </span>
+                      </div>
+                      {loadingVersions ? (
+                        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>載入中...</div>
+                      ) : versionRecords.length === 0 ? (
+                        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>v1 - 初始版本</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                          {versionRecords.map((v) => (
+                            <div key={v.id} style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '1rem',
+                              fontSize: '0.8125rem',
+                              color: 'var(--text-secondary)',
+                            }}>
+                              <span style={{ fontWeight: 600, color: 'var(--text-primary)', minWidth: 28 }}>v{v.version}</span>
+                              <span style={{ color: 'var(--text-muted)' }}>{v.chunk_count} 片段</span>
+                              <span style={{ color: 'var(--text-muted)' }}>{v.file_size ? formatSize(v.file_size) : '-'}</span>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                                {v.created_at ? new Date(v.created_at).toLocaleString('zh-TW') : '-'}
+                              </span>
+                              {v.change_note && (
+                                <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>{v.change_note}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
             ))}
           </tbody>
         </table>
@@ -575,23 +631,18 @@ export default function KnowledgeBasePage() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="kb-pagination" style={{
+          <div style={{
             display: 'flex',
-            flexDirection: 'column',
-            gap: '0.75rem',
+            justifyContent: 'space-between',
+            alignItems: 'center',
             padding: '1rem 1.5rem',
             borderTop: '1px solid var(--border)',
             background: 'var(--bg-secondary)'
           }}>
-            <style>{`
-              @media (min-width: 640px) {
-                .kb-pagination { flex-direction: row !important; justify-content: space-between !important; align-items: center !important; }
-              }
-            `}</style>
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', textAlign: 'center' }}>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
               顯示 {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredDocuments.length)} 筆，共 {filteredDocuments.length} 筆
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <button
                 className="btn-icon"
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}

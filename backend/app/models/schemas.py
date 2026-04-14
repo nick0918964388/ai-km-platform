@@ -72,6 +72,7 @@ class DocumentInfo(BaseModel):
     chunk_count: int
     uploaded_at: datetime
     file_size: int
+    current_version: int = 1
 
 
 class DocumentListResponse(BaseModel):
