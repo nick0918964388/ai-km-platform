@@ -221,6 +221,28 @@ export default function SettingsPage() {
     setTimeout(() => setSaved(false), 2000);
   };
 
+  // Fetch available models from Ollama
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  useEffect(() => {
+    if (llmSettings.ollama_chat_url) {
+      const baseUrl = llmSettings.ollama_chat_url.replace('/v1', '');
+      fetch(`${baseUrl}/api/tags`).then(r => r.json()).then(data => {
+        setAvailableModels((data.models || []).map((m: any) => m.name));
+      }).catch(() => {});
+    }
+  }, [llmSettings.ollama_chat_url]);
+
+  // Also fetch from intent endpoint
+  const [intentModels, setIntentModels] = useState<string[]>([]);
+  useEffect(() => {
+    if (llmSettings.intent_llm_url) {
+      const baseUrl = llmSettings.intent_llm_url.replace('/v1', '');
+      fetch(`${baseUrl}/api/tags`).then(r => r.json()).then(data => {
+        setIntentModels((data.models || []).map((m: any) => m.name));
+      }).catch(() => {});
+    }
+  }, [llmSettings.intent_llm_url]);
+
   const cardStyle: React.CSSProperties = {
     background: 'var(--bg-secondary, #fff)',
     borderRadius: 'var(--radius-lg, 12px)',
@@ -240,71 +262,37 @@ export default function SettingsPage() {
       {/* 2-column grid for small settings cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
 
-      {/* General Settings Card */}
-      <div style={cardStyle}>
-        <h2 style={cardTitle}>一般設定</h2>
-
-        <div className="form-group">
-          <label className="form-label">系統名稱</label>
-          <input
-            type="text"
-            className="form-input"
-            value={localSettings.siteName}
-            onChange={(e) => setLocalSettings({ ...localSettings, siteName: e.target.value })}
-            style={{ width: '100%' }}
-          />
-        </div>
-
-        <div className="form-group">
-          <label className="form-label">主題色</label>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              type="color"
-              value={localSettings.primaryColor}
-              onChange={(e) => setLocalSettings({ ...localSettings, primaryColor: e.target.value })}
-              style={{
-                width: 48,
-                height: 48,
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            />
-            <input
-              type="text"
-              className="form-input"
-              value={localSettings.primaryColor}
-              onChange={(e) => setLocalSettings({ ...localSettings, primaryColor: e.target.value })}
-              style={{ width: 120 }}
-            />
-          </div>
-        </div>
-      </div>
-
       {/* AI Settings Card */}
       <div style={cardStyle}>
         <h2 style={cardTitle}>AI 模型設定</h2>
-        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-          <label className="form-label">Chat 模型</label>
-          <input type="text" className="form-input" style={{ width: '100%' }}
-            value={llmSettings.ollama_chat_model}
-            onChange={e => setLlmSettings(s => ({ ...s, ollama_chat_model: e.target.value }))}
-          />
-        </div>
-        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-          <label className="form-label">Light 模型</label>
-          <input type="text" className="form-input" style={{ width: '100%' }}
-            value={llmSettings.ollama_light_model}
-            onChange={e => setLlmSettings(s => ({ ...s, ollama_light_model: e.target.value }))}
-          />
-        </div>
         <div className="form-group" style={{ marginBottom: '0.75rem' }}>
           <label className="form-label">LLM 端點 URL</label>
           <input type="text" className="form-input" style={{ width: '100%' }}
             value={llmSettings.ollama_chat_url}
             onChange={e => setLlmSettings(s => ({ ...s, ollama_chat_url: e.target.value }))}
           />
+        </div>
+        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+          <label className="form-label">Chat 模型</label>
+          <select className="form-input" style={{ width: '100%' }}
+            value={llmSettings.ollama_chat_model}
+            onChange={e => setLlmSettings(s => ({ ...s, ollama_chat_model: e.target.value }))}>
+            {llmSettings.ollama_chat_model && !availableModels.includes(llmSettings.ollama_chat_model) && (
+              <option value={llmSettings.ollama_chat_model}>{llmSettings.ollama_chat_model}</option>
+            )}
+            {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+          <label className="form-label">Light 模型（SQL/Rewrite）</label>
+          <select className="form-input" style={{ width: '100%' }}
+            value={llmSettings.ollama_light_model}
+            onChange={e => setLlmSettings(s => ({ ...s, ollama_light_model: e.target.value }))}>
+            {llmSettings.ollama_light_model && !availableModels.includes(llmSettings.ollama_light_model) && (
+              <option value={llmSettings.ollama_light_model}>{llmSettings.ollama_light_model}</option>
+            )}
+            {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
         </div>
         <div className="form-group">
           <label className="form-label">API Key</label>
@@ -320,18 +308,22 @@ export default function SettingsPage() {
       <div style={cardStyle}>
         <h2 style={cardTitle}>Intent 分類模型</h2>
         <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-          <label className="form-label">模型名稱</label>
-          <input type="text" className="form-input" style={{ width: '100%' }}
-            value={llmSettings.intent_llm_model}
-            onChange={e => setLlmSettings(s => ({ ...s, intent_llm_model: e.target.value }))}
-          />
-        </div>
-        <div className="form-group">
           <label className="form-label">端點 URL</label>
           <input type="text" className="form-input" style={{ width: '100%' }}
             value={llmSettings.intent_llm_url}
             onChange={e => setLlmSettings(s => ({ ...s, intent_llm_url: e.target.value }))}
           />
+        </div>
+        <div className="form-group">
+          <label className="form-label">模型名稱</label>
+          <select className="form-input" style={{ width: '100%' }}
+            value={llmSettings.intent_llm_model}
+            onChange={e => setLlmSettings(s => ({ ...s, intent_llm_model: e.target.value }))}>
+            {llmSettings.intent_llm_model && !intentModels.includes(llmSettings.intent_llm_model) && (
+              <option value={llmSettings.intent_llm_model}>{llmSettings.intent_llm_model}</option>
+            )}
+            {intentModels.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
         </div>
       </div>
 
@@ -369,16 +361,7 @@ export default function SettingsPage() {
 
       </div>{/* end grid */}
 
-      {/* Save button */}
-      <div style={{ margin: '1rem 0' }}>
-        <button onClick={handleSave} style={{
-          display: 'flex', alignItems: 'center', gap: '0.5rem',
-          padding: '0.625rem 1.25rem', background: 'var(--primary)', color: 'white',
-          border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontWeight: 600,
-        }}>
-          <Save size={16} /> {saved ? '已儲存 ✓' : '儲存設定'}
-        </button>
-      </div>
+      {/* Save button moved to bottom */}
 
       {/* Column Label Management (Admin only) - Full width card */}
       {user?.role === 'admin' && (
@@ -625,8 +608,15 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Save Button (duplicate removed — primary save is above the cards) */}
-      <div style={{ display: 'none' }}>
+      {/* Save Button at bottom */}
+      <div style={{ margin: '1.5rem 0', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+        <button onClick={handleSave} style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.75rem 1.5rem', background: 'var(--primary)', color: 'white',
+          border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontWeight: 600, fontSize: '0.9375rem',
+        }}>
+          <Save size={18} /> {saved ? '已儲存 ✓' : '儲存所有設定'}
+        </button>
       </div>
     </div>
   );
