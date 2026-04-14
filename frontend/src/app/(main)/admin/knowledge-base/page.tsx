@@ -459,7 +459,7 @@ export default function KnowledgeBasePage() {
             </tr>
           </thead>
           <tbody>
-            {paginatedDocuments.map((doc) => (
+            {paginatedDocuments.map((doc) => [
               <tr key={doc.id}>
                 <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -553,8 +553,8 @@ export default function KnowledgeBasePage() {
                     </button>
                   </div>
                 </td>
-              </tr>
-              {versionHistoryId === doc.id && (
+              </tr>,
+              versionHistoryId === doc.id && (
                 <tr key={`${doc.id}-versions`}>
                   <td colSpan={7} style={{ padding: 0 }}>
                     <div style={{
@@ -599,8 +599,8 @@ export default function KnowledgeBasePage() {
                     </div>
                   </td>
                 </tr>
-              )}
-            ))}
+              ),
+            ])}
           </tbody>
         </table>
 
