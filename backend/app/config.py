@@ -15,10 +15,10 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o"
 
     # Ollama Chat / OpenAI-compatible LLM endpoint
-    ollama_chat_url: str = "https://integrate.api.nvidia.com/v1"
-    ollama_chat_api_key: str = "ollama"  # "ollama" for Ollama, real key for NVIDIA/OpenRouter
-    ollama_chat_model: str = "minimaxai/minimax-m2.7"
-    ollama_light_model: str = "minimaxai/minimax-m2.7"
+    ollama_chat_url: str = "http://ollama.webtw.xyz:11434/v1"
+    ollama_chat_api_key: str = "ollama"
+    ollama_chat_model: str = "gemma4:31b-cloud"
+    ollama_light_model: str = "gemma4:31b-cloud"
 
     # Fast local LLM for intent classification (low latency, smaller model)
     intent_llm_url: str = "http://ollama.webtw.xyz:11434/v1"
