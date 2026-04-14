@@ -40,8 +40,7 @@ export default function HistoryPage() {
 
   const handleSelect = (id: string) => {
     setActiveConversation(id);
-    // Small delay to ensure localStorage is written before navigation
-    setTimeout(() => { window.location.href = '/chat'; }, 50);
+    window.location.href = `/chat?conversation=${id}`;
   };
 
   const formatDate = (date: Date) => {

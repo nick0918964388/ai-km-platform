@@ -131,6 +131,19 @@ export default function ChatWindow() {
     deleteConversation,
   } = useStore();
 
+  // Restore conversation from URL param (e.g., /chat?conversation=xxx from history page)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const convId = params.get('conversation');
+      if (convId && convId !== activeConversationId) {
+        setActiveConversation(convId);
+        // Clean URL without reload
+        window.history.replaceState({}, '', '/chat');
+      }
+    }
+  }, []);
+
   // Close history dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
