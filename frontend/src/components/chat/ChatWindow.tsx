@@ -200,19 +200,24 @@ export default function ChatWindow() {
       const data = await res.json();
       if (data.status === 'done' && data.events) {
         let content = '';
+        let sources: any[] = [];
+        let sqlResults: any[] = [];
         for (const event of data.events) {
           if (event.type === 'content' && event.data) content += event.data;
-          if (event.type === 'sources') setMessageSources(prev => ({ ...prev, [messageId]: event.data }));
-          if (event.type === 'sql_result') {
-            setMessageSqlResults(prev => {
-              const updated = [...(prev[messageId] || []), event.data];
-              return { ...prev, [messageId]: updated };
-            });
+          if (event.type === 'sources' && event.data) { sources = event.data; setMessageSources(prev => ({ ...prev, [messageId]: event.data })); }
+          if (event.type === 'sql_result' && event.data) {
+            sqlResults.push(event.data);
+            setMessageSqlResults(prev => ({ ...prev, [messageId]: [...(prev[messageId] || []), event.data] }));
           }
           if (event.type === 'metadata') setMessageMetadata(prev => ({ ...prev, [messageId]: event.data }));
           if (event.type === 'follow_up') setMessageFollowUps(prev => ({ ...prev, [messageId]: event.data }));
         }
-        if (content) useStore.getState().updateMessage(convId, messageId, content);
+        if (content || sqlResults.length > 0) {
+          useStore.getState().updateMessage(convId, messageId, content, {
+            sources: sources.length > 0 ? sources : undefined,
+            sqlResult: sqlResults.length > 0 ? sqlResults : undefined,
+          });
+        }
       } else if (data.status === 'running') {
         const poll = setInterval(async () => {
           try {
@@ -226,10 +231,12 @@ export default function ChatWindow() {
   }, []);
 
   useEffect(() => {
-    if (messages.length > 0) {
-      const lastMsg = messages[messages.length - 1];
-      if (lastMsg?.role === 'assistant' && lastMsg.jobId && !lastMsg.content && activeConversationId) {
-        recoverJob(lastMsg.jobId, lastMsg.id, activeConversationId);
+    if (messages.length > 0 && activeConversationId) {
+      // Scan all assistant messages for incomplete jobs (not just the last one)
+      for (const msg of messages) {
+        if (msg.role === 'assistant' && msg.jobId && !msg.content) {
+          recoverJob(msg.jobId, msg.id, activeConversationId);
+        }
       }
     }
   }, [activeConversationId, messages, recoverJob]);
