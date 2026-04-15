@@ -107,12 +107,47 @@ SYSTEM_PROMPT = f"""你是一個車輛維修知識管理系統的意圖分類器
 class IntentClassifierService:
     def __init__(self):
         settings = get_settings()
-        # Use fast local model for intent classification (low latency)
-        self.client = AsyncOpenAI(api_key="ollama", base_url=settings.intent_llm_url)
+        self.provider = settings.intent_provider  # "ollama", "anthropic", "openai"
         self.model = settings.intent_llm_model
 
+        if self.provider == "anthropic" and settings.anthropic_api_key:
+            self.anthropic_key = settings.anthropic_api_key
+            self.model = settings.anthropic_model or "claude-haiku-4-5-20251001"
+            self.client = None  # Use anthropic SDK directly
+        elif self.provider == "openai" and settings.openai_api_key:
+            self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+            self.model = settings.openai_model or "gpt-4o-mini"
+            self.anthropic_key = None
+        else:
+            # Default: ollama
+            self.client = AsyncOpenAI(api_key="ollama", base_url=settings.intent_llm_url)
+            self.anthropic_key = None
+
+    async def _call_anthropic(self, system: str, user_msg: str) -> str:
+        """Call Anthropic API directly using httpx."""
+        import httpx
+        async with httpx.AsyncClient() as http:
+            resp = await http.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": self.anthropic_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "max_tokens": 500,
+                    "system": system,
+                    "messages": [{"role": "user", "content": user_msg}],
+                },
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["content"][0]["text"]
+
     async def classify(self, query: str, context: list = None) -> IntentResult:
-        user_prompt = f"/no_think\n使用者查詢: {query}"
+        user_prompt = f"使用者查詢: {query}"
         if context:
             conv_parts = []
             for m in context[-3:]:
@@ -126,19 +161,23 @@ class IntentClassifierService:
                 user_prompt = f"對話脈絡:\n" + "\n".join(conv_parts) + f"\n\n{user_prompt}"
 
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0,
-                max_tokens=500,
-            )
+            if self.anthropic_key:
+                content = await self._call_anthropic(SYSTEM_PROMPT, user_prompt)
+            else:
+                # Add /no_think for ollama models
+                ollama_prompt = f"/no_think\n{user_prompt}" if not self.anthropic_key else user_prompt
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": ollama_prompt}
+                    ],
+                    temperature=0,
+                    max_tokens=500,
+                )
+                content = response.choices[0].message.content
 
-            content = response.choices[0].message.content
-
-            # Strip <think>...</think> tags from qwen models
+            # Strip <think>...</think> tags from qwen/ollama models
             content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
 
             # Strip markdown code fences if present

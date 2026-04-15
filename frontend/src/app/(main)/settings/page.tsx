@@ -21,8 +21,12 @@ export default function SettingsPage() {
     ollama_chat_api_key: '',
     ollama_chat_model: '',
     ollama_light_model: '',
+    intent_provider: 'ollama',
     intent_llm_url: '',
     intent_llm_model: '',
+    openai_api_key: '',
+    anthropic_api_key: '',
+    anthropic_model: 'claude-haiku-4-5-20251001',
   });
 
   // Column label management state
@@ -88,8 +92,12 @@ export default function SettingsPage() {
             ollama_chat_api_key: data.ollama_chat_api_key || '',
             ollama_chat_model: data.ollama_chat_model || '',
             ollama_light_model: data.ollama_light_model || '',
+            intent_provider: data.intent_provider || 'ollama',
             intent_llm_url: data.intent_llm_url || '',
             intent_llm_model: data.intent_llm_model || '',
+            openai_api_key: data.openai_api_key || '',
+            anthropic_api_key: data.anthropic_api_key || '',
+            anthropic_model: data.anthropic_model || 'claude-haiku-4-5-20251001',
             chunk_size: data.chunk_size || '500',
             chunk_overlap: data.chunk_overlap || '100',
             chunk_strategy: data.chunk_strategy || 'smart',
@@ -338,22 +346,68 @@ export default function SettingsPage() {
       <div style={cardStyle}>
         <h2 style={cardTitle}>Intent 分類模型</h2>
         <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-          <label className="form-label">端點 URL</label>
-          <input type="text" className="form-input" style={{ width: '100%' }}
-            value={llmSettings.intent_llm_url}
-            onChange={e => setLlmSettings(s => ({ ...s, intent_llm_url: e.target.value }))}
+          <label className="form-label">Provider</label>
+          <select className="form-input" style={{ width: '100%' }}
+            value={llmSettings.intent_provider}
+            onChange={e => setLlmSettings(s => ({ ...s, intent_provider: e.target.value }))}>
+            <option value="ollama">Ollama (本地)</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
+        {llmSettings.intent_provider === 'ollama' && (
+          <>
+            <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+              <label className="form-label">端點 URL</label>
+              <input type="text" className="form-input" style={{ width: '100%' }}
+                value={llmSettings.intent_llm_url}
+                onChange={e => setLlmSettings(s => ({ ...s, intent_llm_url: e.target.value }))}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">模型名稱</label>
+              <select className="form-input" style={{ width: '100%' }}
+                value={llmSettings.intent_llm_model}
+                onChange={e => setLlmSettings(s => ({ ...s, intent_llm_model: e.target.value }))}>
+                {llmSettings.intent_llm_model && !intentModels.includes(llmSettings.intent_llm_model) && (
+                  <option value={llmSettings.intent_llm_model}>{llmSettings.intent_llm_model}</option>
+                )}
+                {intentModels.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          </>
+        )}
+        {llmSettings.intent_provider === 'anthropic' && (
+          <div className="form-group">
+            <label className="form-label">模型</label>
+            <select className="form-input" style={{ width: '100%' }}
+              value={llmSettings.anthropic_model}
+              onChange={e => setLlmSettings(s => ({ ...s, anthropic_model: e.target.value }))}>
+              <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (最快)</option>
+              <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* API Keys Card */}
+      <div style={cardStyle}>
+        <h2 style={cardTitle}>API Keys</h2>
+        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+          <label className="form-label">Anthropic API Key</label>
+          <input type="password" className="form-input" style={{ width: '100%' }}
+            value={llmSettings.anthropic_api_key}
+            onChange={e => setLlmSettings(s => ({ ...s, anthropic_api_key: e.target.value }))}
+            placeholder="sk-ant-..."
           />
         </div>
         <div className="form-group">
-          <label className="form-label">模型名稱</label>
-          <select className="form-input" style={{ width: '100%' }}
-            value={llmSettings.intent_llm_model}
-            onChange={e => setLlmSettings(s => ({ ...s, intent_llm_model: e.target.value }))}>
-            {llmSettings.intent_llm_model && !intentModels.includes(llmSettings.intent_llm_model) && (
-              <option value={llmSettings.intent_llm_model}>{llmSettings.intent_llm_model}</option>
-            )}
-            {intentModels.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
+          <label className="form-label">OpenAI API Key</label>
+          <input type="password" className="form-input" style={{ width: '100%' }}
+            value={llmSettings.openai_api_key}
+            onChange={e => setLlmSettings(s => ({ ...s, openai_api_key: e.target.value }))}
+            placeholder="sk-..."
+          />
         </div>
       </div>
 
