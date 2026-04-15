@@ -420,6 +420,7 @@ export default function SettingsPage() {
               value={llmSettings.chunk_strategy || 'smart'}
               onChange={e => setLlmSettings(s => ({ ...s, chunk_strategy: e.target.value }))}>
               <option value="smart">智慧分割（保持步驟完整性）</option>
+              <option value="recursive">遞迴分割（中文優化）</option>
               <option value="fixed">固定長度分割</option>
               <option value="paragraph">段落分割</option>
             </select>

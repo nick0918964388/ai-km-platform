@@ -16,7 +16,7 @@ from PIL import Image
 from app.services import embedding as embed_service
 from app.services import vector_store
 from app.services import file_storage
-from app.services.chunking import smart_chunk, chunk_document
+from app.services.chunking import smart_chunk, recursive_chunk, chunk_document
 from app.models.schemas import ProcessingStep
 
 logger = logging.getLogger(__name__)
@@ -121,9 +121,13 @@ async def process_pdf(
 
     chunk_cfg = await _get_chunk_settings()
 
-    # Use smart chunking for technical documents
+    # Use configured chunking strategy
     if use_smart_chunking and full_text.strip():
-        chunks = smart_chunk(full_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
+        strategy = chunk_cfg['strategy']
+        if strategy == 'recursive':
+            chunks = recursive_chunk(full_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
+        else:
+            chunks = smart_chunk(full_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
     else:
         # Fallback to simple paragraph chunking
         chunks = [
@@ -279,9 +283,13 @@ async def process_word(
 
     chunk_cfg = await _get_chunk_settings()
 
-    # Use smart chunking
+    # Use configured chunking strategy
     if use_smart_chunking and full_text.strip():
-        chunks = smart_chunk(full_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
+        strategy = chunk_cfg['strategy']
+        if strategy == 'recursive':
+            chunks = recursive_chunk(full_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
+        else:
+            chunks = smart_chunk(full_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
     else:
         # Fallback
         chunks = [
@@ -564,9 +572,13 @@ async def process_excel(
 
         sheet_text = "\n".join(sheet_text_parts)
 
-        # Smart chunking or fallback
+        # Use configured chunking strategy
         if use_smart_chunking and sheet_text.strip():
-            sheet_chunks = smart_chunk(sheet_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
+            strategy = chunk_cfg['strategy']
+            if strategy == 'recursive':
+                sheet_chunks = recursive_chunk(sheet_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
+            else:
+                sheet_chunks = smart_chunk(sheet_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
             for chunk in sheet_chunks:
                 chunk["metadata"]["sheet_name"] = sheet_name
                 chunks.append(chunk)
