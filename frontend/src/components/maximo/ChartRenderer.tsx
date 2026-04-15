@@ -64,10 +64,10 @@ export default function ChartRenderer({
   const renderChart = () => {
     if (chartType === 'bar') {
       return (
-        <BarChart data={data}>
+        <BarChart data={data} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey={xKey} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
-          <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
+          <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} interval={0} angle={-30} textAnchor="end" height={50} />
+          <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={40} />
           <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
           <Bar dataKey={yKey} fill="#0f62fe" radius={[4, 4, 0, 0]} />
         </BarChart>
@@ -76,10 +76,10 @@ export default function ChartRenderer({
 
     if (chartType === 'line') {
       return (
-        <LineChart data={data}>
+        <LineChart data={data} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey={xKey} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
-          <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
+          <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} interval={0} angle={-30} textAnchor="end" height={50} />
+          <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={40} />
           <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
           <Line type="monotone" dataKey={yKey} stroke="#0f62fe" strokeWidth={2} dot={{ fill: '#0f62fe' }} />
         </LineChart>
@@ -89,7 +89,7 @@ export default function ChartRenderer({
     if (chartType === 'pie') {
       return (
         <PieChart>
-          <Pie data={data} dataKey={yKey} nameKey={xKey} cx="50%" cy="45%" outerRadius={80} label={({ name, value }: { name: string; value: number }) => `${name}: ${value}`} labelLine={true}>
+          <Pie data={data} dataKey={yKey} nameKey={xKey} cx="50%" cy="45%" outerRadius={70} label={({ name, value }: { name: string; value: number }) => `${String(name).slice(0, 8)}: ${value}`} labelLine={true} fontSize={10}>
             {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
           </Pie>
           <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }} />
@@ -112,7 +112,7 @@ export default function ChartRenderer({
 
   return (
     <>
-      <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.8125rem', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '0.375rem', fontSize: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <button
           onClick={() => setViewMode('table')}
           style={{
