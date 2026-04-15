@@ -16,7 +16,8 @@ export default function BottomNav() {
   const pathname = usePathname();
   const { user } = useStore();
 
-  if (!user) return null;
+  // Hide bottom nav on chat page for more screen space
+  if (!user || pathname === '/chat' || pathname.startsWith('/chat/')) return null;
 
   return (
     <nav className="bottom-nav" aria-label="底部導航">

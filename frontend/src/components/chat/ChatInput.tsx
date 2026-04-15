@@ -78,7 +78,7 @@ export default function ChatInput({
   };
 
   return (
-    <div style={{
+    <div className="chat-input-wrap" style={{
       padding: '0.5rem 2rem 1rem',
       background: 'transparent',
       flexShrink: 0,
@@ -145,8 +145,8 @@ export default function ChatInput({
           gap: '0.5rem',
           padding: '0.625rem 0.75rem',
         }}>
-          {/* Left: attach only */}
-          <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          {/* Left: attach only (hidden on mobile) */}
+          <div className="hide-on-mobile" style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
             <input
               ref={fileInputRef}
               type="file"

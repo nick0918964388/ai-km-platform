@@ -643,8 +643,8 @@ export default function ChatWindow() {
     <div style={{ display: 'flex', flex: 1, height: '100%', overflow: 'hidden' }}>
       {/* Main Chat Area */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* Chat Header */}
-        <div style={{
+        {/* Chat Header — hidden on mobile (MobileHeader provides nav) */}
+        <div className="chat-header-bar" style={{
           height: 72,
           padding: '0 2rem',
           display: 'flex',
@@ -929,8 +929,8 @@ export default function ChatWindow() {
                       <Bot size={18} style={{ color: 'var(--accent)' }} />
                     </div>
                   )}
-                  <div 
-                    className={msg.role === 'assistant' && messageStreamingStatus[msg.id] ? 'ai-message-streaming' : ''}
+                  <div
+                    className={`chat-bubble ${msg.role === 'assistant' && messageStreamingStatus[msg.id] ? 'ai-message-streaming' : ''}`}
                     style={{
                     maxWidth: '70%',
                     padding: '1rem 1.25rem',
