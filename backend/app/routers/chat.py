@@ -572,6 +572,30 @@ async def chat_stream(request: ChatRequest):
 @router.get("/models")
 async def get_models():
     settings = get_settings()
+
+    # Anthropic provider — return Claude models
+    if settings.llm_provider == "anthropic":
+        return {
+            "models": [
+                {"name": "claude-haiku-4-5-20251001", "size": "快速"},
+                {"name": "claude-sonnet-4-6", "size": "平衡"},
+                {"name": "claude-opus-4-6", "size": "最強"},
+            ],
+            "current": settings.anthropic_model or "claude-haiku-4-5-20251001",
+        }
+
+    # OpenAI provider
+    if settings.llm_provider == "openai":
+        return {
+            "models": [
+                {"name": "gpt-4o-mini", "size": "快速"},
+                {"name": "gpt-4o", "size": "強"},
+                {"name": "gpt-4.1", "size": "最新"},
+            ],
+            "current": settings.openai_model or "gpt-4o",
+        }
+
+    # Ollama provider — fetch from API
     ollama_base = settings.ollama_chat_url.replace("/v1", "").rstrip("/")
     try:
         req = urllib.request.Request(f"{ollama_base}/api/tags")

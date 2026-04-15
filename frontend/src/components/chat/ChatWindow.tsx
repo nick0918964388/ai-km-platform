@@ -288,16 +288,17 @@ export default function ChatWindow() {
     } catch (e) { console.error('Job recovery failed:', e); }
   }, []);
 
+  const activeJobsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (messages.length > 0 && activeConversationId) {
-      // Scan all assistant messages for incomplete jobs (not just the last one)
+    if (messages.length > 0 && activeConversationId && !isLoading && !isStreaming) {
       for (const msg of messages) {
-        if (msg.role === 'assistant' && msg.jobId && !msg.content) {
+        if (msg.role === 'assistant' && msg.jobId && !msg.content && !activeJobsRef.current.has(msg.jobId)) {
+          activeJobsRef.current.add(msg.jobId);
           recoverJob(msg.jobId, msg.id, activeConversationId);
         }
       }
     }
-  }, [activeConversationId, messages, recoverJob]);
+  }, [activeConversationId, messages, recoverJob, isLoading, isStreaming]);
 
   const handleNewChat = () => {
     const newConv = {
