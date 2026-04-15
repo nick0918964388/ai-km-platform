@@ -833,7 +833,7 @@ export default function ChatWindow() {
         </div>
 
         {/* Messages Area */}
-        <div style={{
+        <div className="chat-messages-area" style={{
           flex: 1,
           overflow: 'auto',
           padding: '2rem 5rem 1rem',
