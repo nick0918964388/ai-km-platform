@@ -324,7 +324,7 @@ h1, h2, h3, h4, h5, h6,
 /* Stat Card */
 .stat-card {
   background: var(--bg-card);
-  border: 1px solid var(--border-light);
+  border: none;
   border-radius: var(--radius-xl);
   padding: 1.75rem;
   display: flex;
@@ -401,8 +401,9 @@ h1, h2, h3, h4, h5, h6,
 
 .btn-primary {
   background: var(--primary);
-  color: #faf9f5;
-  box-shadow: var(--primary) 0px 0px 0px 0px, var(--primary) 0px 0px 0px 1px;
+  color: white;
+  box-shadow: none;
+  border-radius: var(--radius-lg);
 }
 
 .btn-primary:hover {
@@ -556,10 +557,11 @@ h1, h2, h3, h4, h5, h6,
    ======================================== */
 
 .table-container {
-  border: 1px solid var(--border-light);
+  border: none;
   border-radius: var(--radius-lg);
   overflow: hidden;
-  background: var(--bg-secondary);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
 }
 
 /* Mobile: Horizontal scroll for wide tables */
@@ -1237,7 +1239,8 @@ h1, h2, h3, h4, h5, h6,
   left: 0;
   right: 0;
   height: 56px;
-  background: var(--bg-secondary);
+  background: #FFFFFF;
+  border-bottom: 1px solid #F0F0F0;
   color: var(--text-primary);
   padding: 0 1rem;
   align-items: center;
@@ -1263,15 +1266,16 @@ h1, h2, h3, h4, h5, h6,
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-weight: 600;
+  font-weight: 500;
+  font-size: 1rem;
 }
 
 .mobile-logo {
+  display: none; /* Hidden in Claude style */
   width: 28px;
   height: 28px;
   background: var(--primary);
   border-radius: 6px;
-  display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0.75rem;

@@ -34,8 +34,7 @@ export default function MobileHeader() {
       </button>
 
       <div className="mobile-title">
-        <span className="mobile-logo">KM</span>
-        車輛維修知識庫
+        AI 維修顧問
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
