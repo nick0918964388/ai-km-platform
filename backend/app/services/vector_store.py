@@ -338,6 +338,36 @@ def search_images(
     ]
 
 
+def get_document_chunks(document_id: str, limit: int = 3) -> list[dict]:
+    """Get text chunks belonging to a document from Qdrant."""
+    client = get_client()
+
+    results = client.scroll(
+        collection_name=TEXT_COLLECTION,
+        scroll_filter=Filter(
+            must=[
+                FieldCondition(
+                    key="document_id",
+                    match=MatchValue(value=document_id),
+                )
+            ]
+        ),
+        limit=limit,
+        with_payload=True,
+        with_vectors=False,
+    )
+
+    points = results[0] if results else []
+    return [
+        {
+            "id": str(p.id),
+            "content": p.payload.get("content", "") if p.payload else "",
+            "chunk_index": p.payload.get("chunk_index", 0) if p.payload else 0,
+        }
+        for p in points
+    ]
+
+
 async def get_stats() -> dict:
     """Get knowledge base statistics."""
     client = get_client()

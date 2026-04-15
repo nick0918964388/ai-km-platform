@@ -199,6 +199,16 @@ async def get_document_file(document_id: str):
     )
 
 
+@router.get("/documents/{document_id}/preview")
+async def preview_document(document_id: str):
+    """Get text preview of a document's content (first few chunks)."""
+    chunks = vector_store.get_document_chunks(document_id, limit=3)
+    if not chunks:
+        raise HTTPException(status_code=404, detail="找不到文件內容")
+    preview_text = "\n\n---\n\n".join([c.get("content", "") for c in chunks])
+    return {"document_id": document_id, "preview": preview_text[:2000]}
+
+
 # ============================================================================
 # Document Version Endpoints
 # ============================================================================

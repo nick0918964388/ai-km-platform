@@ -16,6 +16,8 @@ import {
   ChevronRight,
   Notification,
   Time,
+  View,
+  Close,
 } from '@carbon/icons-react';
 import { UploadProgress } from '@/components/upload/UploadProgress';
 import type { ProgressMessage } from '@/hooks/useUploadProgress';
@@ -46,6 +48,16 @@ interface VersionRecord {
   created_at: string;
 }
 
+interface UploadQueueItem {
+  file: File;
+  taskId?: string;
+  documentId?: string;
+  status: 'pending' | 'uploading' | 'processing' | 'done' | 'error';
+  progress?: number;
+  error?: string;
+  chunks?: number;
+}
+
 const API_BASE = API_URL;
 
 export default function KnowledgeBasePage() {
@@ -58,6 +70,10 @@ export default function KnowledgeBasePage() {
   const [versionHistoryId, setVersionHistoryId] = useState<string | null>(null);
   const [versionRecords, setVersionRecords] = useState<VersionRecord[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
+  const [previewModal, setPreviewModal] = useState<{ docId: string; name: string; content: string } | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const isProcessingQueue = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch documents from API on mount
@@ -98,7 +114,6 @@ export default function KnowledgeBasePage() {
   );
 
   const handleUploadComplete = useCallback((message: ProgressMessage) => {
-    // Update document status on completion
     setDocuments(prev =>
       prev.map(doc =>
         doc.taskId === message.task_id
@@ -106,13 +121,17 @@ export default function KnowledgeBasePage() {
           : doc
       )
     );
+    // Update queue item for this task
+    setUploadQueue(prev => prev.map(item =>
+      item.taskId === message.task_id
+        ? { ...item, status: 'done', progress: 100, chunks: message.chunk_count || 0 }
+        : item
+    ));
     setActiveTaskId(null);
-    // Refresh document list from server
     fetchDocuments();
   }, [fetchDocuments]);
 
   const handleUploadError = useCallback((error: string) => {
-    // Update document status on error
     setDocuments(prev =>
       prev.map(doc =>
         doc.taskId === activeTaskId
@@ -120,20 +139,42 @@ export default function KnowledgeBasePage() {
           : doc
       )
     );
+    setUploadQueue(prev => prev.map(item =>
+      item.taskId === activeTaskId
+        ? { ...item, status: 'error', error }
+        : item
+    ));
     setActiveTaskId(null);
     console.error('Upload error:', error);
   }, [activeTaskId]);
 
-  const handleFileSelect = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-
+  const processQueue = useCallback(async (queue: UploadQueueItem[]) => {
+    if (isProcessingQueue.current) return;
+    isProcessingQueue.current = true;
     setUploading(true);
 
-    for (const file of Array.from(files)) {
+    for (let i = 0; i < queue.length; i++) {
+      const item = queue[i];
+      if (item.status !== 'pending') continue;
+
+      // Update status to uploading
+      setUploadQueue(prev => prev.map(q =>
+        q.file === item.file && q.status === 'pending'
+          ? { ...q, status: 'uploading', progress: 10 }
+          : q
+      ));
+
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', item.file);
 
       try {
+        // Show progress bump for upload start
+        setUploadQueue(prev => prev.map(q =>
+          q.file === item.file && q.status === 'uploading'
+            ? { ...q, progress: 30 }
+            : q
+        ));
+
         const res = await fetchWithTimeout(`${API_BASE}/api/kb/upload`, {
           method: 'POST',
           headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
@@ -148,39 +189,78 @@ export default function KnowledgeBasePage() {
 
         const result = await res.json();
 
-        // Add document to list
+        // Upload+processing completed (synchronous endpoint)
+        setUploadQueue(prev => prev.map(q =>
+          q.file === item.file
+            ? { ...q, status: 'done', progress: 100, chunks: result.chunk_count, documentId: result.document_id }
+            : q
+        ));
+
         const newDoc: KBDocument = {
           id: result.document_id,
-          name: file.name,
+          name: item.file.name,
           type: result.doc_type,
-          size: file.size,
+          size: item.file.size,
           uploadedAt: new Date(),
           status: 'ready',
           chunks: result.chunk_count,
-          taskId: result.task_id,
         };
 
         setDocuments(prev => [newDoc, ...prev]);
-
-        // If there's a task ID, track progress via WebSocket
-        if (result.task_id) {
-          setActiveTaskId(result.task_id);
-          // Update doc status to processing
-          setDocuments(prev =>
-            prev.map(doc =>
-              doc.id === result.document_id
-                ? { ...doc, status: 'processing', taskId: result.task_id }
-                : doc
-            )
-          );
-        }
       } catch (error) {
         console.error('Upload error:', error);
-        // Could add error state to document here
+        setUploadQueue(prev => prev.map(q =>
+          q.file === item.file
+            ? { ...q, status: 'error', error: getErrorMessage(error) }
+            : q
+        ));
       }
     }
 
     setUploading(false);
+    isProcessingQueue.current = false;
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  const handleFileSelect = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    const newItems: UploadQueueItem[] = Array.from(files).map(file => ({
+      file,
+      status: 'pending' as const,
+      progress: 0,
+    }));
+
+    setUploadQueue(prev => [...prev, ...newItems]);
+    processQueue(newItems);
+  };
+
+  const handlePreview = async (doc: KBDocument) => {
+    if (doc.type === 'pdf') {
+      window.open(`${API_BASE}/api/kb/documents/${doc.id}/file`, '_blank');
+      return;
+    }
+    setLoadingPreview(true);
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/api/kb/documents/${doc.id}/preview`, {
+        headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
+        timeout: TIMEOUTS.DEFAULT,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPreviewModal({ docId: doc.id, name: doc.name, content: data.preview || '(無內容)' });
+      } else {
+        setPreviewModal({ docId: doc.id, name: doc.name, content: '無法載入預覽內容' });
+      }
+    } catch {
+      setPreviewModal({ docId: doc.id, name: doc.name, content: '載入失敗' });
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const clearCompletedUploads = () => {
+    setUploadQueue(prev => prev.filter(q => q.status !== 'done' && q.status !== 'error'));
   };
 
   const handleDelete = async (id: string) => {
@@ -434,14 +514,112 @@ export default function KnowledgeBasePage() {
         </div>
       )}
 
-      {/* Upload Progress (WebSocket) */}
+      {/* Hidden WebSocket tracker for active task */}
       {activeTaskId && (
-        <UploadProgress
-          taskId={activeTaskId}
-          onComplete={handleUploadComplete}
-          onError={handleUploadError}
-          className="mt-4"
-        />
+        <div style={{ display: 'none' }}>
+          <UploadProgress
+            taskId={activeTaskId}
+            onComplete={handleUploadComplete}
+            onError={handleUploadError}
+          />
+        </div>
+      )}
+
+      {/* Upload Queue Progress Panel */}
+      {uploadQueue.length > 0 && (
+        <div style={{
+          marginBottom: '1.5rem',
+          padding: '1rem 1.25rem',
+          background: 'var(--bg-secondary)',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--border)',
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '0.75rem',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <CloudUpload size={18} style={{ color: 'var(--accent)' }} />
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.875rem' }}>
+                上傳進度（{uploadQueue.length} 個檔案）
+              </span>
+            </div>
+            {uploadQueue.every(q => q.status === 'done' || q.status === 'error') && (
+              <button
+                onClick={clearCompletedUploads}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  fontSize: '0.8125rem',
+                  textDecoration: 'underline',
+                }}
+              >
+                清除
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {uploadQueue.map((item, idx) => (
+              <div key={`${item.file.name}-${idx}`} style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                padding: '0.5rem 0',
+                borderBottom: idx < uploadQueue.length - 1 ? '1px solid var(--border)' : 'none',
+              }}>
+                {/* Status icon */}
+                <div style={{ flexShrink: 0, width: 20, textAlign: 'center' }}>
+                  {item.status === 'done' && <CheckmarkFilled size={16} style={{ color: 'var(--success)' }} />}
+                  {item.status === 'error' && <ErrorFilled size={16} style={{ color: 'var(--error)' }} />}
+                  {item.status === 'pending' && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>...</span>}
+                  {(item.status === 'uploading' || item.status === 'processing') && (
+                    <InProgress size={16} style={{ color: 'var(--accent)' }} className="spinner" />
+                  )}
+                </div>
+                {/* Filename */}
+                <span style={{
+                  minWidth: 160,
+                  maxWidth: 240,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontSize: '0.8125rem',
+                  color: 'var(--text-primary)',
+                  fontWeight: 500,
+                }}>
+                  {item.file.name}
+                </span>
+                {/* Progress bar */}
+                <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${item.status === 'done' ? 100 : item.status === 'error' ? 100 : item.progress || 0}%`,
+                    background: item.status === 'error' ? 'var(--error)' : item.status === 'done' ? 'var(--success)' : 'var(--accent)',
+                    borderRadius: 3,
+                    transition: 'width 0.3s ease',
+                  }} />
+                </div>
+                {/* Status text */}
+                <span style={{
+                  fontSize: '0.75rem',
+                  color: item.status === 'error' ? 'var(--error)' : item.status === 'done' ? 'var(--success)' : 'var(--text-muted)',
+                  minWidth: 80,
+                  textAlign: 'right',
+                }}>
+                  {item.status === 'pending' && '等待中'}
+                  {item.status === 'uploading' && '上傳中...'}
+                  {item.status === 'processing' && '向量化中...'}
+                  {item.status === 'done' && `完成${item.chunks ? `（${item.chunks} 切片）` : ''}`}
+                  {item.status === 'error' && (item.error || '失敗')}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Document Table */}
@@ -455,7 +633,7 @@ export default function KnowledgeBasePage() {
               <th>知識片段</th>
               <th>狀態</th>
               <th>上傳時間</th>
-              <th style={{ width: 80, textAlign: 'center' }}>操作</th>
+              <th style={{ width: 110, textAlign: 'center' }}>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -479,16 +657,31 @@ export default function KnowledgeBasePage() {
                         <ImageIcon size={18} style={{ color: 'var(--accent)' }} />
                       )}
                     </div>
-                    <span style={{
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      maxWidth: 240,
-                      color: 'var(--text-primary)',
-                      fontWeight: 500
-                    }}>
+                    <button
+                      onClick={() => handlePreview(doc)}
+                      title={doc.type === 'pdf' ? '在新分頁預覽 PDF' : '預覽文件內容'}
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        maxWidth: 240,
+                        color: 'var(--accent)',
+                        fontWeight: 500,
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: 0,
+                        textAlign: 'left',
+                        fontSize: 'inherit',
+                        textDecoration: 'underline',
+                        textDecorationColor: 'transparent',
+                        transition: 'text-decoration-color 0.2s',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.textDecorationColor = 'var(--accent)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.textDecorationColor = 'transparent'; }}
+                    >
                       {doc.name}
-                    </span>
+                    </button>
                   </div>
                 </td>
                 <td>
@@ -525,6 +718,14 @@ export default function KnowledgeBasePage() {
                 </td>
                 <td style={{ textAlign: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
+                    <button
+                      className="btn-icon"
+                      title="預覽"
+                      onClick={() => handlePreview(doc)}
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      <View size={16} />
+                    </button>
                     <button
                       onClick={() => toggleVersionHistory(doc.id)}
                       style={{
@@ -717,6 +918,96 @@ export default function KnowledgeBasePage() {
           上傳 PDF 文件會自動提取文字和圖片，建立多模態知識庫索引。圖片會使用 CLIP 模型進行視覺嵌入。
         </div>
       </div>
+
+      {/* Preview Modal */}
+      {previewModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setPreviewModal(null)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-primary)',
+              borderRadius: 'var(--radius-lg)',
+              border: '1px solid var(--border)',
+              width: '90%',
+              maxWidth: 640,
+              maxHeight: '80vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '1rem 1.25rem',
+              borderBottom: '1px solid var(--border)',
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                overflow: 'hidden',
+              }}>
+                <Document size={18} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                <span style={{
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {previewModal.name}
+                </span>
+              </div>
+              <button
+                className="btn-icon"
+                onClick={() => setPreviewModal(null)}
+                style={{ flexShrink: 0 }}
+              >
+                <Close size={18} />
+              </button>
+            </div>
+            {/* Modal Body */}
+            <div style={{
+              padding: '1.25rem',
+              overflow: 'auto',
+              flex: 1,
+            }}>
+              {loadingPreview ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                  <InProgress size={24} className="spinner" style={{ marginBottom: '0.5rem', color: 'var(--accent)' }} />
+                  <div>載入中...</div>
+                </div>
+              ) : (
+                <pre style={{
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  fontSize: '0.8125rem',
+                  lineHeight: 1.6,
+                  color: 'var(--text-secondary)',
+                  fontFamily: 'inherit',
+                  margin: 0,
+                }}>
+                  {previewModal.content}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
