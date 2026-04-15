@@ -27,23 +27,31 @@ logger = logging.getLogger(__name__)
 async def _generate_document_context(full_text: str, filename: str) -> str:
     """Generate a 1-2 sentence context prefix for chunks using LLM (Contextual Retrieval)."""
     try:
-        from app.services.rag import _get_llm_client
+        import requests as _requests
+        from app.config import get_settings
 
-        client, model = _get_llm_client(light=True)
-        if client is None:
+        settings = get_settings()
+        if settings.llm_provider != "ollama":
             return f"文件：{filename}"
 
-        # Use first 1000 chars as sample
+        # Use native Ollama API to get full response including think tags
         sample = full_text[:1000]
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": f"請用一句話（30字以內）描述這份文件的主題和類型。\n檔名：{filename}\n內容摘要：{sample}"}],
-            max_tokens=100,
-            temperature=0,
+        resp = _requests.post(
+            f"{settings.ollama_base_url}/api/chat",
+            json={
+                "model": "gemma4:31b-cloud",  # Use fast model for context generation
+                "messages": [{"role": "user", "content": f"/no_think\n請用一句話（30字以內）描述這份文件的主題和類型。\n檔名：{filename}\n內容摘要：{sample}"}],
+                "stream": False,
+            },
+            timeout=60,
         )
-        content = response.choices[0].message.content or ""
+        resp.raise_for_status()
+        content = resp.json().get("message", {}).get("content", "")
+        # Strip think tags if present
         content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
-        return content[:100]  # Cap at 100 chars
+        if not content:
+            return f"文件：{filename}"
+        return content[:100]
     except Exception as e:
         logger.warning("Failed to generate document context: %s", e)
         return f"文件：{filename}"
