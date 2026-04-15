@@ -1332,11 +1332,7 @@ h1, h2, h3, h4, h5, h6,
 /* Desktop breakpoint (>1024px) */
 @media (min-width: 1024px) {
   .chat-empty-input {
-    max-width: 680px;
-  }
-
-  .chat-input-wrap {
-    max-width: 860px;
+    max-width: 760px;
   }
 }
 
