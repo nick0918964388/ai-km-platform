@@ -45,18 +45,23 @@ def get_openai_client():
     return _openai_client
 
 
-def _ollama_embed(texts: list[str]) -> list[list[float]]:
-    """Embed texts using Ollama API."""
+def _ollama_embed(texts: list[str], batch_size: int = 5) -> list[list[float]]:
+    """Embed texts using Ollama API with batching to avoid timeouts."""
     settings = get_settings()
     url = f"{settings.ollama_base_url}/api/embed"
-    resp = requests.post(
-        url,
-        json={"model": settings.ollama_embedding_model, "input": texts},
-        timeout=120,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return data["embeddings"]
+    all_embeddings: list[list[float]] = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        logger.info(f"Embedding batch {i // batch_size + 1}/{(len(texts) + batch_size - 1) // batch_size} ({len(batch)} texts)")
+        resp = requests.post(
+            url,
+            json={"model": settings.ollama_embedding_model, "input": batch},
+            timeout=180,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        all_embeddings.extend(data["embeddings"])
+    return all_embeddings
 
 
 def get_jina_api_key() -> str:
