@@ -583,13 +583,6 @@ export default function ChatWindow() {
 
         const data = await response.json();
 
-        const assistantMessage: Message = {
-          id: messageId,
-          role: 'assistant',
-          content: data.answer || getSimulatedResponse(userQuery),
-          timestamp: new Date(),
-        };
-
         if (data.sources && data.sources.length > 0) {
           setMessageSources(prev => ({
             ...prev,
@@ -597,20 +590,13 @@ export default function ChatWindow() {
           }));
         }
 
-        // Non-streaming mode: immediately mark as complete
+        // Non-streaming mode: update existing message (don't add duplicate)
         setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
-
-        addMessage(convId!, assistantMessage);
+        useStore.getState().updateMessage(convId!, messageId, data.answer || getSimulatedResponse(userQuery));
       } catch (fallbackError) {
         console.error('Fallback API error:', fallbackError);
-        const assistantMessage: Message = {
-          id: messageId,
-          role: 'assistant',
-          content: getSimulatedResponse(userQuery),
-          timestamp: new Date(),
-        };
         setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
-        addMessage(convId!, assistantMessage);
+        useStore.getState().updateMessage(convId!, messageId, getSimulatedResponse(userQuery));
       }
     } finally {
       setIsLoading(false);
