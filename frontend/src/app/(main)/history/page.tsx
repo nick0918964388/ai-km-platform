@@ -56,7 +56,7 @@ export default function HistoryPage() {
   };
 
   return (
-    <div className="settings-container" style={{ maxWidth: 900, width: '100%' }}>
+    <div className="settings-container" style={{ maxWidth: 900, width: '100%', margin: '0 auto', padding: '2rem' }}>
       <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '1.5rem' }}>
         對話歷史
       </h1>
