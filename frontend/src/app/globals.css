@@ -3,69 +3,70 @@
 
 :root {
   /* ========================================
-     Anthropic / Claude Design System - AIKM TRA
-     Warm Parchment Theme — Literary, Human, Trustworthy
+     Claude iOS App Design System — AIKM TRA
+     Clean, Minimal, Modern
      ======================================== */
 
-  /* Background Colors — Warm Parchment Scale */
-  --bg-primary: #f5f4ed;     /* Parchment — primary page background */
-  --bg-secondary: #faf9f5;   /* Ivory — cards and elevated containers */
-  --bg-tertiary: #e8e6dc;    /* Warm Sand — interactive surfaces */
-  --bg-card: #faf9f5;        /* Ivory */
-  --bg-dark: #141413;        /* Anthropic Near Black */
-  --bg-dark-surface: #30302e; /* Dark Surface */
+  /* Background Colors — Clean White/Gray */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F7F7F8;
+  --bg-tertiary: #EBEBEB;
+  --bg-card: #FFFFFF;
+  --bg-primary-rgb: 255,255,255;
+  --bg-dark: #1a1a2e;
+  --bg-dark-surface: #25254a;
 
-  /* Primary — Terracotta Brand */
-  --primary: #c96442;
-  --primary-hover: #b85838;
-  --primary-active: #a34d30;
-  --primary-light: #f9ede8;  /* Warm terracotta tint */
+  /* Primary — Muted Purple (Claude brand) */
+  --primary: #6B5CE7;
+  --primary-hover: #5A4BD6;
+  --primary-active: #4A3BC6;
+  --primary-light: #F0EEFF;
 
-  /* Accent — Coral (lighter terracotta variant) */
-  --accent: #c96442;
-  --accent-hover: #b85838;
-  --accent-light: #f9ede8;
+  /* Accent — Same as Primary */
+  --accent: #6B5CE7;
+  --accent-hover: #5A4BD6;
+  --accent-light: #F0EEFF;
 
-  /* Text Colors — Exclusively Warm-Toned */
-  --text-primary: #141413;   /* Anthropic Near Black */
-  --text-secondary: #5e5d59; /* Olive Gray */
-  --text-muted: #87867f;     /* Stone Gray */
-  --text-placeholder: #87867f;
-  --text-on-dark: #b0aea5;   /* Warm Silver — for dark surfaces */
+  /* Text Colors — Neutral */
+  --text-primary: #1A1A1A;
+  --text-secondary: #666666;
+  --text-muted: #999999;
+  --text-placeholder: #BBBBBB;
+  --text-on-dark: #A0A0B8;
 
-  /* Border Colors — Cream-Tinted */
-  --border: #f0eee6;          /* Border Cream — standard light border */
-  --border-light: #e8e6dc;    /* Border Warm — prominent borders */
-  --border-dark: #30302e;     /* Border on dark surfaces */
-  --border-focus: #3898ec;    /* Focus Blue — accessibility only */
+  /* Border Colors — Subtle */
+  --border: #E5E5E5;
+  --border-light: #F0F0F0;
+  --border-dark: #2a2a4e;
+  --border-focus: #6B5CE7;
 
   /* Status Colors */
-  --success: #3a7d44;
-  --success-light: #edf5ee;
-  --warning: #b07d2e;
-  --warning-light: #fdf6e3;
-  --error: #b53333;           /* Error Crimson — warm red */
-  --error-light: #fceaea;
+  --success: #34A853;
+  --success-light: #E8F5E9;
+  --warning: #F9AB00;
+  --warning-light: #FFF8E1;
+  --error: #EA4335;
+  --error-light: #FDECEA;
 
-  /* Shadows — Warm Ring System */
-  --shadow-sm: rgba(0,0,0,0.04) 0px 1px 3px;
-  --shadow-md: rgba(0,0,0,0.05) 0px 4px 24px;
-  --shadow-lg: rgba(0,0,0,0.08) 0px 8px 32px;
-  --shadow-ring: 0px 0px 0px 1px #d1cfc5;     /* Ring — warm gray */
-  --shadow-ring-subtle: 0px 0px 0px 1px #e8e6dc;
+  /* Shadows — Minimal */
+  --shadow-sm: 0px 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0px 2px 12px rgba(0,0,0,0.06);
+  --shadow-lg: 0px 4px 24px rgba(0,0,0,0.08);
+  --shadow-ring: none;
+  --shadow-ring-subtle: none;
 
-  /* Border Radius — Warm, Approachable */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  /* Border Radius — Rounded, Friendly */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
   --radius-2xl: 24px;
   --radius-full: 9999px;
 
   /* Transitions */
   --transition-fast: 150ms ease;
-  --transition-normal: 200ms ease;
-  --transition-slow: 300ms ease;
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 * {
@@ -75,22 +76,21 @@
 html, body {
   margin: 0;
   padding: 0;
-  font-family: 'Inter', 'Noto Sans TC', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Noto Sans TC', system-ui, sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
   min-height: 100vh;
   min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
-/* Anthropic Serif — headings use Georgia as fallback for warmth */
 h1, h2, h3, h4, h5, h6,
 .serif, .page-title, .card-title, .login-title, .login-welcome-title {
-  font-family: Georgia, 'Times New Roman', serif;
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Noto Sans TC', system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 /* ========================================

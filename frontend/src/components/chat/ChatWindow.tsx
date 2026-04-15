@@ -631,34 +631,17 @@ export default function ChatWindow() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Chat Header — hidden on mobile (MobileHeader provides nav) */}
         <div className="chat-header-bar" style={{
-          height: 72,
-          padding: '0 2rem',
+          height: 56,
+          padding: '0 1.5rem',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          background: 'var(--bg-secondary)',
-          borderBottom: '1px solid var(--border)',
+          background: '#FFFFFF',
+          borderBottom: '1px solid #F0F0F0',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{
-              width: 40,
-              height: 40,
-              background: 'var(--primary-light)',
-              borderRadius: 10,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <Bot size={20} style={{ color: 'var(--accent)' }} />
-            </div>
-            <div>
-              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                AI 維修顧問
-              </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                隨時為您服務
-              </div>
-            </div>
+          <div style={{ flex: 1 }} />
+          <div style={{ fontWeight: 500, fontSize: '0.9375rem', color: 'var(--text-primary)' }}>
+            AI 維修顧問
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             {/* History dropdown */}
@@ -670,12 +653,11 @@ export default function ChatWindow() {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.375rem',
-                  padding: '0.5rem 0.75rem',
-                  background: historyOpen ? 'var(--bg-primary)' : 'transparent',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-md)',
-                  color: 'var(--text-secondary)',
-                  fontSize: '0.875rem',
+                  padding: '0.5rem',
+                  background: 'transparent',
+                  border: 'none',
+                  borderRadius: '50%',
+                  color: 'var(--text-muted)',
                   cursor: 'pointer',
                 }}
               >
@@ -799,21 +781,21 @@ export default function ChatWindow() {
             {/* New chat button */}
             <button
               onClick={handleNewChat}
+              title="新對話"
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.5rem 1rem',
-                background: 'var(--bg-primary)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-md)',
-                color: 'var(--text-primary)',
-                fontSize: '0.875rem',
+                justifyContent: 'center',
+                width: 36,
+                height: 36,
+                background: 'transparent',
+                border: 'none',
+                borderRadius: '50%',
+                color: 'var(--text-muted)',
                 cursor: 'pointer',
               }}
             >
-              <Add size={16} />
-              新對話
+              <Add size={20} />
             </button>
           </div>
         </div>
@@ -831,24 +813,14 @@ export default function ChatWindow() {
             <div style={{
               textAlign: 'center',
               color: 'var(--text-secondary)',
+              maxWidth: 480,
+              margin: '0 auto',
             }}>
-              <div style={{
-                width: 80,
-                height: 80,
-                background: 'var(--primary-light)',
-                borderRadius: 20,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 1.5rem',
-              }}>
-                <Bot size={36} style={{ color: 'var(--accent)' }} />
-              </div>
-              <h2 style={{ marginBottom: '0.5rem', color: 'var(--text-primary)', fontWeight: 600, fontSize: '1.25rem' }}>
-                開始新對話
+              <h2 style={{ marginBottom: '0.5rem', color: 'var(--text-primary)', fontWeight: 600, fontSize: '1.5rem', letterSpacing: '-0.02em' }}>
+                有什麼可以幫您的？
               </h2>
-              <p style={{ marginBottom: '1.5rem', fontSize: '0.875rem' }}>
-                詢問任何車輛維修相關問題
+              <p style={{ marginBottom: '2rem', fontSize: '0.9375rem', color: 'var(--text-muted)' }}>
+                詢問車輛維修、保養、故障排除等相關問題
               </p>
               <div style={{
                 display: 'flex',
@@ -868,16 +840,19 @@ export default function ChatWindow() {
                     key={t.label}
                     onClick={() => handleSend(t.label)}
                     style={{
-                      padding: '0.5rem 1rem',
-                      background: t.category === 'data' ? 'var(--primary-light)' : 'var(--bg-secondary)',
-                      border: `1px solid ${t.category === 'data' ? 'var(--accent)' : 'var(--border)'}`,
+                      padding: '0.625rem 1rem',
+                      background: '#FFFFFF',
+                      border: '1px solid #E5E5E5',
                       borderRadius: 20,
-                      color: t.category === 'data' ? 'var(--accent)' : 'var(--text-primary)',
-                      fontSize: '0.8125rem',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.875rem',
                       cursor: 'pointer',
+                      transition: 'background 0.15s, border-color 0.15s',
                     }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#F5F5F5'; e.currentTarget.style.borderColor = '#D0D0D0'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = '#FFFFFF'; e.currentTarget.style.borderColor = '#E5E5E5'; }}
                   >
-                    {t.category === 'data' ? '📊' : '📄'} {t.label}
+                    {t.label}
                   </button>
                 ))}
               </div>
@@ -903,10 +878,8 @@ export default function ChatWindow() {
                   }}>
                   {msg.role === 'assistant' && (
                     <div style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: '50%',
-                      background: 'var(--primary-light)',
+                      width: 28,
+                      height: 28,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -918,13 +891,14 @@ export default function ChatWindow() {
                   <div
                     className={`chat-bubble ${msg.role === 'assistant' && messageStreamingStatus[msg.id] ? 'ai-message-streaming' : ''}`}
                     style={{
-                    maxWidth: '70%',
-                    padding: '1rem 1.25rem',
-                    borderRadius: 'var(--radius-lg)',
-                    background: msg.role === 'user' ? 'var(--primary)' : 'var(--bg-secondary)',
-                    border: msg.role === 'assistant' ? '1px solid var(--border)' : 'none',
-                    color: msg.role === 'user' ? 'white' : 'var(--text-primary)',
+                    maxWidth: msg.role === 'user' ? '75%' : '100%',
+                    padding: msg.role === 'user' ? '0.75rem 1.25rem' : '0.5rem 0',
+                    borderRadius: msg.role === 'user' ? '20px' : '0',
+                    background: msg.role === 'user' ? '#F0EEFF' : 'transparent',
+                    border: 'none',
+                    color: 'var(--text-primary)',
                     lineHeight: 1.6,
+                    fontSize: '1.0625rem',
                     position: 'relative',
                   }}>
                     {/* Thinking indicator: show only current step while streaming */}
@@ -1361,23 +1335,7 @@ export default function ChatWindow() {
                       </div>
                     )}
                   </div>
-                  {msg.role === 'user' && (
-                    <div style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: '50%',
-                      background: 'var(--primary)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'white',
-                      fontWeight: 500,
-                      fontSize: '0.875rem',
-                      flexShrink: 0,
-                    }}>
-                      U
-                    </div>
-                  )}
+                  {/* User avatar removed — message alignment is self-evident */}
                   </div>
                 </div>
               );

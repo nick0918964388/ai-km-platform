@@ -84,12 +84,10 @@ export default function ChatInput({
       flexShrink: 0,
     }}>
       <div style={{
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        background: 'rgba(var(--bg-primary-rgb, 255,255,255), 0.85)',
-        borderRadius: 'var(--radius-lg)',
-        border: '1px solid var(--border)',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+        background: '#FFFFFF',
+        borderRadius: '24px',
+        border: '1px solid #E8E8E8',
+        boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
       }}>
         {/* Image preview strip */}
         {imagePreview && (
@@ -194,7 +192,7 @@ export default function ChatInput({
               border: 'none',
               background: 'transparent',
               padding: '0.375rem 0',
-              fontSize: '0.9375rem',
+              fontSize: '16px',
               color: 'var(--text-primary)',
               resize: 'none',
               minHeight: 28,
@@ -239,17 +237,18 @@ export default function ChatInput({
                 disabled={!input.trim()}
                 title="發送"
                 style={{
-                  width: 36,
-                  height: 36,
+                  width: 32,
+                  height: 32,
                   border: 'none',
                   background: 'var(--primary)',
-                  borderRadius: 10,
+                  borderRadius: '50%',
                   cursor: input.trim() ? 'pointer' : 'not-allowed',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: 'white',
-                  opacity: input.trim() ? 1 : 0.45,
+                  opacity: input.trim() ? 1 : 0.3,
+                  transition: 'opacity 0.15s',
                 }}
               >
                 <Send size={18} />
