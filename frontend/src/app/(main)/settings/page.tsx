@@ -257,12 +257,39 @@ export default function SettingsPage() {
     fontSize: '1rem', fontWeight: 600, margin: '0 0 1rem', color: 'var(--text-primary)',
   };
 
+  const [activeTab, setActiveTab] = useState('ai');
+  const tabs = [
+    { id: 'ai', label: 'AI 模型' },
+    { id: 'doc', label: '文件處理' },
+    { id: 'fields', label: '欄位管理' },
+  ];
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    padding: '0.5rem 1.25rem',
+    border: 'none',
+    borderBottom: active ? '2px solid var(--primary)' : '2px solid transparent',
+    background: 'none',
+    color: active ? 'var(--primary)' : 'var(--text-muted)',
+    fontWeight: active ? 600 : 400,
+    fontSize: '0.9375rem',
+    cursor: 'pointer',
+  });
+
   return (
     <div style={{ padding: '1.5rem 2rem' }}>
       <h1 style={{ fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>系統設定</h1>
-      <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', margin: '0.25rem 0 1.5rem' }}>管理系統參數、AI 模型與使用者設定</p>
+      <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', margin: '0.25rem 0 1rem' }}>管理系統參數、AI 模型與使用者設定</p>
 
-      {/* 2-column grid for small settings cards */}
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid var(--border)', marginBottom: '1.5rem' }}>
+        {tabs.map(t => (
+          <button key={t.id} style={tabStyle(activeTab === t.id)} onClick={() => setActiveTab(t.id)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* === AI 模型 Tab === */}
+      {activeTab === 'ai' && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
 
       {/* AI Settings Card */}
@@ -330,6 +357,11 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      </div>)}
+      {/* === 文件處理 Tab === */}
+      {activeTab === 'doc' && (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+
       {/* User Settings Card (Admin only) */}
       {user?.role === 'admin' && (
         <div style={cardStyle}>
@@ -395,9 +427,10 @@ export default function SettingsPage() {
         </div>
       )}
 
-      </div>{/* end grid */}
+      </div>)}
 
-      {/* Save button moved to bottom */}
+      {/* === 欄位管理 Tab === */}
+      {activeTab === 'fields' && (<>
 
       {/* Column Label Management (Admin only) - Full width card */}
       {user?.role === 'admin' && (
@@ -643,6 +676,8 @@ export default function SettingsPage() {
           )}
         </div>
       )}
+
+      </>)}
 
       {/* Save Button at bottom */}
       <div style={{ margin: '1.5rem 0', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
