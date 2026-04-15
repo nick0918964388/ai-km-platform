@@ -86,10 +86,10 @@ export default function ChatInput({
       width: '100%',
     }}>
       <div style={{
-        background: '#FFFFFF',
-        borderRadius: '24px',
-        border: '1px solid #E8E8E8',
-        boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+        background: '#F3F3F3',
+        borderRadius: '20px',
+        border: 'none',
+        boxShadow: 'none',
       }}>
         {/* Image preview strip */}
         {imagePreview && (

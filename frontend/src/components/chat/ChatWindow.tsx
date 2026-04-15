@@ -814,55 +814,26 @@ export default function ChatWindow() {
             <div style={{
               textAlign: 'center',
               color: 'var(--text-secondary)',
-              maxWidth: 520,
               width: '100%',
+              maxWidth: 720,
               marginTop: 'auto',
               marginBottom: 'auto',
               padding: '0 1rem',
             }}>
-              <h2 style={{ marginBottom: '0.5rem', color: 'var(--text-primary)', fontWeight: 600, fontSize: '1.5rem', letterSpacing: '-0.02em' }}>
-                有什麼可以幫您的？
-              </h2>
-              <p style={{ marginBottom: '2rem', fontSize: '0.9375rem', color: 'var(--text-muted)' }}>
-                詢問車輛維修、保養、故障排除等相關問題
-              </p>
-              <div style={{
-                display: 'flex',
-                gap: '0.75rem',
-                justifyContent: 'center',
-                flexWrap: 'wrap',
+              {/* Greeting */}
+              <h2 style={{
+                marginBottom: '1.5rem',
+                color: 'var(--text-primary)',
+                fontWeight: 500,
+                fontSize: '2rem',
+                letterSpacing: '-0.03em',
+                fontFamily: 'Georgia, "Times New Roman", serif',
               }}>
-                {[
-                  { label: 'EMU900 轉向架維修', category: 'knowledge' },
-                  { label: '煞車系統檢測', category: 'knowledge' },
-                  { label: '定期保養週期', category: 'knowledge' },
-                  { label: '目前核簽中的工單有哪些？', category: 'data' },
-                  { label: '本月故障通報統計', category: 'data' },
-                  { label: 'EMU900 車輛狀態', category: 'data' },
-                ].map((t) => (
-                  <button
-                    key={t.label}
-                    onClick={() => handleSend(t.label)}
-                    style={{
-                      padding: '0.625rem 1rem',
-                      background: '#FFFFFF',
-                      border: '1px solid #E5E5E5',
-                      borderRadius: 20,
-                      color: 'var(--text-primary)',
-                      fontSize: '0.875rem',
-                      cursor: 'pointer',
-                      transition: 'background 0.15s, border-color 0.15s',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = '#F5F5F5'; e.currentTarget.style.borderColor = '#D0D0D0'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = '#FFFFFF'; e.currentTarget.style.borderColor = '#E5E5E5'; }}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
+                🌸 有什麼可以幫您的？
+              </h2>
 
-              {/* Input centered with greeting (Claude style) */}
-              <div className="chat-empty-input" style={{ width: '100%', marginTop: '2rem' }}>
+              {/* Input centered (Claude style — greeting → input → chips) */}
+              <div className="chat-empty-input" style={{ width: '100%', marginBottom: '1rem' }}>
                 <ChatInput
                   onSend={handleSend}
                   onStop={handleStop}
@@ -870,6 +841,41 @@ export default function ChatWindow() {
                   selectedModel={selectedModel}
                   onModelChange={setSelectedModel}
                 />
+              </div>
+
+              {/* Suggestion chips below input */}
+              <div style={{
+                display: 'flex',
+                gap: '0.5rem',
+                justifyContent: 'center',
+                flexWrap: 'wrap',
+              }}>
+                {[
+                  { label: 'EMU900 轉向架維修', icon: '📄' },
+                  { label: '煞車系統檢測', icon: '📄' },
+                  { label: '定期保養週期', icon: '📄' },
+                  { label: '目前核簽中的工單', icon: '📊' },
+                  { label: '故障通報統計', icon: '📊' },
+                ].map((t) => (
+                  <button
+                    key={t.label}
+                    onClick={() => handleSend(t.label)}
+                    style={{
+                      padding: '0.5rem 0.875rem',
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid #E5E5E5',
+                      borderRadius: 20,
+                      color: 'var(--text-secondary)',
+                      fontSize: '0.8125rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#EBEBEB'; e.currentTarget.style.borderColor = '#D0D0D0'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.borderColor = '#E5E5E5'; }}
+                  >
+                    {t.icon} {t.label}
+                  </button>
+                ))}
               </div>
             </div>
           ) : (
@@ -898,7 +904,7 @@ export default function ChatWindow() {
                     maxWidth: msg.role === 'user' ? '80%' : '100%',
                     padding: msg.role === 'user' ? '0.75rem 1.25rem' : '0.25rem 0',
                     borderRadius: msg.role === 'user' ? '20px' : '0',
-                    background: msg.role === 'user' ? '#F3F3F3' : 'transparent',
+                    background: msg.role === 'user' ? '#E8E8E8' : 'transparent',
                     border: 'none',
                     color: 'var(--text-primary)',
                     lineHeight: 1.7,
