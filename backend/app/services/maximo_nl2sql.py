@@ -440,6 +440,8 @@ class MaximoNL2SQL:
                 "schema_source": "full_dump",
             }
 
+        # Always allow domain lookup for JOIN
+        allowed_tables.add('maximo_domain_lookup')
         self._allowed_tables = allowed_tables  # store for validate_sql
 
         metadata = await self._load_field_metadata()
@@ -471,6 +473,16 @@ class MaximoNL2SQL:
 3. 多表查詢時必須使用正確的 JOIN
 4. 預設 LIMIT 50，除非使用者指定
 5. 日期欄位使用標準 SQL 日期比較
+
+代號轉中文規則：
+- 資料庫有 maximo_domain_lookup(domainid, value, description) view，存放代號的中文對照
+- 資料庫有 maximo_field_domain_map(entityname, field_name, domainid, domaintype) view，記錄哪些欄位有 domain 對照
+- 當查詢結果包含代號欄位時，應 LEFT JOIN maximo_domain_lookup 取得中文 description
+- JOIN 語法：LEFT JOIN maximo_domain_lookup dl_欄位名 ON dl_欄位名.domainid = 'DOMAIN名稱' AND dl_欄位名.value = 表名.欄位名
+- 只對 domaintype = 'ALN' 的欄位做 JOIN（TABLE 類型暫不支援）
+- SELECT 時用 COALESCE(dl_欄位名.description, 表名.欄位名) AS 欄位名_中文
+- 常用對照：WORKORDER.status → domainid='SYNONYMDOMAIN' 已是中文不需轉換
+- 範例：查 worktype 中文 → LEFT JOIN maximo_domain_lookup dl_wt ON dl_wt.domainid = 'PLUSAACTIONCAT' AND dl_wt.value = w.worktype
 
 多輪對話規則：
 - 如果對話歷史中有前一個查詢，請判斷當前問題是否為延續（follow-up）。
