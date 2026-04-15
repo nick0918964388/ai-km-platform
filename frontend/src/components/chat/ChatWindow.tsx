@@ -804,10 +804,11 @@ export default function ChatWindow() {
         <div className="chat-messages-area" style={{
           flex: 1,
           overflow: 'auto',
-          padding: '2rem 5rem 1rem',
+          padding: messages.length === 0 ? '0 1.5rem' : '2rem 0 1rem',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: messages.length === 0 ? 'center' : 'flex-start',
+          alignItems: 'center',
         }}>
           {messages.length === 0 ? (
             <div style={{
@@ -858,7 +859,7 @@ export default function ChatWindow() {
               </div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', width: '100%', maxWidth: 720, padding: '0 1.5rem' }}>
               {messages.map((msg, msgIdx) => {
                 // Skip empty assistant messages (no content, no sqlResult, not streaming)
                 if (msg.role === 'assistant' && !msg.content && !messageSqlResults[msg.id]?.length && !msg.sqlResult && !messageStreamingStatus[msg.id]) return null;
@@ -876,29 +877,18 @@ export default function ChatWindow() {
                     justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
                     width: '100%',
                   }}>
-                  {msg.role === 'assistant' && (
-                    <div style={{
-                      width: 28,
-                      height: 28,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}>
-                      <Bot size={18} style={{ color: 'var(--accent)' }} />
-                    </div>
-                  )}
+                  {/* AI avatar hidden for clean Claude-style layout */}
                   <div
                     className={`chat-bubble ${msg.role === 'assistant' && messageStreamingStatus[msg.id] ? 'ai-message-streaming' : ''}`}
                     style={{
-                    maxWidth: msg.role === 'user' ? '75%' : '100%',
-                    padding: msg.role === 'user' ? '0.75rem 1.25rem' : '0.5rem 0',
+                    maxWidth: msg.role === 'user' ? '80%' : '100%',
+                    padding: msg.role === 'user' ? '0.75rem 1.25rem' : '0.25rem 0',
                     borderRadius: msg.role === 'user' ? '20px' : '0',
-                    background: msg.role === 'user' ? '#F0EEFF' : 'transparent',
+                    background: msg.role === 'user' ? '#F3F3F3' : 'transparent',
                     border: 'none',
                     color: 'var(--text-primary)',
-                    lineHeight: 1.6,
-                    fontSize: '1.0625rem',
+                    lineHeight: 1.7,
+                    fontSize: msg.role === 'user' ? '0.9375rem' : '1rem',
                     position: 'relative',
                   }}>
                     {/* Thinking indicator: show only current step while streaming */}
@@ -925,7 +915,7 @@ export default function ChatWindow() {
                       <div className="markdown-content" style={{ display: msg.content ? 'block' : 'none' }}>
                         <ReactMarkdown
                           components={{
-                            p: ({ children }) => <p style={{ margin: '0.5rem 0' }}>{children}</p>,
+                            p: ({ children }) => <p style={{ margin: '0.75rem 0', lineHeight: 1.7 }}>{children}</p>,
                             ul: ({ children }) => <ul style={{ margin: '0.5rem 0', paddingLeft: '1.5rem' }}>{children}</ul>,
                             ol: ({ children }) => <ol style={{ margin: '0.5rem 0', paddingLeft: '1.5rem' }}>{children}</ol>,
                             li: ({ children }) => <li style={{ margin: '0.25rem 0' }}>{children}</li>,
@@ -1341,29 +1331,11 @@ export default function ChatWindow() {
               );
               })}
               {isLoading && !isStreaming && (
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                  <div style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: '50%',
-                    background: 'var(--primary-light)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    <Bot size={18} style={{ color: 'var(--accent)' }} />
-                  </div>
-                  <div style={{
-                    padding: '1rem 1.25rem',
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius-lg)',
-                  }}>
-                    <div className="typing-indicator">
-                      <span></span>
-                      <span></span>
-                      <span></span>
-                    </div>
+                <div style={{ padding: '0.5rem 0' }}>
+                  <div className="typing-indicator">
+                    <span></span>
+                    <span></span>
+                    <span></span>
                   </div>
                 </div>
               )}

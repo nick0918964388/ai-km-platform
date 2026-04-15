@@ -1421,25 +1421,20 @@ h1, h2, h3, h4, h5, h6,
 
   /* Messages area: reduce padding on mobile */
   .chat-messages-area {
-    padding: 1rem 0.75rem 0.5rem !important;
+    padding: 1rem 0 0.5rem !important;
   }
 
   /* Chat bubbles on mobile */
   .chat-bubble {
-    max-width: 85% !important;
+    max-width: 90% !important;
     font-size: 0.9375rem !important;
-    padding: 0.75rem 1rem !important;
     line-height: 1.7 !important;
+    overflow: visible !important;
   }
 
   .chat-bubble .markdown-content p {
     font-size: 0.9375rem;
     line-height: 1.7;
-  }
-
-  /* SQL result cards: full width on mobile */
-  .chat-bubble {
-    overflow: visible !important;
   }
 
   /* Compact chat input on mobile */
@@ -1654,12 +1649,12 @@ a.btn, a.nav-item, a[role="button"] {
 }
 
 .typing-indicator span {
-  width: 8px;
-  height: 8px;
-  background: var(--primary);
+  width: 6px;
+  height: 6px;
+  background: var(--text-muted);
   border-radius: 50%;
   animation: typing-bounce 1.4s ease-in-out infinite;
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 .typing-indicator span:nth-child(1) { animation-delay: 0s; }
