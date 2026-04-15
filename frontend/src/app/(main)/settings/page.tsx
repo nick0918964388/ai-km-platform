@@ -327,7 +327,7 @@ export default function SettingsPage() {
             </select>
           </div>
         )}
-        {llmSettings.llm_provider === 'ollama' && (
+        {llmSettings.llm_provider === 'ollama' && (<>
         <div className="form-group" style={{ marginBottom: '0.75rem' }}>
           <label className="form-label">LLM 端點 URL</label>
           <input type="text" className="form-input" style={{ width: '100%' }}
@@ -365,7 +365,7 @@ export default function SettingsPage() {
             placeholder="ollama"
           />
         </div>
-        )}
+        </>)}
       </div>
 
       {/* Intent Model Card */}
