@@ -860,6 +860,17 @@ export default function ChatWindow() {
                   </button>
                 ))}
               </div>
+
+              {/* Input centered with greeting (Claude style) */}
+              <div style={{ width: '100%', maxWidth: 520, marginTop: '2rem' }}>
+                <ChatInput
+                  onSend={handleSend}
+                  onStop={handleStop}
+                  isLoading={isLoading}
+                  selectedModel={selectedModel}
+                  onModelChange={setSelectedModel}
+                />
+              </div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', width: '100%', maxWidth: 720, padding: '0 1.5rem' }}>
@@ -1347,13 +1358,16 @@ export default function ChatWindow() {
           )}
         </div>
 
-        <ChatInput
-          onSend={handleSend}
-          onStop={handleStop}
-          isLoading={isLoading}
-          selectedModel={selectedModel}
-          onModelChange={setSelectedModel}
-        />
+        {/* Bottom input — only shown when there are messages (empty state has its own inline input) */}
+        {messages.length > 0 && (
+          <ChatInput
+            onSend={handleSend}
+            onStop={handleStop}
+            isLoading={isLoading}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+          />
+        )}
       </div>
     </div>
   );
