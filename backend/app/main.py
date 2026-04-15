@@ -135,7 +135,7 @@ async def lifespan(app: FastAPI):
         db_settings = await settings_service.get_all_settings()
         settings = get_settings()
         override_keys = [
-            'ollama_chat_url', 'ollama_chat_api_key', 'ollama_chat_model',
+            'llm_provider', 'ollama_chat_url', 'ollama_chat_api_key', 'ollama_chat_model',
             'ollama_light_model', 'intent_llm_url', 'intent_llm_model',
             'intent_provider', 'anthropic_api_key', 'anthropic_model',
             'openai_api_key',

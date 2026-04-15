@@ -67,9 +67,16 @@ async def log_search_metrics(
 
 
 def _get_llm_client(light: bool = False, model_override: str = None):
-    """Return (client, model) based on configured LLM provider. model_override takes precedence."""
+    """Return (client, model) based on configured LLM provider. model_override takes precedence.
+
+    For anthropic provider, returns (None, model) — callers should check settings.llm_provider
+    and use _call_anthropic_stream() instead.
+    """
     settings = get_settings()
-    if settings.llm_provider == "ollama":
+    if settings.llm_provider == "anthropic" and settings.anthropic_api_key:
+        model = model_override or settings.anthropic_model or "claude-haiku-4-5-20251001"
+        return "anthropic", model
+    elif settings.llm_provider == "ollama":
         client = OpenAI(base_url=settings.ollama_chat_url, api_key=settings.ollama_chat_api_key)
         if model_override:
             model = model_override
@@ -85,6 +92,64 @@ def _get_llm_client(light: bool = False, model_override: str = None):
         else:
             model = "gpt-4o-mini" if light else settings.openai_model
     return client, model
+
+
+def _call_anthropic(messages: list, model: str, system: str = "", max_tokens: int = 2000) -> str:
+    """Call Anthropic API (non-streaming) for simple completions."""
+    import httpx
+    settings = get_settings()
+    resp = httpx.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": settings.anthropic_api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json={
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": messages,
+        },
+        timeout=60.0,
+    )
+    resp.raise_for_status()
+    return resp.json()["content"][0]["text"]
+
+
+def _call_anthropic_stream(messages: list, model: str, system: str = "", max_tokens: int = 4000):
+    """Call Anthropic API with streaming. Yields text chunks."""
+    import httpx
+    settings = get_settings()
+    with httpx.stream(
+        "POST",
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": settings.anthropic_api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json={
+            "model": model,
+            "max_tokens": max_tokens,
+            "stream": True,
+            "system": system,
+            "messages": messages,
+        },
+        timeout=120.0,
+    ) as resp:
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if line.startswith("data: "):
+                import json as _json
+                try:
+                    data = _json.loads(line[6:])
+                    if data.get("type") == "content_block_delta":
+                        text = data.get("delta", {}).get("text", "")
+                        if text:
+                            yield text
+                except Exception:
+                    pass
 
 
 # 優化後的 System Prompt
@@ -576,45 +641,55 @@ def chat_stream_with_metadata(
     # Call LLM with streaming (use model override from frontend if provided)
     client, resolved_model = _get_llm_client(model_override=model)
     if client is None:
-        yield {"type": "content", "data": "錯誤：未設定 OpenAI API Key。請在環境變數中設定 OPENAI_API_KEY。"}
+        yield {"type": "content", "data": "錯誤：未設定 API Key。請在系統設定中配置。"}
         return
 
     settings = get_settings()
-    is_openai = settings.llm_provider != "ollama"
-    model = resolved_model  # use resolved model for the actual call
+    model = resolved_model
 
     try:
-        create_kwargs = dict(
-            model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-            max_tokens=1500,
-            temperature=0.5,
-            stream=True,
-        )
-        # stream_options is OpenAI-only; Ollama doesn't support it
-        if is_openai:
-            create_kwargs["stream_options"] = {"include_usage": True}
+        # Anthropic path — use native streaming
+        if client == "anthropic":
+            # Anthropic uses plain text for user content, not list
+            user_text = user_content[0]["text"] if isinstance(user_content, list) else user_content
+            for text_chunk in _call_anthropic_stream(
+                messages=[{"role": "user", "content": user_text}],
+                model=model,
+                system=SYSTEM_PROMPT,
+                max_tokens=2000,
+            ):
+                yield {"type": "content", "data": text_chunk}
+        else:
+            # OpenAI / Ollama path
+            is_openai = settings.llm_provider == "openai"
+            create_kwargs = dict(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+                max_tokens=1500,
+                temperature=0.5,
+                stream=True,
+            )
+            if is_openai:
+                create_kwargs["stream_options"] = {"include_usage": True}
 
-        stream = client.chat.completions.create(**create_kwargs)
+            stream = client.chat.completions.create(**create_kwargs)
 
-        usage_info = None
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield {"type": "content", "data": chunk.choices[0].delta.content}
-            # Capture usage from the final chunk (OpenAI only)
-            if chunk.usage:
-                usage_info = {
-                    "prompt_tokens": chunk.usage.prompt_tokens,
-                    "completion_tokens": chunk.usage.completion_tokens,
-                    "total_tokens": chunk.usage.total_tokens,
-                }
+            usage_info = None
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield {"type": "content", "data": chunk.choices[0].delta.content}
+                if chunk.usage:
+                    usage_info = {
+                        "prompt_tokens": chunk.usage.prompt_tokens,
+                        "completion_tokens": chunk.usage.completion_tokens,
+                        "total_tokens": chunk.usage.total_tokens,
+                    }
 
-        # Yield usage info at the end
-        if usage_info:
-            yield {"type": "usage", "data": usage_info}
+            if usage_info:
+                yield {"type": "usage", "data": usage_info}
 
     except Exception as e:
         yield {"type": "content", "data": f"生成回答時發生錯誤: {str(e)}"}
@@ -632,11 +707,7 @@ def rewrite_query(query: str, attempt: int = 1) -> str | None:
     ]
     strategy = strategies[min(attempt - 1, len(strategies) - 1)]
 
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": f"""/no_think
-請改寫以下查詢以提高文件檢索效果。策略：{strategy}
+    prompt = f"""請改寫以下查詢以提高文件檢索效果。策略：{strategy}
 
 原始查詢：{query}
 
@@ -644,11 +715,19 @@ def rewrite_query(query: str, attempt: int = 1) -> str | None:
 - 只輸出改寫後的查詢，不要其他內容
 - 使用繁體中文
 - 保持原意但加入同義詞或相關術語
-- 不超過 50 字"""}],
-            max_tokens=100,
-            temperature=0.3,
-        )
-        content = response.choices[0].message.content or ""
+- 不超過 50 字"""
+
+    try:
+        if client == "anthropic":
+            content = _call_anthropic([{"role": "user", "content": prompt}], model, max_tokens=100)
+        else:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": f"/no_think\n{prompt}"}],
+                max_tokens=100,
+                temperature=0.3,
+            )
+            content = response.choices[0].message.content or ""
         # Strip think tags from qwen
         content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
         rewritten = content.strip().strip('"').strip("'")

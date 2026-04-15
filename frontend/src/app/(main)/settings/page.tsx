@@ -17,6 +17,7 @@ export default function SettingsPage() {
 
   // LLM settings state
   const [llmSettings, setLlmSettings] = useState({
+    llm_provider: 'ollama',
     ollama_chat_url: '',
     ollama_chat_api_key: '',
     ollama_chat_model: '',
@@ -88,6 +89,7 @@ export default function SettingsPage() {
             maxTokens: parseInt(data.max_tokens) || prev.maxTokens,
           }));
           setLlmSettings({
+            llm_provider: data.llm_provider || 'ollama',
             ollama_chat_url: data.ollama_chat_url || '',
             ollama_chat_api_key: data.ollama_chat_api_key || '',
             ollama_chat_model: data.ollama_chat_model || '',
@@ -304,6 +306,29 @@ export default function SettingsPage() {
       <div style={cardStyle}>
         <h2 style={cardTitle}>AI 模型設定</h2>
         <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+          <label className="form-label">LLM Provider</label>
+          <select className="form-input" style={{ width: '100%' }}
+            value={llmSettings.llm_provider}
+            onChange={e => setLlmSettings(s => ({ ...s, llm_provider: e.target.value }))}>
+            <option value="ollama">Ollama (本地/自架)</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openai">OpenAI (GPT)</option>
+          </select>
+        </div>
+        {llmSettings.llm_provider === 'anthropic' && (
+          <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+            <label className="form-label">Anthropic 模型</label>
+            <select className="form-input" style={{ width: '100%' }}
+              value={llmSettings.anthropic_model}
+              onChange={e => setLlmSettings(s => ({ ...s, anthropic_model: e.target.value }))}>
+              <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (快速)</option>
+              <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (平衡)</option>
+              <option value="claude-opus-4-6">Claude Opus 4.6 (最強)</option>
+            </select>
+          </div>
+        )}
+        {llmSettings.llm_provider === 'ollama' && (
+        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
           <label className="form-label">LLM 端點 URL</label>
           <input type="text" className="form-input" style={{ width: '100%' }}
             value={llmSettings.ollama_chat_url}
@@ -340,6 +365,7 @@ export default function SettingsPage() {
             placeholder="ollama"
           />
         </div>
+        )}
       </div>
 
       {/* Intent Model Card */}
