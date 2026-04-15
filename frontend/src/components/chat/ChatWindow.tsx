@@ -879,7 +879,7 @@ export default function ChatWindow() {
               </div>
             </div>
           ) : (
-            <div className="chat-messages-inner" style={{ display: 'flex', flexDirection: 'column', gap: '2rem', width: '100%', padding: '0 2rem' }}>
+            <div className="chat-messages-inner" style={{ display: 'flex', flexDirection: 'column', gap: '2rem', width: '100%', maxWidth: 720, padding: '0 1.5rem' }}>
               {messages.map((msg, msgIdx) => {
                 // Skip empty assistant messages (no content, no sqlResult, not streaming)
                 if (msg.role === 'assistant' && !msg.content && !messageSqlResults[msg.id]?.length && !msg.sqlResult && !messageStreamingStatus[msg.id]) return null;

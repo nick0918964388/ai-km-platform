@@ -84,6 +84,7 @@ export default function ChatInput({
       flexShrink: 0,
       margin: '0 auto',
       width: '100%',
+      maxWidth: 720 + 48,
     }}>
       <div style={{
         background: '#F3F3F3',
