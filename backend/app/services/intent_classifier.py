@@ -234,10 +234,20 @@ class IntentClassifierService:
 
 
 _intent_classifier = None
+_intent_classifier_config_hash = None
+
+
+def _get_config_hash() -> str:
+    """Get a hash of intent-related settings to detect changes."""
+    settings = get_settings()
+    return f"{settings.intent_provider}|{settings.intent_llm_url}|{settings.intent_llm_model}|{settings.anthropic_api_key[:8] if settings.anthropic_api_key else ''}|{settings.intent_anthropic_model}"
 
 
 def get_intent_classifier() -> IntentClassifierService:
-    global _intent_classifier
-    if _intent_classifier is None:
+    global _intent_classifier, _intent_classifier_config_hash
+    current_hash = _get_config_hash()
+    if _intent_classifier is None or _intent_classifier_config_hash != current_hash:
         _intent_classifier = IntentClassifierService()
+        _intent_classifier_config_hash = current_hash
+        log.info("Intent classifier (re)initialized: %s", current_hash)
     return _intent_classifier
