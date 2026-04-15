@@ -862,7 +862,7 @@ export default function ChatWindow() {
               </div>
 
               {/* Input centered with greeting (Claude style) */}
-              <div style={{ width: '100%', maxWidth: 520, marginTop: '2rem' }}>
+              <div className="chat-empty-input" style={{ width: '100%', marginTop: '2rem' }}>
                 <ChatInput
                   onSend={handleSend}
                   onStop={handleStop}
@@ -873,7 +873,7 @@ export default function ChatWindow() {
               </div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', width: '100%', maxWidth: 720, padding: '0 1.5rem' }}>
+            <div className="chat-messages-inner" style={{ display: 'flex', flexDirection: 'column', gap: '2rem', width: '100%', maxWidth: 820, padding: '0 2rem' }}>
               {messages.map((msg, msgIdx) => {
                 // Skip empty assistant messages (no content, no sqlResult, not streaming)
                 if (msg.role === 'assistant' && !msg.content && !messageSqlResults[msg.id]?.length && !msg.sqlResult && !messageStreamingStatus[msg.id]) return null;

@@ -82,7 +82,6 @@ export default function ChatInput({
       padding: '0.5rem 1.5rem 1.5rem',
       background: 'transparent',
       flexShrink: 0,
-      maxWidth: 720 + 48,
       margin: '0 auto',
       width: '100%',
     }}>

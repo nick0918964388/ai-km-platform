@@ -1331,7 +1331,13 @@ h1, h2, h3, h4, h5, h6,
 
 /* Desktop breakpoint (>1024px) */
 @media (min-width: 1024px) {
-  /* Desktop-specific overrides */
+  .chat-empty-input {
+    max-width: 680px;
+  }
+
+  .chat-input-wrap {
+    max-width: 860px;
+  }
 }
 
 /* Mobile breakpoint (<768px) */
@@ -1449,6 +1455,14 @@ h1, h2, h3, h4, h5, h6,
   /* Compact chat input on mobile */
   .chat-input-wrap {
     padding: 0.375rem 0.75rem 0.5rem !important;
+  }
+
+  .chat-messages-inner {
+    padding: 0 0.75rem !important;
+  }
+
+  .chat-empty-input {
+    max-width: 100% !important;
   }
 
   /* Keyboard handling */
