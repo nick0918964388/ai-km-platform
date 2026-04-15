@@ -814,8 +814,11 @@ export default function ChatWindow() {
             <div style={{
               textAlign: 'center',
               color: 'var(--text-secondary)',
-              maxWidth: 480,
-              margin: '0 auto',
+              maxWidth: 520,
+              width: '100%',
+              marginTop: 'auto',
+              marginBottom: 'auto',
+              padding: '0 1rem',
             }}>
               <h2 style={{ marginBottom: '0.5rem', color: 'var(--text-primary)', fontWeight: 600, fontSize: '1.5rem', letterSpacing: '-0.02em' }}>
                 有什麼可以幫您的？
