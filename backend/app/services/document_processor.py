@@ -25,6 +25,20 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[ProcessingStep, int, str, Optional[int]], None]
 
 
+async def _get_chunk_settings() -> dict:
+    """Read chunk settings from DB (with defaults)."""
+    try:
+        from app.services import settings_service
+        settings = await settings_service.get_all_settings()
+        return {
+            'chunk_size': int(settings.get('chunk_size', '500')),
+            'overlap': int(settings.get('chunk_overlap', '100')),
+            'strategy': settings.get('chunk_strategy', 'smart'),
+        }
+    except Exception:
+        return {'chunk_size': 500, 'overlap': 100, 'strategy': 'smart'}
+
+
 async def process_pdf(
     file_content: bytes,
     filename: str,
@@ -105,9 +119,11 @@ async def process_pdf(
     # Step 2: Chunking (25-50%)
     emit_progress(ProcessingStep.CHUNKING, 25, "文件分塊中...")
 
+    chunk_cfg = await _get_chunk_settings()
+
     # Use smart chunking for technical documents
     if use_smart_chunking and full_text.strip():
-        chunks = smart_chunk(full_text, chunk_size=500, overlap=100)
+        chunks = smart_chunk(full_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
     else:
         # Fallback to simple paragraph chunking
         chunks = [
@@ -261,9 +277,11 @@ async def process_word(
     # Step 2: Chunking (25-50%)
     emit_progress(ProcessingStep.CHUNKING, 25, "文件分塊中...")
 
+    chunk_cfg = await _get_chunk_settings()
+
     # Use smart chunking
     if use_smart_chunking and full_text.strip():
-        chunks = smart_chunk(full_text, chunk_size=500, overlap=100)
+        chunks = smart_chunk(full_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
     else:
         # Fallback
         chunks = [
@@ -511,6 +529,8 @@ async def process_excel(
     # Step 2: Chunking (25-50%)
     emit_progress(ProcessingStep.CHUNKING, 25, "文件分塊中...")
 
+    chunk_cfg = await _get_chunk_settings()
+
     chunks = []
     for sheet in sheets_data:
         sheet_name = sheet["name"]
@@ -546,7 +566,7 @@ async def process_excel(
 
         # Smart chunking or fallback
         if use_smart_chunking and sheet_text.strip():
-            sheet_chunks = smart_chunk(sheet_text, chunk_size=500, overlap=100)
+            sheet_chunks = smart_chunk(sheet_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
             for chunk in sheet_chunks:
                 chunk["metadata"]["sheet_name"] = sheet_name
                 chunks.append(chunk)

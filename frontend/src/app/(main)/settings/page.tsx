@@ -90,6 +90,9 @@ export default function SettingsPage() {
             ollama_light_model: data.ollama_light_model || '',
             intent_llm_url: data.intent_llm_url || '',
             intent_llm_model: data.intent_llm_model || '',
+            chunk_size: data.chunk_size || '500',
+            chunk_overlap: data.chunk_overlap || '100',
+            chunk_strategy: data.chunk_strategy || 'smart',
           });
         })
         .catch(() => {});
@@ -354,6 +357,39 @@ export default function SettingsPage() {
             >
               <option value="user">一般使用者</option>
               <option value="guest">訪客</option>
+            </select>
+          </div>
+        </div>
+      )}
+
+      {/* Chunk Settings Card */}
+      {user?.role === 'admin' && (
+        <div style={cardStyle}>
+          <h2 style={cardTitle}>文件切片設定</h2>
+          <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+            <label className="form-label">切片大小（字元）</label>
+            <input type="number" className="form-input" style={{ width: '100%' }}
+              value={llmSettings.chunk_size || '500'}
+              onChange={e => setLlmSettings(s => ({ ...s, chunk_size: e.target.value }))}
+            />
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>建議 300-1000</span>
+          </div>
+          <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+            <label className="form-label">重疊字元數</label>
+            <input type="number" className="form-input" style={{ width: '100%' }}
+              value={llmSettings.chunk_overlap || '100'}
+              onChange={e => setLlmSettings(s => ({ ...s, chunk_overlap: e.target.value }))}
+            />
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>建議 50-200</span>
+          </div>
+          <div className="form-group">
+            <label className="form-label">分割策略</label>
+            <select className="form-input" style={{ width: '100%' }}
+              value={llmSettings.chunk_strategy || 'smart'}
+              onChange={e => setLlmSettings(s => ({ ...s, chunk_strategy: e.target.value }))}>
+              <option value="smart">智慧分割（保持步驟完整性）</option>
+              <option value="fixed">固定長度分割</option>
+              <option value="paragraph">段落分割</option>
             </select>
           </div>
         </div>
