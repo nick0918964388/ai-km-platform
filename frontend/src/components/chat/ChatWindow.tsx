@@ -919,9 +919,7 @@ export default function ChatWindow() {
                       const currentLabel = runningStep?.label || lastDone?.label || '思考中...';
                       return (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem', marginBottom: msg.content ? '0.5rem' : 0 }}>
-                          <div className="typing-indicator" style={{ display: 'inline-flex' }}>
-                            <span></span><span></span><span></span>
-                          </div>
+                          <span className="shimmer-text">檢修助手</span>
                           <span style={{ fontStyle: 'italic' }}>{currentLabel}</span>
                           {elapsedSeconds > 0 && (
                             <span style={{ fontSize: '0.7rem', fontFamily: 'monospace' }}>
@@ -1353,11 +1351,7 @@ export default function ChatWindow() {
               })}
               {isLoading && !isStreaming && (
                 <div style={{ padding: '0.5rem 0' }}>
-                  <div className="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
+                  <span className="shimmer-text" style={{ fontSize: '1.125rem' }}>檢修助手</span>
                 </div>
               )}
               <div ref={messagesEndRef} />
