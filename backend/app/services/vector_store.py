@@ -63,17 +63,37 @@ def get_client() -> QdrantClient:
 
 
 def _ensure_collections():
-    """Ensure collections exist in persistent Qdrant."""
+    """Ensure collections exist in persistent Qdrant.
+
+    If an existing collection has a different dimension than the current
+    embedding config, it will be recreated (old vectors are lost).
+    Re-upload documents after changing the embedding model.
+    """
     client = _client
     collections = client.get_collections().collections
     collection_names = [c.name for c in collections]
 
+    expected_text_dim = get_text_embedding_dimension()
+
+    if TEXT_COLLECTION in collection_names:
+        info = client.get_collection(TEXT_COLLECTION)
+        existing_dim = info.config.params.vectors.size
+        if existing_dim != expected_text_dim:
+            logger.warning(
+                f"Collection '{TEXT_COLLECTION}' dimension mismatch: "
+                f"existing={existing_dim}, expected={expected_text_dim}. "
+                f"Recreating collection — existing vectors will be lost. "
+                f"Please re-upload documents."
+            )
+            client.delete_collection(TEXT_COLLECTION)
+            collection_names.remove(TEXT_COLLECTION)
+
     if TEXT_COLLECTION not in collection_names:
-        logger.info(f"Creating collection: {TEXT_COLLECTION}")
+        logger.info(f"Creating collection: {TEXT_COLLECTION} (dim={expected_text_dim})")
         client.create_collection(
             collection_name=TEXT_COLLECTION,
             vectors_config=VectorParams(
-                size=get_text_embedding_dimension(),
+                size=expected_text_dim,
                 distance=Distance.COSINE,
             ),
         )

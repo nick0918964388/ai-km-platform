@@ -30,8 +30,9 @@ class Settings(BaseSettings):
     
     # Ollama Embedding
     embedding_provider: str = "ollama"  # "openai" or "ollama"
-    ollama_url: str = "https://j2ollama.nickai.cc"
+    ollama_base_url: str = "http://ollama.webtw.xyz:11434"
     ollama_embedding_model: str = "qwen3-embedding:latest"
+    ollama_embedding_dimension: int = 4096
 
     # Qdrant
     qdrant_collection_name: str = "knowledge_base"

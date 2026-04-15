@@ -40,7 +40,7 @@ services:
       QDRANT__LOG_LEVEL: INFO
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' || exit 1"]
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -51,7 +51,7 @@ services:
     image: redis:7-alpine
     container_name: aikm-redis
     ports:
-      - "${REDIS_HOST_PORT:-6379}:6379"
+      - "6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
@@ -76,7 +76,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "${BACKEND_HOST_PORT:-8000}:8000"
+      - "8000:8000"
     volumes:
       - ./backend/storage:/app/storage
       - ./backend/backups:/app/backups
@@ -90,12 +90,12 @@ services:
       REDIS_URL: redis://redis:6379
       CACHE_TTL: 3600
       # Embedding Models
-      EMBEDDING_PROVIDER: ollama
-      OLLAMA_URL: http://ollama.webtw.xyz:11434
-      OLLAMA_EMBEDDING_MODEL: nomic-embed-text:latest
-      OLLAMA_EMBEDDING_DIMENSION: "768"
       TEXT_EMBEDDING_MODEL: all-MiniLM-L6-v2
       CLIP_MODEL: openai/clip-vit-base-patch32
+      EMBEDDING_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://ollama.webtw.xyz:11434
+      OLLAMA_EMBEDDING_MODEL: qwen3-embedding:latest
+      OLLAMA_EMBEDDING_DIMENSION: "4096"
       # Reranking
       COHERE_API_KEY: ${COHERE_API_KEY:-}
       COHERE_MODEL: rerank-v3.5
