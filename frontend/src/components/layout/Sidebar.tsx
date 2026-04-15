@@ -63,10 +63,10 @@ export default function Sidebar() {
         </div>
         {!sidebarCollapsed && (
           <div>
-            <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
+            <div style={{ fontWeight: 700, fontSize: '1rem', color: '#E0E0E8' }}>
               台鐵問答 AI
             </div>
-            <div style={{ fontSize: '0.625rem', color: 'var(--accent)' }}>
+            <div style={{ fontSize: '0.625rem', color: '#8B83D4' }}>
               車輛維修知識庫
             </div>
           </div>
