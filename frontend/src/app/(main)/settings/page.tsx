@@ -27,7 +27,8 @@ export default function SettingsPage() {
     intent_llm_model: '',
     openai_api_key: '',
     anthropic_api_key: '',
-    anthropic_model: 'claude-haiku-4-5-20251001',
+    anthropic_model: 'claude-sonnet-4-6',
+    intent_anthropic_model: 'claude-haiku-4-5-20251001',
   });
 
   // Column label management state
@@ -99,7 +100,8 @@ export default function SettingsPage() {
             intent_llm_model: data.intent_llm_model || '',
             openai_api_key: data.openai_api_key || '',
             anthropic_api_key: data.anthropic_api_key || '',
-            anthropic_model: data.anthropic_model || 'claude-haiku-4-5-20251001',
+            anthropic_model: data.anthropic_model || 'claude-sonnet-4-6',
+            intent_anthropic_model: data.intent_anthropic_model || 'claude-haiku-4-5-20251001',
             chunk_size: data.chunk_size || '500',
             chunk_overlap: data.chunk_overlap || '100',
             chunk_strategy: data.chunk_strategy || 'smart',
@@ -405,10 +407,10 @@ export default function SettingsPage() {
         )}
         {llmSettings.intent_provider === 'anthropic' && (
           <div className="form-group">
-            <label className="form-label">模型</label>
+            <label className="form-label">Intent 模型</label>
             <select className="form-input" style={{ width: '100%' }}
-              value={llmSettings.anthropic_model}
-              onChange={e => setLlmSettings(s => ({ ...s, anthropic_model: e.target.value }))}>
+              value={llmSettings.intent_anthropic_model}
+              onChange={e => setLlmSettings(s => ({ ...s, intent_anthropic_model: e.target.value }))}>
               <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (最快)</option>
               <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
             </select>

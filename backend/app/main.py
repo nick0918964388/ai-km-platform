@@ -137,7 +137,7 @@ async def lifespan(app: FastAPI):
         override_keys = [
             'llm_provider', 'ollama_chat_url', 'ollama_chat_api_key', 'ollama_chat_model',
             'ollama_light_model', 'intent_llm_url', 'intent_llm_model',
-            'intent_provider', 'anthropic_api_key', 'anthropic_model',
+            'intent_provider', 'anthropic_api_key', 'anthropic_model', 'intent_anthropic_model',
             'openai_api_key',
         ]
         for key in override_keys:

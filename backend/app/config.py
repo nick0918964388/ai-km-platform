@@ -16,7 +16,8 @@ class Settings(BaseSettings):
 
     # Anthropic
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-haiku-4-5-20251001"
+    anthropic_model: str = "claude-sonnet-4-6"
+    intent_anthropic_model: str = "claude-haiku-4-5-20251001"
 
     # Ollama Chat / OpenAI-compatible LLM endpoint
     ollama_chat_url: str = "http://ollama.webtw.xyz:11434/v1"

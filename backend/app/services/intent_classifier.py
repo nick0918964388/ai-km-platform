@@ -112,7 +112,7 @@ class IntentClassifierService:
 
         if self.provider == "anthropic" and settings.anthropic_api_key:
             self.anthropic_key = settings.anthropic_api_key
-            self.model = settings.anthropic_model or "claude-haiku-4-5-20251001"
+            self.model = settings.intent_anthropic_model or "claude-haiku-4-5-20251001"
             self.client = None  # Use anthropic SDK directly
         elif self.provider == "openai" and settings.openai_api_key:
             self.client = AsyncOpenAI(api_key=settings.openai_api_key)
