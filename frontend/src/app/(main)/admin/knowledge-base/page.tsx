@@ -18,6 +18,9 @@ import {
   Time,
   View,
   Close,
+  Checkbox,
+  CheckboxCheckedFilled,
+  Minimize,
 } from '@carbon/icons-react';
 import { UploadProgress } from '@/components/upload/UploadProgress';
 import type { ProgressMessage } from '@/hooks/useUploadProgress';
@@ -73,6 +76,9 @@ export default function KnowledgeBasePage() {
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [previewModal, setPreviewModal] = useState<{ docId: string; name: string; content: string } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const [uploadMinimized, setUploadMinimized] = useState(false);
   const isProcessingQueue = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -284,6 +290,54 @@ export default function KnowledgeBasePage() {
     }
   };
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredDocuments.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredDocuments.map(d => d.id)));
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`確定要刪除選取的 ${selectedIds.size} 筆文件？相關的知識庫內容也會被移除。`)) return;
+    setBatchDeleting(true);
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/api/kb/documents/batch-delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
+        },
+        body: JSON.stringify({ document_ids: Array.from(selectedIds) }),
+        timeout: TIMEOUTS.DEFAULT,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDocuments(prev => prev.filter(d => !selectedIds.has(d.id)));
+        setSelectedIds(new Set());
+        if (data.failed?.length > 0) {
+          alert(`${data.message}`);
+        }
+      } else {
+        const error = await res.json();
+        alert(`批次刪除失敗: ${error.detail}`);
+      }
+    } catch (error) {
+      alert(getErrorMessage(error));
+    } finally {
+      setBatchDeleting(false);
+    }
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(true);
@@ -461,6 +515,30 @@ export default function KnowledgeBasePage() {
             }}
           />
         </div>
+        {selectedIds.size > 0 && (
+          <button
+            onClick={handleBatchDelete}
+            disabled={batchDeleting}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              padding: '0 1.25rem',
+              height: 48,
+              background: 'var(--error)',
+              color: 'white',
+              border: 'none',
+              borderRadius: 'var(--radius-md)',
+              cursor: batchDeleting ? 'wait' : 'pointer',
+              fontWeight: 600,
+              fontSize: '0.875rem',
+              opacity: batchDeleting ? 0.7 : 1,
+            }}
+          >
+            <TrashCan size={16} />
+            {batchDeleting ? '刪除中...' : `刪除 (${selectedIds.size})`}
+          </button>
+        )}
         <button
           className="btn-primary"
           onClick={() => fileInputRef.current?.click()}
@@ -480,7 +558,7 @@ export default function KnowledgeBasePage() {
           type="file"
           ref={fileInputRef}
           onChange={(e) => handleFileSelect(e.target.files)}
-          accept=".pdf,.docx,.png,.jpg,.jpeg,.webp"
+          accept=".pdf,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp"
           multiple
           style={{ display: 'none' }}
           disabled={uploading}
@@ -525,100 +603,98 @@ export default function KnowledgeBasePage() {
         </div>
       )}
 
-      {/* Upload Queue Progress Panel */}
+      {/* Floating Upload Queue Progress Panel */}
       {uploadQueue.length > 0 && (
         <div style={{
-          marginBottom: '1.5rem',
-          padding: '1rem 1.25rem',
-          background: 'var(--bg-secondary)',
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          width: uploadMinimized ? 280 : 420,
+          maxHeight: uploadMinimized ? 'auto' : '50vh',
+          padding: uploadMinimized ? '0.75rem 1rem' : '1rem 1.25rem',
+          background: 'var(--bg-primary)',
           borderRadius: 'var(--radius-lg)',
           border: '1px solid var(--border)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+          zIndex: 900,
+          overflow: uploadMinimized ? 'hidden' : 'auto',
         }}>
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginBottom: '0.75rem',
+            marginBottom: uploadMinimized ? 0 : '0.75rem',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <CloudUpload size={18} style={{ color: 'var(--accent)' }} />
-              <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.875rem' }}>
-                上傳進度（{uploadQueue.length} 個檔案）
+              {uploading && <InProgress size={16} style={{ color: 'var(--accent)' }} className="spinner" />}
+              {!uploading && <CloudUpload size={16} style={{ color: 'var(--accent)' }} />}
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.8125rem' }}>
+                {uploading ? `上傳中 (${uploadQueue.filter(q => q.status === 'done').length}/${uploadQueue.length})` : `上傳完成 (${uploadQueue.length})`}
               </span>
             </div>
-            {uploadQueue.every(q => q.status === 'done' || q.status === 'error') && (
+            <div style={{ display: 'flex', gap: '0.25rem' }}>
               <button
-                onClick={clearCompletedUploads}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  cursor: 'pointer',
-                  fontSize: '0.8125rem',
-                  textDecoration: 'underline',
-                }}
+                onClick={() => setUploadMinimized(!uploadMinimized)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2 }}
+                title={uploadMinimized ? '展開' : '最小化'}
               >
-                清除
+                <Minimize size={14} />
               </button>
-            )}
+              {uploadQueue.every(q => q.status === 'done' || q.status === 'error') && (
+                <button
+                  onClick={clearCompletedUploads}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2 }}
+                  title="關閉"
+                >
+                  <Close size={14} />
+                </button>
+              )}
+            </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {uploadQueue.map((item, idx) => (
-              <div key={`${item.file.name}-${idx}`} style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.75rem',
-                padding: '0.5rem 0',
-                borderBottom: idx < uploadQueue.length - 1 ? '1px solid var(--border)' : 'none',
-              }}>
-                {/* Status icon */}
-                <div style={{ flexShrink: 0, width: 20, textAlign: 'center' }}>
-                  {item.status === 'done' && <CheckmarkFilled size={16} style={{ color: 'var(--success)' }} />}
-                  {item.status === 'error' && <ErrorFilled size={16} style={{ color: 'var(--error)' }} />}
-                  {item.status === 'pending' && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>...</span>}
-                  {(item.status === 'uploading' || item.status === 'processing') && (
-                    <InProgress size={16} style={{ color: 'var(--accent)' }} className="spinner" />
-                  )}
-                </div>
-                {/* Filename */}
-                <span style={{
-                  minWidth: 160,
-                  maxWidth: 240,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  fontSize: '0.8125rem',
-                  color: 'var(--text-primary)',
-                  fontWeight: 500,
+          {!uploadMinimized && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {uploadQueue.map((item, idx) => (
+                <div key={`${item.file.name}-${idx}`} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                  padding: '0.5rem 0',
+                  borderBottom: idx < uploadQueue.length - 1 ? '1px solid var(--border)' : 'none',
                 }}>
-                  {item.file.name}
-                </span>
-                {/* Progress bar */}
-                <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${item.status === 'done' ? 100 : item.status === 'error' ? 100 : item.progress || 0}%`,
-                    background: item.status === 'error' ? 'var(--error)' : item.status === 'done' ? 'var(--success)' : 'var(--accent)',
-                    borderRadius: 3,
-                    transition: 'width 0.3s ease',
-                  }} />
+                  <div style={{ flexShrink: 0, width: 20, textAlign: 'center' }}>
+                    {item.status === 'done' && <CheckmarkFilled size={16} style={{ color: 'var(--success)' }} />}
+                    {item.status === 'error' && <ErrorFilled size={16} style={{ color: 'var(--error)' }} />}
+                    {item.status === 'pending' && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>...</span>}
+                    {(item.status === 'uploading' || item.status === 'processing') && (
+                      <InProgress size={16} style={{ color: 'var(--accent)' }} className="spinner" />
+                    )}
+                  </div>
+                  <span style={{
+                    flex: 1,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontSize: '0.8125rem',
+                    color: 'var(--text-primary)',
+                    fontWeight: 500,
+                  }}>
+                    {item.file.name}
+                  </span>
+                  <span style={{
+                    fontSize: '0.75rem',
+                    color: item.status === 'error' ? 'var(--error)' : item.status === 'done' ? 'var(--success)' : 'var(--text-muted)',
+                    flexShrink: 0,
+                  }}>
+                    {item.status === 'pending' && '等待中'}
+                    {item.status === 'uploading' && '上傳中...'}
+                    {item.status === 'processing' && '向量化中...'}
+                    {item.status === 'done' && `✓ ${item.chunks || 0} 切片`}
+                    {item.status === 'error' && (item.error || '失敗')}
+                  </span>
                 </div>
-                {/* Status text */}
-                <span style={{
-                  fontSize: '0.75rem',
-                  color: item.status === 'error' ? 'var(--error)' : item.status === 'done' ? 'var(--success)' : 'var(--text-muted)',
-                  minWidth: 80,
-                  textAlign: 'right',
-                }}>
-                  {item.status === 'pending' && '等待中'}
-                  {item.status === 'uploading' && '上傳中...'}
-                  {item.status === 'processing' && '向量化中...'}
-                  {item.status === 'done' && `完成${item.chunks ? `（${item.chunks} 切片）` : ''}`}
-                  {item.status === 'error' && (item.error || '失敗')}
-                </span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -627,6 +703,27 @@ export default function KnowledgeBasePage() {
         <table className="data-table">
           <thead>
             <tr>
+              <th style={{ width: 40, textAlign: 'center', padding: '0.5rem' }}>
+                <button
+                  onClick={toggleSelectAll}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: selectedIds.size === filteredDocuments.length && filteredDocuments.length > 0
+                      ? 'var(--accent)' : 'var(--text-muted)',
+                  }}
+                  title={selectedIds.size === filteredDocuments.length ? '取消全選' : '全選'}
+                >
+                  {selectedIds.size === filteredDocuments.length && filteredDocuments.length > 0
+                    ? <CheckboxCheckedFilled size={18} />
+                    : <Checkbox size={18} />}
+                </button>
+              </th>
               <th>文件名稱</th>
               <th>類型</th>
               <th>大小</th>
@@ -638,7 +735,26 @@ export default function KnowledgeBasePage() {
           </thead>
           <tbody>
             {paginatedDocuments.map((doc) => [
-              <tr key={doc.id}>
+              <tr key={doc.id} style={{ background: selectedIds.has(doc.id) ? 'rgba(0, 95, 158, 0.05)' : undefined }}>
+                <td style={{ textAlign: 'center', padding: '0.5rem' }}>
+                  <button
+                    onClick={() => toggleSelect(doc.id)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: 4,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: selectedIds.has(doc.id) ? 'var(--accent)' : 'var(--text-muted)',
+                    }}
+                  >
+                    {selectedIds.has(doc.id)
+                      ? <CheckboxCheckedFilled size={18} />
+                      : <Checkbox size={18} />}
+                  </button>
+                </td>
                 <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     <div style={{
@@ -757,7 +873,7 @@ export default function KnowledgeBasePage() {
               </tr>,
               versionHistoryId === doc.id && (
                 <tr key={`${doc.id}-versions`}>
-                  <td colSpan={7} style={{ padding: 0 }}>
+                  <td colSpan={8} style={{ padding: 0 }}>
                     <div style={{
                       background: 'var(--bg-secondary)',
                       borderTop: '1px solid var(--border)',

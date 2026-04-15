@@ -136,6 +136,34 @@ async def delete_document(document_id: str):
     )
 
 
+@router.post("/documents/batch-delete")
+async def batch_delete_documents(request: dict):
+    """Delete multiple documents at once."""
+    doc_ids = request.get("document_ids", [])
+    if not doc_ids:
+        raise HTTPException(status_code=400, detail="document_ids 不可為空")
+
+    deleted = []
+    failed = []
+    for doc_id in doc_ids:
+        try:
+            success = await vector_store.delete_document(doc_id)
+            if success:
+                cache_service.invalidate_cache(document_id=doc_id)
+                deleted.append(doc_id)
+            else:
+                failed.append(doc_id)
+        except Exception:
+            failed.append(doc_id)
+
+    return {
+        "success": True,
+        "deleted": deleted,
+        "failed": failed,
+        "message": f"成功刪除 {len(deleted)} 筆文件" + (f"，{len(failed)} 筆失敗" if failed else ""),
+    }
+
+
 @router.get("/stats", response_model=StatsResponse)
 async def get_stats():
     """Get knowledge base statistics."""
