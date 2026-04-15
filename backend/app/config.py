@@ -18,11 +18,11 @@ class Settings(BaseSettings):
     ollama_chat_url: str = "http://ollama.webtw.xyz:11434/v1"
     ollama_chat_api_key: str = "ollama"
     ollama_chat_model: str = "qwen3.5:397b-cloud"
-    ollama_light_model: str = "qwen3.5:397b-cloud"
+    ollama_light_model: str = "gemma4:31b-cloud"
 
     # Fast local LLM for intent classification (low latency, smaller model)
     intent_llm_url: str = "http://ollama.webtw.xyz:11434/v1"
-    intent_llm_model: str = "llama3.2:3b"
+    intent_llm_model: str = "gemma4:31b-cloud"
 
     # Embedding models
     text_embedding_model: str = "all-MiniLM-L6-v2"

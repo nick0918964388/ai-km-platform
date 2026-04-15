@@ -178,7 +178,7 @@ class IntentClassifierService:
                 clarification_options=[{"label": "請重新描述您的問題", "query": query}],
             )
 
-    async def classify_with_fallback(self, query: str, context: list = None, timeout: float = 5.0) -> IntentResult:
+    async def classify_with_fallback(self, query: str, context: list = None, timeout: float = 10.0) -> IntentResult:
         try:
             return await asyncio.wait_for(self.classify(query, context), timeout=timeout)
         except (asyncio.TimeoutError, Exception) as e:

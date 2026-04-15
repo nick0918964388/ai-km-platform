@@ -105,7 +105,10 @@ services:
       OLLAMA_CHAT_URL: http://ollama.webtw.xyz:11434/v1
       OLLAMA_CHAT_API_KEY: ollama
       OLLAMA_CHAT_MODEL: qwen3.5:397b-cloud
-      OLLAMA_LIGHT_MODEL: qwen3.5:397b-cloud
+      OLLAMA_LIGHT_MODEL: gemma4:31b-cloud
+      # Intent Classification (fast model)
+      INTENT_LLM_URL: http://ollama.webtw.xyz:11434/v1
+      INTENT_LLM_MODEL: gemma4:31b-cloud
       # Fallback OpenAI (optional)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       JINA_API_KEY: ${JINA_API_KEY:-}
