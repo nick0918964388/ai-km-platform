@@ -151,9 +151,29 @@ def _heuristic_decompose(query: str) -> DecompositionResult:
     )
 
 
-async def decompose_query(query: str, context: list = None) -> DecompositionResult:
+def _get_llm_client():
+    """依 llm_provider 回傳 (AsyncOpenAI client, light_model_name)。"""
     settings = get_settings()
-    client = AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url)
+    if settings.llm_provider == "anthropic" and settings.anthropic_api_key:
+        # Anthropic 不支援 OpenAI-compatible，decompose/synthesis 用 ollama light model
+        return AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url), settings.ollama_light_model
+    if settings.llm_provider == "openai" and settings.openai_api_key:
+        return AsyncOpenAI(api_key=settings.openai_api_key), settings.openai_model or "gpt-4o"
+    return AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url), settings.ollama_light_model
+
+
+def _get_chat_client():
+    """依 llm_provider 回傳 (AsyncOpenAI client, chat_model_name)。"""
+    settings = get_settings()
+    if settings.llm_provider == "anthropic" and settings.anthropic_api_key:
+        return AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url), settings.ollama_chat_model
+    if settings.llm_provider == "openai" and settings.openai_api_key:
+        return AsyncOpenAI(api_key=settings.openai_api_key), settings.openai_model or "gpt-4o"
+    return AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url), settings.ollama_chat_model
+
+
+async def decompose_query(query: str, context: list = None) -> DecompositionResult:
+    client, model = _get_llm_client()
 
     user_prompt = f"/no_think\n使用者查詢: {query}"
     if context:
@@ -164,7 +184,7 @@ async def decompose_query(query: str, context: list = None) -> DecompositionResu
     try:
         response = await asyncio.wait_for(
             client.chat.completions.create(
-                model=settings.ollama_light_model,
+                model=model,
                 messages=[
                     {"role": "system", "content": DECOMPOSE_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
@@ -358,8 +378,7 @@ async def synthesize_results(
     results: list[dict],
     instruction: str,
 ) -> AsyncGenerator[dict, None]:
-    settings = get_settings()
-    client = AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url)
+    client, model = _get_chat_client()
 
     context_text = _build_synthesis_context(results)
     user_prompt = f"""/no_think
@@ -376,7 +395,7 @@ async def synthesize_results(
 
     try:
         stream = await client.chat.completions.create(
-            model=settings.ollama_chat_model,
+            model=model,
             messages=[
                 {"role": "system", "content": SYNTHESIS_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},

@@ -39,7 +39,7 @@ async def _generate_document_context(full_text: str, filename: str) -> str:
         resp = _requests.post(
             f"{settings.ollama_base_url}/api/chat",
             json={
-                "model": "gemma4:31b-cloud",  # Use fast model for context generation
+                "model": settings.ollama_light_model,
                 "messages": [{"role": "user", "content": f"/no_think\n請用一句話（30字以內）描述這份文件的主題和類型。\n檔名：{filename}\n內容摘要：{sample}"}],
                 "stream": False,
             },
