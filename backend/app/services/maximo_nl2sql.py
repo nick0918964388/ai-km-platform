@@ -1229,8 +1229,14 @@ SQL：{sql}
                 continue
 
             # 5. LLM verification (only in accurate mode, skip on last attempt)
+            # Pattern B 優化：若 rule validation 通過且有結果，跳過 LLM verify 節省時間
             verify_result = None
-            if mode == "accurate" and attempt < max_iter - 1:
+            skip_verify = (
+                mode == "accurate"
+                and not rule_issues
+                and result.get("row_count", 0) > 0
+            )
+            if mode == "accurate" and attempt < max_iter - 1 and not skip_verify:
                 verify_result = await self._llm_verify(question, sql, result)
                 if not verify_result.get("passed", True) and verify_result.get("feedback"):
                     all_issues = rule_issues + verify_result.get("issues", [])
