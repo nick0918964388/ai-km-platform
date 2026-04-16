@@ -35,12 +35,19 @@ def _sanitize_explanation(text: str) -> str:
     if not text:
         return text
     import re
-    # Remove table name references like "maximo_xxx" or "maximo_xxx 表"
-    text = re.sub(r'maximo_\w+\s*表?', '', text)
-    # Remove "從...中" patterns that reference tables
-    text = re.sub(r'從\s+中', '', text)
-    # Clean up extra spaces
+    # Remove table name references like "maximo_xxx 表中" or standalone
+    text = re.sub(r'maximo_\w+\s*表?中?', '', text)
+    # Remove column references in parentheses like "(eq4)" or "(wonum)"
+    text = re.sub(r'\s*\(\w{2,20}\)\s*', ' ', text)
+    # Remove orphaned patterns from table name removal
+    text = re.sub(r'從\s+中', '', text)            # 從 [removed] 中
+    text = re.sub(r'從\s+查詢', '查詢', text)      # 從 [removed] 查詢
+    text = re.sub(r'列出\s+中?的?', '列出', text)   # 列出 [removed] 中的
+    text = re.sub(r'查詢\s+中', '查詢', text)       # 查詢 [removed] 中
+    text = re.sub(r'查詢\s*，', '', text)            # 查詢 ，
+    # Clean up
     text = re.sub(r'\s{2,}', ' ', text).strip()
+    text = re.sub(r'^[，、。\s]+', '', text)
     return text
 router = APIRouter(prefix="/api", tags=["chat"])
 
