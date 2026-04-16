@@ -7,6 +7,7 @@ import {
   RecentlyViewed,
   Chat,
   TrashCan,
+  ThumbsUp,
 } from '@carbon/icons-react';
 import ReactMarkdown from 'react-markdown';
 import { useStore } from '@/store/useStore';
@@ -16,6 +17,7 @@ import SourcePreview from './SourcePreview';
 import { getApiHeaders, API_URL, STREAM_API_URL, TIMEOUTS, fetchWithTimeout, TimeoutError, getErrorMessage } from '@/lib/api';
 import TaskProgress, { Step } from './TaskProgress';
 import ChatInput from './ChatInput';
+import RagFeedbackButtons from './RagFeedbackButtons';
 
 interface MessageSources {
   [messageId: string]: SearchResult[];
@@ -108,6 +110,7 @@ export default function ChatWindow() {
   const [messageFollowUps, setMessageFollowUps] = useState<MessageFollowUps>({});
   const [messageQueries, setMessageQueries] = useState<{ [msgId: string]: string }>({});
   const [expandedSources, setExpandedSources] = useState<{ [key: string]: boolean }>({});
+  const [sourceVoted, setSourceVoted] = useState<{ [key: string]: boolean }>({});
   const [taskSteps, setTaskSteps] = useState<Step[]>([]);
   const [messageSqlResults, setMessageSqlResults] = useState<Record<string, any[]>>({});
   const [pendingClarification, setPendingClarification] = useState<{message: string; options: {label: string; query: string}[]} | null>(null);
@@ -613,6 +616,36 @@ export default function ChatWindow() {
       handleSend(question);
     }
   }, [handleSend, isLoading]);
+
+  const handleSourceFeedback = useCallback(async (
+    sourceKey: string,
+    chunkId: string,
+    documentId: string | undefined,
+    question: string,
+    rating: 'up' | 'down',
+  ) => {
+    if (sourceVoted[sourceKey]) return;
+    setSourceVoted(prev => ({ ...prev, [sourceKey]: true }));
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+      await fetch('/api/sources/feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          chunk_id: chunkId,
+          document_id: documentId,
+          question,
+          rating,
+        }),
+      });
+    } catch (e) {
+      console.error('Source feedback error:', e);
+      setSourceVoted(prev => ({ ...prev, [sourceKey]: false }));
+    }
+  }, [sourceVoted]);
 
   const getSimulatedResponse = (question: string): string => {
     const responses: Record<string, string> = {
@@ -1174,6 +1207,39 @@ export default function ChatWindow() {
                                     documentName={source.document_name}
                                   />
                                 </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSourceFeedback(
+                                      sourceKey,
+                                      source.id,
+                                      source.document_id,
+                                      query,
+                                      'up',
+                                    );
+                                  }}
+                                  title={sourceVoted[sourceKey] ? '已標記為有幫助' : '標記此來源有幫助'}
+                                  disabled={!!sourceVoted[sourceKey]}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: sourceVoted[sourceKey] ? 'default' : 'pointer',
+                                    padding: '0.125rem 0.25rem',
+                                    borderRadius: 4,
+                                    color: sourceVoted[sourceKey] ? '#42be65' : 'var(--text-muted)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    flexShrink: 0,
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    if (!sourceVoted[sourceKey]) e.currentTarget.style.color = '#42be65';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (!sourceVoted[sourceKey]) e.currentTarget.style.color = 'var(--text-muted)';
+                                  }}
+                                >
+                                  <ThumbsUp size={12} />
+                                </button>
                               </div>
                               {/* Expandable Content */}
                               {isExpanded && contentPreview && (
@@ -1290,6 +1356,31 @@ export default function ChatWindow() {
                         )}
                       </div>
                     )}
+                    {/* Feedback Buttons — only for complete assistant messages */}
+                    {msg.role === 'assistant' && msg.content && !messageStreamingStatus[msg.id] && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        marginTop: '0.75rem',
+                        fontSize: '0.75rem',
+                        color: 'var(--text-muted)',
+                      }}>
+                        <span>這個回答是否有幫助？</span>
+                        <RagFeedbackButtons
+                          messageId={msg.id}
+                          query={(() => {
+                            const idx = messages.findIndex(m => m.id === msg.id);
+                            for (let i = idx - 1; i >= 0; i--) {
+                              if (messages[i].role === 'user') return messages[i].content;
+                            }
+                            return '';
+                          })()}
+                          answer={msg.content}
+                        />
+                      </div>
+                    )}
+
                     {/* Follow-up Questions */}
                     {msg.role === 'assistant' &&
                      messageFollowUps[msg.id] &&

@@ -78,6 +78,13 @@ class ChatFeedback(BaseModel):
     comment: Optional[str] = None
 
 
+class SourceFeedback(BaseModel):
+    chunk_id: str
+    document_id: Optional[str] = None
+    question: Optional[str] = None
+    rating: str  # "up" or "down"
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
@@ -763,4 +770,31 @@ async def submit_feedback(feedback: ChatFeedback):
                 "comment": feedback.comment,
             },
         )
+    return {"status": "ok"}
+
+
+@router.post("/sources/feedback")
+async def source_feedback(feedback: SourceFeedback):
+    """Submit feedback on a single source chunk. Used to boost helpful chunks in future searches."""
+    if feedback.rating not in ("up", "down"):
+        return JSONResponse({"error": "Invalid rating"}, status_code=400)
+    async with get_db_context() as session:
+        await session.execute(
+            text("""
+                INSERT INTO source_feedback (chunk_id, document_id, question, rating)
+                VALUES (:chunk_id, :document_id, :question, :rating)
+            """),
+            {
+                "chunk_id": feedback.chunk_id,
+                "document_id": feedback.document_id,
+                "question": feedback.question,
+                "rating": feedback.rating,
+            },
+        )
+    # Invalidate in-memory boost cache so new votes take effect quickly
+    try:
+        from app.services import rag as rag_svc
+        rag_svc.invalidate_boost_cache()
+    except Exception:
+        pass
     return {"status": "ok"}

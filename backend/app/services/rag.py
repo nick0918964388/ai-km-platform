@@ -387,6 +387,83 @@ def hybrid_search(
     return fused_results[:top_k], None
 
 
+# === Source feedback boost cache (in-memory, refreshed every 60s) ===
+# `search()` is sync so we avoid per-call async DB queries; instead cache the
+# `source_boost_scores` view in-process and refresh on a TTL.
+import time as _time
+import threading as _threading
+
+_BOOST_CACHE: dict[str, int] = {}
+_BOOST_CACHE_TS: float = 0.0
+_BOOST_CACHE_TTL_SEC: float = 60.0
+_BOOST_CACHE_LOCK = _threading.Lock()
+
+
+def _load_boost_scores() -> dict[str, int]:
+    """Load chunk_id → net_score from the source_boost_scores view using a sync
+    psycopg2 connection (since `search()` is a sync function)."""
+    try:
+        import psycopg2
+        db_url = os.getenv(
+            "DATABASE_URL",
+            "postgresql+asyncpg://aikm:aikm@localhost:5432/aikm",
+        )
+        # Strip SQLAlchemy async driver prefix for psycopg2
+        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
+        conn = psycopg2.connect(dsn, connect_timeout=3)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT chunk_id, net_score FROM source_boost_scores WHERE net_score <> 0"
+                )
+                return {row[0]: int(row[1]) for row in cur.fetchall()}
+        finally:
+            conn.close()
+    except Exception as e:
+        # Table/view may not exist yet (migration not applied) — treat as empty
+        logger.debug(f"Boost score load skipped: {e}")
+        return {}
+
+
+def _get_boost_scores() -> dict[str, int]:
+    """Return cached chunk_id → net_score map, refreshing if TTL expired."""
+    global _BOOST_CACHE, _BOOST_CACHE_TS
+    now = _time.time()
+    if now - _BOOST_CACHE_TS < _BOOST_CACHE_TTL_SEC and _BOOST_CACHE_TS > 0:
+        return _BOOST_CACHE
+    with _BOOST_CACHE_LOCK:
+        # Double-check after acquiring lock
+        if now - _BOOST_CACHE_TS < _BOOST_CACHE_TTL_SEC and _BOOST_CACHE_TS > 0:
+            return _BOOST_CACHE
+        _BOOST_CACHE = _load_boost_scores()
+        _BOOST_CACHE_TS = _time.time()
+    return _BOOST_CACHE
+
+
+def invalidate_boost_cache() -> None:
+    """Force the boost cache to refresh on next read. Called after new votes."""
+    global _BOOST_CACHE_TS
+    with _BOOST_CACHE_LOCK:
+        _BOOST_CACHE_TS = 0.0
+
+
+def _apply_feedback_boost(results: list[SearchResult]) -> list[SearchResult]:
+    """Apply net-score based boost to search results' score.
+    Each net_score point = +5% relative score, capped at +50% (i.e. 10 net upvotes)."""
+    if not results:
+        return results
+    boosts = _get_boost_scores()
+    if not boosts:
+        return results
+    for r in results:
+        boost = boosts.get(r.id, 0)
+        if boost > 0:
+            current = r.score or 0
+            r.score = current * (1 + 0.05 * min(boost, 10))
+    results.sort(key=lambda x: x.score or 0, reverse=True)
+    return results
+
+
 def search(
     query: str,
     image_base64: Optional[str] = None,
@@ -412,6 +489,8 @@ def search(
             # Convert cached dicts back to SearchResult
             for r in cached:
                 results.append(SearchResult(**r))
+            # Apply feedback boost (may reorder if new votes came in since cache)
+            results = _apply_feedback_boost(results)
             return results
 
     # Text search
@@ -508,6 +587,9 @@ def search(
                     )
         except Exception:
             pass
+
+    # Apply feedback boost before final sort/truncation so upvoted chunks can rise in ranking
+    results = _apply_feedback_boost(results)
 
     # Sort by score and limit
     results.sort(key=lambda x: x.score, reverse=True)
