@@ -114,17 +114,20 @@ FORBIDDEN_KEYWORDS = {
 class MaximoNL2SQL:
     def __init__(self, db: AsyncSession):
         self.db = db
-        provider = os.getenv("LLM_PROVIDER", "openai")
-        if provider == "ollama":
-            base_url = os.getenv("OLLAMA_CHAT_URL", "http://localhost:11434/v1")
-            api_key = os.getenv("OLLAMA_CHAT_API_KEY", "ollama")
-            self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-            # Use light model for NL→SQL (faster, good enough for SQL generation)
-            self.model = os.getenv("OLLAMA_LIGHT_MODEL",
-                          os.getenv("OLLAMA_CHAT_MODEL", "gemma4:31b-cloud"))
+        from app.config import get_settings
+        settings = get_settings()
+
+        if settings.llm_provider == "anthropic" and settings.anthropic_api_key:
+            # Anthropic 透過 OpenAI-compatible proxy 不支援，改用 ollama light model 做 SQL 生成
+            # SQL 生成不需要最強模型，用快速模型即可
+            self.client = AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url)
+            self.model = settings.ollama_light_model
+        elif settings.llm_provider == "openai" and settings.openai_api_key:
+            self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+            self.model = settings.openai_model or "gpt-4o"
         else:
-            self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            self.model = os.getenv("OPENAI_MODEL", "gpt-4o")
+            self.client = AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url)
+            self.model = settings.ollama_light_model or settings.ollama_chat_model
 
         self._query_plan: Optional[Dict[str, Any]] = None
 

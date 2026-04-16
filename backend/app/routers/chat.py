@@ -24,7 +24,7 @@ from app.services.intent_router import detect_intent, detect_ambiguity
 from app.services.context_manager import build_optimized_context
 from app.services.call_tracer import CallTracer, trace_llm_call
 from app.services.result_budget import ResultBudget
-from app.config import get_settings
+from app.config import get_settings, get_active_llm_info
 from app.db.session import get_db_context
 
 log = logging.getLogger(__name__)
@@ -159,6 +159,7 @@ async def chat_stream(request: ChatRequest):
     - error: Error message
     """
     settings = get_settings()
+    llm_url, llm_model = get_active_llm_info()
 
     async def generate():
         def sse_event(event_type, data=None, terminal: TerminalState = None):
@@ -262,7 +263,7 @@ async def chat_stream(request: ChatRequest):
                 t0 = time.time()
                 decomposition = await decompose_query(query, context=request.context)
                 dec_ms = int((time.time() - t0) * 1000)
-                trace_llm_call(tracer, "query_decompose", settings.ollama_chat_url, settings.ollama_chat_model,
+                trace_llm_call(tracer, "query_decompose", llm_url, llm_model,
                     [{"query": query}], json.dumps([t.id for t in decomposition.sub_tasks], ensure_ascii=False), dec_ms)
 
                 # If only 1 sub-task, fall through to sequential path
@@ -352,7 +353,7 @@ async def chat_stream(request: ChatRequest):
                             full_answer += chunk["data"]
                             yield sse_event('content', chunk["data"])
                     syn_ms = int((time.time() - t0) * 1000)
-                    trace_llm_call(tracer, "synthesis", settings.ollama_chat_url, settings.ollama_chat_model,
+                    trace_llm_call(tracer, "synthesis", llm_url, llm_model,
                         [{"query": query, "sub_results": len(all_results)}], full_answer[:500], syn_ms)
                     yield sse_event('step', {'id': 'synthesize', 'label': f'綜合分析完成（{syn_ms}ms）', 'status': 'done'})
 
@@ -414,7 +415,7 @@ async def chat_stream(request: ChatRequest):
                             timing_parts.append(f'執行 {exec_ms}ms')
                         timing_str = '，'.join(timing_parts)
 
-                        trace_llm_call(tracer, "sql_generation", settings.ollama_chat_url, sql_result.get("model", settings.ollama_chat_model),
+                        trace_llm_call(tracer, "sql_generation", llm_url, sql_result.get("model", llm_model),
                             [{"query": query}], sql_result.get("sql", ""), sql_ms,
                             status="ok" if sql_result.get("success") else "error",
                             error=sql_result.get("error", "")[:200])
@@ -607,7 +608,7 @@ async def chat_stream(request: ChatRequest):
                     total_tokens = result.get("data")
 
             gen_ms = int((time.time() - start_time) * 1000)
-            trace_llm_call(tracer, "rag_answer", settings.ollama_chat_url, request.model or settings.ollama_chat_model,
+            trace_llm_call(tracer, "rag_answer", llm_url, request.model or llm_model,
                 [{"query": llm_query, "sources_count": len(sources)}], full_answer[:500], gen_ms)
             yield sse_event('step', {'id': 'generate', 'label': f'回答完成（{gen_ms}ms）', 'status': 'done'})
 

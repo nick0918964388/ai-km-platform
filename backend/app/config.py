@@ -93,6 +93,16 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def get_active_llm_info() -> tuple[str, str]:
+    """回傳目前實際使用的 (llm_url, model_name)，依 llm_provider 設定。"""
+    s = get_settings()
+    if s.llm_provider == "anthropic" and s.anthropic_api_key:
+        return "https://api.anthropic.com", s.anthropic_model or "claude-sonnet-4-6"
+    if s.llm_provider == "openai" and s.openai_api_key:
+        return "https://api.openai.com", s.openai_model or "gpt-4o"
+    return s.ollama_chat_url, s.ollama_chat_model
+
+
 def invalidate_settings():
     """Clear lru_cache so next get_settings() returns fresh instance."""
     get_settings.cache_clear()
