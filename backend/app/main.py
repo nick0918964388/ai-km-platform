@@ -218,6 +218,13 @@ async def health_reranker():
     return factory.get_status()
 
 
+@app.get("/health/circuits")
+async def health_circuits():
+    """Circuit breaker status endpoint."""
+    from app.services.circuit_breaker import get_all_breakers
+    return get_all_breakers()
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

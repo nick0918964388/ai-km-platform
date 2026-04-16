@@ -22,6 +22,7 @@ from app.services.intent_classifier import get_intent_classifier, QueryIntent
 from app.services.intent_router import detect_intent, detect_ambiguity
 from app.services.context_manager import build_optimized_context
 from app.services.call_tracer import CallTracer, trace_llm_call
+from app.services.result_budget import ResultBudget
 from app.config import get_settings
 from app.db.session import get_db_context
 
@@ -148,13 +149,35 @@ async def chat_stream(request: ChatRequest):
             query = request.query
             total_start = time.time()
             tracer = CallTracer()
+            budget = ResultBudget()  # Pattern 8: per-query 50, per-conversation 200
 
-            # Intent detection with LLM
+            # === Pattern 1: Speculative Execution ===
+            # 平行啟動 intent classification + schema pre-build（推測可能是 SQL 查詢）
+            # 如果最終不是 SQL，丟棄 schema 結果即可
             yield sse_event('step', {'id': 'intent', 'label': '分析查詢意圖...', 'status': 'running'})
             t0 = time.time()
 
             classifier = get_intent_classifier()
-            cls_result = await classifier.classify_with_fallback(query, context=request.context)
+
+            # 同時啟動 intent 分類和 schema 預建
+            async def _speculative_schema():
+                """Speculatively pre-build schema in parallel with intent classification."""
+                try:
+                    from app.services.maximo_schema_rag import MaximoSchemaRAG
+                    from app.db.session import get_db_context
+                    async with get_db_context() as db:
+                        rag_svc = MaximoSchemaRAG(db)
+                        return await rag_svc.build_schema(query)
+                except Exception as e:
+                    log.debug("Speculative schema pre-build failed (non-critical): %s", e)
+                    return ("", set())
+
+            intent_task = asyncio.create_task(
+                classifier.classify_with_fallback(query, context=request.context)
+            )
+            schema_task = asyncio.create_task(_speculative_schema())
+
+            cls_result = await intent_task
 
             INTENT_MAP = {
                 QueryIntent.STRUCTURED: "sql",
@@ -165,6 +188,16 @@ async def chat_stream(request: ChatRequest):
             intent = INTENT_MAP.get(cls_result.intent, "rag")
             intent_result = {"intent": intent, "confidence": cls_result.confidence, "reason": cls_result.reasoning}
             intent_ms = int((time.time() - t0) * 1000)
+
+            # 如果不是 SQL/hybrid，取消 schema task
+            if intent not in ("sql", "hybrid"):
+                schema_task.cancel()
+                _speculative_schema_result = None
+            else:
+                try:
+                    _speculative_schema_result = await schema_task
+                except asyncio.CancelledError:
+                    _speculative_schema_result = None
 
             log.info("Intent detected: %s (confidence=%.2f) for query: %s", intent, cls_result.confidence, query[:80])
             trace_llm_call(tracer, "intent_classification", settings.intent_llm_url, settings.intent_llm_model,
@@ -245,12 +278,17 @@ async def chat_stream(request: ChatRequest):
                         if result["type"] == "sql" and result.get("result", {}).get("success"):
                             sr = result["result"]
                             yield sse_event('step', {'id': task_id, 'label': f'{task_id} 完成 — {sr.get("row_count", 0)} 筆（{dur}ms）', 'status': 'done'})
+                            # Pattern 8: 使用 ResultBudget
+                            budgeted_hybrid = budget.allocate(
+                                sr.get("data", []),
+                                total_count=sr.get("row_count", 0),
+                            )
                             yield sse_event('sql_result', {
                                 "success": True,
                                 "sql": sr.get("sql"),
                                 "explanation": sr.get("explanation"),
                                 "columns": sr.get("columns", []),
-                                "data": sr.get("data", [])[:50],
+                                "data": budgeted_hybrid["data"],
                                 "row_count": sr.get("row_count", 0),
                                 "execution_ms": sr.get("execution_ms"),
                                 "llm_ms": sr.get("llm_ms"),
@@ -260,6 +298,7 @@ async def chat_stream(request: ChatRequest):
                                 "summary": sr.get("summary"),
                                 "column_labels": sr.get("column_labels"),
                                 "source_label": task_id,
+                                "budget": budgeted_hybrid.get("notice"),
                             })
                         elif result["type"] == "sql":
                             yield sse_event('step', {'id': task_id, 'label': f'{task_id} 查詢失敗（{dur}ms）', 'status': 'done'})
@@ -323,7 +362,9 @@ async def chat_stream(request: ChatRequest):
                                 if m.get("intent") == "sql" and m.get("sql"):
                                     sql_history.append({"question": m.get("content", ""), "sql": m["sql"]})
 
-                        sql_result = await service.query(query, mode="accurate", conversation_history=sql_history[-3:] if sql_history else None)
+                        sql_result = await service.query(query, mode="accurate",
+                            conversation_history=sql_history[-3:] if sql_history else None,
+                            prebuilt_schema=_speculative_schema_result)
                         sql_ms = int((time.time() - t0) * 1000)
 
                         # Detailed timing breakdown
@@ -356,12 +397,18 @@ async def chat_stream(request: ChatRequest):
                     explanation = sql_result.get("explanation", "查詢完成")
                     yield sse_event('content', explanation)
 
+                    # Pattern 8: 使用 ResultBudget 控制行數
+                    budgeted = budget.allocate(
+                        sql_result.get("data", []),
+                        total_count=sql_result.get("row_count", 0),
+                    )
+
                     sql_event_data = {
                         "success": True,
                         "sql": sql_result.get("sql"),
                         "explanation": sql_result.get("explanation"),
                         "columns": sql_result.get("columns", []),
-                        "data": sql_result.get("data", [])[:50],
+                        "data": budgeted["data"],
                         "row_count": sql_result.get("row_count", 0),
                         "execution_ms": sql_result.get("execution_ms"),
                         "llm_ms": sql_result.get("llm_ms"),
@@ -372,6 +419,7 @@ async def chat_stream(request: ChatRequest):
                         "summary": sql_result.get("summary"),
                         "suggestions": sql_result.get("suggestions", []),
                         "column_labels": sql_result.get("column_labels"),
+                        "budget": budgeted.get("notice"),
                     }
                     yield sse_event('sql_result', sql_event_data)
 

@@ -4,6 +4,7 @@ Maximo Schema RAG Service
 """
 
 import logging
+import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
@@ -17,8 +18,20 @@ from sqlalchemy import text
 
 from app.services.embedding import embed_text, embed_texts, get_text_embedding_dimension
 from app.services.vector_store import get_client
+from app.services.circuit_breaker import QDRANT_BREAKER
 
 log = logging.getLogger(__name__)
+
+# ── Pattern 10: Schema Memoization — 進程級快取 ────────────────────────
+# 避免每次查詢都從 DB/Qdrant 重新載入 table catalog
+_schema_cache: dict = {}
+_SCHEMA_CACHE_TTL = 300  # 5 分鐘
+
+
+def invalidate_schema_cache():
+    """清除 schema 快取（知識庫更新或 reindex 後呼叫）。"""
+    _schema_cache.clear()
+    log.info("Schema cache invalidated")
 
 
 class MaximoSchemaRAG:
@@ -157,6 +170,7 @@ class MaximoSchemaRAG:
 
     async def index_all(self) -> dict:
         """索引 table catalog + attributes 到 Qdrant。"""
+        invalidate_schema_cache()  # 重新索引時清除快取
         dim = get_text_embedding_dimension()
 
         # 重建 collections
@@ -266,16 +280,72 @@ class MaximoSchemaRAG:
 
     async def find_relevant_tables(self, question: str, top_k: int = 3) -> list[dict]:
         """向量搜尋 table catalog，回傳最相關的表。"""
-        query_emb = embed_text(question)
-        results = self.qdrant.query_points(
-            collection_name=self.TABLES_COLLECTION,
-            query=query_emb,
-            limit=top_k,
-        )
-        return [
-            {**r.payload, "score": r.score}
-            for r in results.points
-        ]
+        if not QDRANT_BREAKER.is_available:
+            log.warning("Qdrant circuit breaker OPEN — skip vector search")
+            return []
+        try:
+            query_emb = embed_text(question)
+            results = self.qdrant.query_points(
+                collection_name=self.TABLES_COLLECTION,
+                query=query_emb,
+                limit=top_k,
+            )
+            QDRANT_BREAKER.record_success()
+            return [
+                {**r.payload, "score": r.score}
+                for r in results.points
+            ]
+        except Exception as e:
+            QDRANT_BREAKER.record_failure()
+            log.warning("Qdrant search failed: %s", e)
+            return []
+
+    async def _get_all_tables_cached(self) -> list:
+        """取得全部 table catalog（帶進程級快取）。"""
+        cache_key = "all_tables"
+        cached = _schema_cache.get(cache_key)
+        if cached and (time.time() - cached["ts"]) < _SCHEMA_CACHE_TTL:
+            return cached["data"]
+
+        rows = await self.db.execute(text(
+            "SELECT table_name, description FROM maximo_table_catalog ORDER BY table_name"
+        ))
+        data = rows.fetchall()
+        _schema_cache[cache_key] = {"data": data, "ts": time.time()}
+        return data
+
+    async def _get_domain_vals_cached(self, domain_ids: set) -> dict:
+        """取得 domain values（帶進程級快取）。"""
+        if not domain_ids:
+            return {}
+
+        # 檢查快取中已有的
+        cache_key = "domain_vals"
+        cached = _schema_cache.get(cache_key)
+        if cached and (time.time() - cached["ts"]) < _SCHEMA_CACHE_TTL:
+            return cached["data"]
+
+        domain_vals: dict[str, list[tuple[str, str]]] = {}
+        try:
+            placeholders = ", ".join(f":d{i}" for i in range(len(domain_ids)))
+            params = {f"d{i}": v for i, v in enumerate(domain_ids)}
+            drows = await self.db.execute(text(
+                f"SELECT d.domainid, a.value, a.description "
+                f"FROM maximo_zz_domain d "
+                f"JOIN maximo_zz_domain_alndomain a ON d.maxdomainid = a._parent_key "
+                f"WHERE d.domainid IN ({placeholders}) "
+                f"  AND a.value IS NOT NULL AND a.value != '' "
+                f"ORDER BY d.domainid, a.value"
+            ), params)
+            for dr in drows.fetchall():
+                domain_vals.setdefault(dr.domainid, []).append(
+                    (dr.value, dr.description or "")
+                )
+        except Exception as e:
+            log.warning("載入 domain values 失敗: %s", e)
+
+        _schema_cache[cache_key] = {"data": domain_vals, "ts": time.time()}
+        return domain_vals
 
     async def find_relevant_columns(
         self, question: str, object_names: list[str], top_k_per_table: int = 20
@@ -323,11 +393,8 @@ class MaximoSchemaRAG:
         if not tables:
             return "", set()
 
-        # 載入全部 table catalog 作為摘要
-        all_tables_rows = await self.db.execute(text(
-            "SELECT table_name, description FROM maximo_table_catalog ORDER BY table_name"
-        ))
-        all_tables = all_tables_rows.fetchall()
+        # 載入全部 table catalog 作為摘要（使用快取）
+        all_tables = await self._get_all_tables_cached()
 
         # 2) 找相關欄位（只查有 object_name 的表）
         obj_names = [t["object_name"] for t in tables if t.get("object_name")]
@@ -360,32 +427,14 @@ class MaximoSchemaRAG:
                         "score": 1.0,  # key columns 優先
                     })
 
-        # 3) 載入 domain values
+        # 3) 載入 domain values（使用快取）
         all_domain_ids = set()
         for cols in columns_by_obj.values():
             for c in cols:
                 if c.get("domain_id"):
                     all_domain_ids.add(c["domain_id"])
 
-        domain_vals: dict[str, list[tuple[str, str]]] = {}
-        if all_domain_ids:
-            try:
-                placeholders = ", ".join(f":d{i}" for i in range(len(all_domain_ids)))
-                params = {f"d{i}": v for i, v in enumerate(all_domain_ids)}
-                drows = await self.db.execute(text(
-                    f"SELECT d.domainid, a.value, a.description "
-                    f"FROM maximo_zz_domain d "
-                    f"JOIN maximo_zz_domain_alndomain a ON d.maxdomainid = a._parent_key "
-                    f"WHERE d.domainid IN ({placeholders}) "
-                    f"  AND a.value IS NOT NULL AND a.value != '' "
-                    f"ORDER BY d.domainid, a.value"
-                ), params)
-                for dr in drows.fetchall():
-                    domain_vals.setdefault(dr.domainid, []).append(
-                        (dr.value, dr.description or "")
-                    )
-            except Exception as e:
-                log.warning("載入 domain values 失敗: %s", e)
+        domain_vals = await self._get_domain_vals_cached(all_domain_ids)
 
         # 4) 組裝 schema text
         # 引入欄位名對應

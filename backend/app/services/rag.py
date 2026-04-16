@@ -647,6 +647,17 @@ def chat_stream_with_metadata(
     settings = get_settings()
     model = resolved_model
 
+    # Pattern 3: Output Token Reservation — 根據 context 長度動態調整 max_tokens
+    # 短 context（<2000 chars）用 1024，長 context 或多來源用 2048
+    context_len = len(context)
+    source_count = len(relevant_sources)
+    if context_len > 4000 or source_count > 5:
+        output_tokens = 4096
+    elif context_len > 2000 or source_count > 3:
+        output_tokens = 2048
+    else:
+        output_tokens = 1024
+
     try:
         # Anthropic path — use native streaming
         if client == "anthropic":
@@ -656,7 +667,7 @@ def chat_stream_with_metadata(
                 messages=[{"role": "user", "content": user_text}],
                 model=model,
                 system=SYSTEM_PROMPT,
-                max_tokens=2000,
+                max_tokens=output_tokens,
             ):
                 yield {"type": "content", "data": text_chunk}
         else:
@@ -668,7 +679,7 @@ def chat_stream_with_metadata(
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_content},
                 ],
-                max_tokens=1500,
+                max_tokens=output_tokens,
                 temperature=0.5,
                 stream=True,
             )

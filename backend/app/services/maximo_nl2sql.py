@@ -420,10 +420,16 @@ class MaximoNL2SQL:
         except Exception:
             return []
 
-    async def generate_sql(self, question: str, feedback: str = None, history: list = None) -> Dict[str, Any]:
-        """Generate SQL from natural language question."""
-        # 優先嘗試 RAG schema（只傳相關表與欄位）
-        rag_schema, rag_tables = await self._build_schema_rag(question)
+    async def generate_sql(self, question: str, feedback: str = None, history: list = None,
+                           prebuilt_schema: tuple = None) -> Dict[str, Any]:
+        """Generate SQL from natural language question.
+        prebuilt_schema: optional (schema_text, allowed_tables) from speculative execution.
+        """
+        # Pattern 1: 使用預建 schema（speculative execution）
+        if prebuilt_schema and prebuilt_schema[0]:
+            rag_schema, rag_tables = prebuilt_schema
+        else:
+            rag_schema, rag_tables = await self._build_schema_rag(question)
         if rag_schema:
             schema_text = rag_schema
             allowed_tables = rag_tables
@@ -456,23 +462,17 @@ class MaximoNL2SQL:
         preferred_section = "\n".join(preferred_hints)
 
         table_list = ", ".join(sorted(allowed_tables))
+        # Pattern 2: Prompt Cache Structure
+        # 排序：靜態規則（穩定，可被 prefix cache）→ schema → metadata → examples → 動態內容
+        # 靜態區塊在多次呼叫間不變，LLM 供應商可重用 KV cache
         system_prompt = f"""你是台鐵車輛維修資料庫的 SQL 專家。
 將使用者的自然語言問題轉換為 PostgreSQL SELECT 語句。
 
-{schema_text}
-
-{metadata}
-
-{examples}
-
-{preferred_section}
-
 規則：
 1. 只產生 SELECT 查詢（不允許 INSERT/UPDATE/DELETE）
-2. 只能查詢以下表：{table_list}
-3. 多表查詢時必須使用正確的 JOIN
-4. 預設 LIMIT 50，除非使用者指定
-5. 日期欄位使用標準 SQL 日期比較
+2. 多表查詢時必須使用正確的 JOIN
+3. 預設 LIMIT 50，除非使用者指定
+4. 日期欄位使用標準 SQL 日期比較
 
 代號轉中文規則：
 - 資料庫有 maximo_domain_lookup(domainid, value, description) view，存放代號的中文對照
@@ -503,6 +503,18 @@ class MaximoNL2SQL:
   "error": "原因",
   "sql": null
 }}
+
+--- 以下為動態內容 ---
+
+可查詢的表：{table_list}
+
+{schema_text}
+
+{metadata}
+
+{examples}
+
+{preferred_section}
 """
         messages = [
             {"role": "system", "content": system_prompt},
@@ -1031,9 +1043,11 @@ SQL：{sql}
 
         return suggestions[:5]  # Cap at 5 suggestions
 
-    async def query(self, question: str, mode: str = "accurate", user_context: dict = None, conversation_history: list = None) -> Dict[str, Any]:
+    async def query(self, question: str, mode: str = "accurate", user_context: dict = None,
+                    conversation_history: list = None, prebuilt_schema: tuple = None) -> Dict[str, Any]:
         """Full pipeline with optional verification loop.
         mode: 'fast' (no verification) or 'accurate' (with verification loop)
+        prebuilt_schema: optional (schema_text, allowed_tables) from speculative execution.
         """
         # Permission check
         perm = await self._load_user_permissions(user_context)
@@ -1099,8 +1113,9 @@ SQL：{sql}
         for attempt in range(max_iter):
             feedback = history[-1].get("feedback") if history else None
 
-            # 1. Generate SQL
-            gen = await self.generate_sql(question, feedback=feedback, history=conversation_history)
+            # 1. Generate SQL（首次嘗試使用 prebuilt_schema，重試時重新生成）
+            gen = await self.generate_sql(question, feedback=feedback, history=conversation_history,
+                                          prebuilt_schema=prebuilt_schema if attempt == 0 else None)
             model_name = gen.get("_model", self.model)
             llm_ms = gen.get("_llm_ms")
 

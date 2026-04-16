@@ -11,6 +11,7 @@ from enum import Enum
 from openai import AsyncOpenAI
 
 from app.config import get_settings
+from app.services.circuit_breaker import LLM_BREAKER
 
 log = logging.getLogger(__name__)
 
@@ -161,6 +162,11 @@ class IntentClassifierService:
                 user_prompt = f"對話脈絡:\n" + "\n".join(conv_parts) + f"\n\n{user_prompt}"
 
         try:
+            # Pattern 5: Circuit Breaker — LLM 斷路保護
+            if not LLM_BREAKER.is_available:
+                log.warning("LLM circuit breaker OPEN — skipping to keyword fallback")
+                raise RuntimeError("LLM circuit breaker is open")
+
             if self.anthropic_key:
                 content = await self._call_anthropic(SYSTEM_PROMPT, user_prompt)
             else:
@@ -199,6 +205,7 @@ class IntentClassifierService:
                         break
             result = json.loads(content[start:end])
 
+            LLM_BREAKER.record_success()
             return IntentResult(
                 intent=QueryIntent(result.get("intent", "clarification")),
                 confidence=result.get("confidence", 0.5),
@@ -208,6 +215,7 @@ class IntentClassifierService:
             )
 
         except Exception as e:
+            LLM_BREAKER.record_failure()
             log.warning("Intent classification error: %s", e)
             return IntentResult(
                 intent=QueryIntent.CLARIFICATION,
