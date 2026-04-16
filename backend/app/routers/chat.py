@@ -28,6 +28,20 @@ from app.config import get_settings
 from app.db.session import get_db_context
 
 log = logging.getLogger(__name__)
+
+
+def _sanitize_explanation(text: str) -> str:
+    """Remove internal table/column names from explanation text."""
+    if not text:
+        return text
+    import re
+    # Remove table name references like "maximo_xxx" or "maximo_xxx 表"
+    text = re.sub(r'maximo_\w+\s*表?', '', text)
+    # Remove "從...中" patterns that reference tables
+    text = re.sub(r'從\s+中', '', text)
+    # Clean up extra spaces
+    text = re.sub(r'\s{2,}', ' ', text).strip()
+    return text
 router = APIRouter(prefix="/api", tags=["chat"])
 
 
@@ -157,7 +171,7 @@ async def chat_stream(request: ChatRequest):
             # === Pattern 1: Speculative Execution ===
             # 平行啟動 intent classification + schema pre-build（推測可能是 SQL 查詢）
             # 如果最終不是 SQL，丟棄 schema 結果即可
-            yield sse_event('step', {'id': 'intent', 'label': '分析查詢意圖...', 'status': 'running'})
+            yield sse_event('step', {'id': 'intent', 'label': '理解您的問題...', 'status': 'running'})
             t0 = time.time()
 
             classifier = get_intent_classifier()
@@ -205,7 +219,7 @@ async def chat_stream(request: ChatRequest):
             log.info("Intent detected: %s (confidence=%.2f) for query: %s", intent, cls_result.confidence, query[:80])
             trace_llm_call(tracer, "intent_classification", settings.intent_llm_url, settings.intent_llm_model,
                 [{"query": query}], cls_result.reasoning, intent_ms)
-            yield sse_event('step', {'id': 'intent', 'label': f'意圖偵測：{cls_result.reasoning}（{intent_ms}ms）', 'status': 'done'})
+            yield sse_event('step', {'id': 'intent', 'label': f'理解您的問題（{intent_ms}ms）', 'status': 'done'})
 
             sql_result = None
 
@@ -237,7 +251,7 @@ async def chat_stream(request: ChatRequest):
             if intent == "hybrid":
                 from app.services.orchestrator import decompose_query, run_parallel_agents, synthesize_results
 
-                yield sse_event('step', {'id': 'decompose', 'label': '分解查詢為子任務...', 'status': 'running'})
+                yield sse_event('step', {'id': 'decompose', 'label': '分析查詢範圍...', 'status': 'running'})
                 t0 = time.time()
                 decomposition = await decompose_query(query, context=request.context)
                 dec_ms = int((time.time() - t0) * 1000)
@@ -246,14 +260,14 @@ async def chat_stream(request: ChatRequest):
 
                 # If only 1 sub-task, fall through to sequential path
                 if len(decomposition.sub_tasks) <= 1:
-                    yield sse_event('step', {'id': 'decompose', 'label': f'單一來源查詢（{dec_ms}ms）', 'status': 'done'})
+                    yield sse_event('step', {'id': 'decompose', 'label': f'直接查詢（{dec_ms}ms）', 'status': 'done'})
                     # Reclassify: single sql task → sql intent, single rag task → rag intent
                     if decomposition.sub_tasks and decomposition.sub_tasks[0].type == "sql":
                         intent = "sql"
                     else:
                         intent = "rag"
                 else:
-                    yield sse_event('step', {'id': 'decompose', 'label': f'分解為 {len(decomposition.sub_tasks)} 個子任務（{dec_ms}ms）', 'status': 'done'})
+                    yield sse_event('step', {'id': 'decompose', 'label': f'分為 {len(decomposition.sub_tasks)} 個面向查詢（{dec_ms}ms）', 'status': 'done'})
 
                     # Show running state for each sub-task
                     for st in decomposition.sub_tasks:
@@ -280,14 +294,14 @@ async def chat_stream(request: ChatRequest):
 
                         if result.get("error"):
                             if result.get("_suppressed"):
-                                yield sse_event('step', {'id': task_id, 'label': f'{task_id} 略過（{dur}ms）', 'status': 'done'})
+                                yield sse_event('step', {'id': task_id, 'label': f'略過（{dur}ms）', 'status': 'done'})
                             else:
-                                yield sse_event('step', {'id': task_id, 'label': f'{task_id} 失敗（{dur}ms）', 'status': 'done'})
+                                yield sse_event('step', {'id': task_id, 'label': f'查詢失敗（{dur}ms）', 'status': 'done'})
                             continue
 
                         if result["type"] == "sql" and result.get("result", {}).get("success"):
                             sr = result["result"]
-                            yield sse_event('step', {'id': task_id, 'label': f'{task_id} 完成 — {sr.get("row_count", 0)} 筆（{dur}ms）', 'status': 'done'})
+                            yield sse_event('step', {'id': task_id, 'label': f'找到 {sr.get("row_count", 0)} 筆資料（{dur}ms）', 'status': 'done'})
                             # Pattern 8: 使用 ResultBudget
                             budgeted_hybrid = budget.allocate(
                                 sr.get("data", []),
@@ -295,30 +309,32 @@ async def chat_stream(request: ChatRequest):
                             )
                             yield sse_event('sql_result', {
                                 "success": True,
-                                "sql": sr.get("sql"),
-                                "explanation": sr.get("explanation"),
+                                "explanation": _sanitize_explanation(sr.get("explanation")),
                                 "columns": sr.get("columns", []),
                                 "data": budgeted_hybrid["data"],
                                 "row_count": sr.get("row_count", 0),
-                                "execution_ms": sr.get("execution_ms"),
-                                "llm_ms": sr.get("llm_ms"),
-                                "model": sr.get("model"),
-                                "confidence": sr.get("confidence"),
                                 "chart_suggestion": sr.get("chart_suggestion"),
                                 "summary": sr.get("summary"),
                                 "column_labels": sr.get("column_labels"),
                                 "source_label": task_id,
                                 "budget": budgeted_hybrid.get("notice"),
+                                "debug": {
+                                    "sql": sr.get("sql"),
+                                    "model": sr.get("model"),
+                                    "llm_ms": sr.get("llm_ms"),
+                                    "execution_ms": sr.get("execution_ms"),
+                                    "confidence": sr.get("confidence"),
+                                },
                             })
                         elif result["type"] == "sql":
-                            yield sse_event('step', {'id': task_id, 'label': f'{task_id} 查詢失敗（{dur}ms）', 'status': 'done'})
+                            yield sse_event('step', {'id': task_id, 'label': f'查詢失敗（{dur}ms）', 'status': 'done'})
                         elif result["type"] == "rag" and result.get("sources"):
                             sources_list = result["sources"]
                             all_sources.extend(sources_list)
-                            yield sse_event('step', {'id': task_id, 'label': f'{task_id} 找到 {len(sources_list)} 筆文件（{dur}ms）', 'status': 'done'})
+                            yield sse_event('step', {'id': task_id, 'label': f'找到 {len(sources_list)} 筆文件（{dur}ms）', 'status': 'done'})
                             yield sse_event('sources', [s.model_dump() for s in sources_list])
                         else:
-                            yield sse_event('step', {'id': task_id, 'label': f'{task_id} 無結果（{dur}ms）', 'status': 'done'})
+                            yield sse_event('step', {'id': task_id, 'label': f'無相關結果（{dur}ms）', 'status': 'done'})
 
                     # Synthesize all results
                     yield sse_event('step', {'id': 'synthesize', 'label': '綜合分析結果...', 'status': 'running'})
@@ -334,7 +350,7 @@ async def chat_stream(request: ChatRequest):
                     yield sse_event('step', {'id': 'synthesize', 'label': f'綜合分析完成（{syn_ms}ms）', 'status': 'done'})
 
                     total_ms = int((time.time() - total_start) * 1000)
-                    metadata = {'model': settings.ollama_chat_model, 'duration_ms': total_ms, 'intent': intent_result, 'request_id': tracer.request_id}
+                    metadata = {'duration_ms': total_ms, 'intent': {"intent": intent}, 'request_id': tracer.request_id}
                     yield sse_event('metadata', metadata)
                     asyncio.create_task(tracer.save())
                     yield sse_event('done', {}, terminal=TerminalState.COMPLETED)
@@ -349,7 +365,7 @@ async def chat_stream(request: ChatRequest):
 
             if intent in ("sql",):
                 # === NL→SQL Path with granular thinking steps ===
-                yield sse_event('step', {'id': 'schema', 'label': '搜尋相關資料表與欄位...', 'status': 'running'})
+                yield sse_event('step', {'id': 'schema', 'label': '搜尋相關資料...', 'status': 'running'})
                 t0 = time.time()
 
                 from app.services.maximo_nl2sql import MaximoNL2SQL
@@ -361,8 +377,8 @@ async def chat_stream(request: ChatRequest):
                         service._request_id = tracer.request_id
                         schema_ms = int((time.time() - t0) * 1000)
 
-                        yield sse_event('step', {'id': 'schema', 'label': f'搜尋相關資料表與欄位（{schema_ms}ms）', 'status': 'done'})
-                        yield sse_event('step', {'id': 'sql_generate', 'label': '呼叫 AI 產生 SQL 語句...', 'status': 'running'})
+                        yield sse_event('step', {'id': 'schema', 'label': f'搜尋相關資料（{schema_ms}ms）', 'status': 'done'})
+                        yield sse_event('step', {'id': 'sql_generate', 'label': '分析並查詢資料...', 'status': 'running'})
                         t0 = time.time()
 
                         # Extract SQL history from conversation context
@@ -395,17 +411,17 @@ async def chat_stream(request: ChatRequest):
                             [{"query": query}], sql_result.get("sql", ""), sql_ms,
                             status="ok" if sql_result.get("success") else "error",
                             error=sql_result.get("error", "")[:200])
-                        yield sse_event('step', {'id': 'sql_generate', 'label': f'AI 產生 SQL（{timing_str}，{iters} 次迭代）', 'status': 'done'})
+                        yield sse_event('step', {'id': 'sql_generate', 'label': f'查詢完成（{sql_ms}ms）', 'status': 'done'})
 
                         if sql_result.get("success"):
-                            yield sse_event('step', {'id': 'execute', 'label': '執行查詢並整理結果...', 'status': 'done'})
+                            yield sse_event('step', {'id': 'execute', 'label': '整理查詢結果...', 'status': 'done'})
                 except Exception as sql_err:
                     log.exception("NL→SQL error")
                     sql_result = {"success": False, "error": str(sql_err)}
 
                 if sql_result.get("success"):
                     explanation = sql_result.get("explanation", "查詢完成")
-                    yield sse_event('content', explanation)
+                    yield sse_event('content', _sanitize_explanation(explanation))
 
                     # Pattern 8: 使用 ResultBudget 控制行數
                     budgeted = budget.allocate(
@@ -415,26 +431,28 @@ async def chat_stream(request: ChatRequest):
 
                     sql_event_data = {
                         "success": True,
-                        "sql": sql_result.get("sql"),
-                        "explanation": sql_result.get("explanation"),
+                        "explanation": _sanitize_explanation(sql_result.get("explanation")),
                         "columns": sql_result.get("columns", []),
                         "data": budgeted["data"],
                         "row_count": sql_result.get("row_count", 0),
-                        "execution_ms": sql_result.get("execution_ms"),
-                        "llm_ms": sql_result.get("llm_ms"),
-                        "model": sql_result.get("model"),
-                        "confidence": sql_result.get("confidence"),
                         "chart_suggestion": sql_result.get("chart_suggestion"),
                         "cached": sql_result.get("cached", False),
                         "summary": sql_result.get("summary"),
                         "suggestions": sql_result.get("suggestions", []),
                         "column_labels": sql_result.get("column_labels"),
                         "budget": budgeted.get("notice"),
+                        "debug": {
+                            "sql": sql_result.get("sql"),
+                            "model": sql_result.get("model"),
+                            "llm_ms": sql_result.get("llm_ms"),
+                            "execution_ms": sql_result.get("execution_ms"),
+                            "confidence": sql_result.get("confidence"),
+                        },
                     }
                     yield sse_event('sql_result', sql_event_data)
 
                     total_ms = int((time.time() - total_start) * 1000)
-                    yield sse_event('metadata', {'model': sql_result.get('model', 'nl2sql'), 'duration_ms': total_ms, 'sql': sql_result.get('sql'), 'intent': intent_result, 'request_id': tracer.request_id})
+                    yield sse_event('metadata', {'duration_ms': total_ms, 'intent': {"intent": intent}, 'request_id': tracer.request_id})
 
                     follow_ups = _generate_sql_follow_ups(query, sql_result)
                     if follow_ups:
@@ -484,7 +502,7 @@ async def chat_stream(request: ChatRequest):
             used_query = search_query
             rewrite_used = False
 
-            yield sse_event('step', {'id': 'search', 'label': '搜尋知識庫文件...', 'status': 'running'})
+            yield sse_event('step', {'id': 'search', 'label': '搜尋相關文件...', 'status': 'running'})
             t0 = time.time()
             all_sources = rag.search(
                 query=used_query,
@@ -496,17 +514,17 @@ async def chat_stream(request: ChatRequest):
             sources = [s for s in all_sources if (s.score or 0) >= MIN_SCORE_THRESHOLD]
             best_all_sources = all_sources  # Track best unfiltered results across attempts
             search_ms = int((time.time() - t0) * 1000)
-            yield sse_event('step', {'id': 'search', 'label': f'搜尋知識庫文件（{len(sources)} 筆相關，{search_ms}ms）', 'status': 'done'})
+            yield sse_event('step', {'id': 'search', 'label': f'找到 {len(sources)} 筆相關文件（{search_ms}ms）', 'status': 'done'})
 
             # Self-reflection: if quality is low, rewrite query and retry
             if quality["quality"] in ("low", "none"):
                 for attempt in range(1, MAX_REWRITE_ATTEMPTS + 1):
-                    yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'檢索品質不足，改寫查詢重試（第 {attempt} 次）...', 'status': 'running'})
+                    yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': '優化搜尋條件...', 'status': 'running'})
                     t0 = time.time()
                     rewritten = rag.rewrite_query(query, attempt=attempt)
                     if not rewritten:
                         rw_ms = int((time.time() - t0) * 1000)
-                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'無替代查詢（{rw_ms}ms）', 'status': 'done'})
+                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'調整搜尋（{rw_ms}ms）', 'status': 'done'})
                         break
 
                     log.info("Query rewrite attempt %d: '%s' → '%s'", attempt, query[:50], rewritten[:50])
@@ -524,11 +542,11 @@ async def chat_stream(request: ChatRequest):
                         quality = new_quality
                         used_query = rewritten
                         rewrite_used = True
-                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'改寫為「{rewritten[:30]}」— {len(new_filtered)} 筆（{rw_ms}ms）', 'status': 'done'})
+                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'調整搜尋（{rw_ms}ms）', 'status': 'done'})
                         if new_quality["quality"] == "good":
                             break
                     else:
-                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'改寫後品質未提升（{rw_ms}ms）', 'status': 'done'})
+                        yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'調整搜尋（{rw_ms}ms）', 'status': 'done'})
 
             if sources:
                 yield sse_event('step', {'id': 'rerank', 'label': '分析相關性排序...', 'status': 'running'})
@@ -555,7 +573,7 @@ async def chat_stream(request: ChatRequest):
             sources_data = [s.model_dump() for s in sources]
             yield sse_event('sources', sources_data)
 
-            yield sse_event('step', {'id': 'generate', 'label': '組織回答內容...', 'status': 'running'})
+            yield sse_event('step', {'id': 'generate', 'label': '生成回答...', 'status': 'running'})
             start_time = time.time()
             total_tokens = None
             full_answer = ""
@@ -584,18 +602,16 @@ async def chat_stream(request: ChatRequest):
             gen_ms = int((time.time() - start_time) * 1000)
             trace_llm_call(tracer, "rag_answer", settings.ollama_chat_url, request.model or settings.ollama_chat_model,
                 [{"query": llm_query, "sources_count": len(sources)}], full_answer[:500], gen_ms)
-            yield sse_event('step', {'id': 'generate', 'label': f'回答生成完成（{gen_ms}ms）', 'status': 'done'})
+            yield sse_event('step', {'id': 'generate', 'label': f'回答完成（{gen_ms}ms）', 'status': 'done'})
 
             duration_ms = gen_ms
             total_ms = int((time.time() - total_start) * 1000)
             metadata = {
-                "model": request.model or settings.ollama_chat_model,
                 "duration_ms": total_ms,
-                "tokens": total_tokens,
                 "request_id": tracer.request_id,
             }
             if intent_result:
-                metadata["intent"] = intent_result
+                metadata["intent"] = {"intent": intent}
             yield sse_event('metadata', metadata)
             asyncio.create_task(tracer.save())
             yield sse_event('done', {}, terminal=TerminalState.COMPLETED)

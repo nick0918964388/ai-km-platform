@@ -129,7 +129,9 @@ export default function ChatWindow() {
     addConversation,
     updateConversationTitle,
     deleteConversation,
+    user,
   } = useStore();
+  const isAdmin = user?.role === 'admin';
 
   // Restore conversation from URL param (e.g., /chat?conversation=xxx from history page)
   useEffect(() => {
@@ -1044,6 +1046,7 @@ export default function ChatWindow() {
                             result={sqlRes}
                             question={messageQueries[msg.id] || ''}
                             onRequery={(q) => handleSend(q)}
+                            isAdmin={isAdmin}
                           />
                         ))}
                       </>

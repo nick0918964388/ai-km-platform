@@ -8,29 +8,40 @@ import RelatedDocsPanel from './RelatedDocsPanel';
 
 interface SqlResultData {
   success: boolean;
-  sql?: string;
   explanation?: string;
   columns?: string[];
   data?: Record<string, unknown>[];
   row_count?: number;
-  execution_ms?: number;
-  llm_ms?: number;
-  model?: string;
-  confidence?: number;
   chart_suggestion?: any;
   cached?: boolean;
   summary?: string;
   suggestions?: Array<{label: string; query: string; type?: string}>;
   column_labels?: Record<string, string>;
+  budget?: string;
+  // Technical details (admin only)
+  debug?: {
+    sql?: string;
+    model?: string;
+    llm_ms?: number;
+    execution_ms?: number;
+    confidence?: number;
+  };
+  // Backward compat — old responses may still have these at top level
+  sql?: string;
+  model?: string;
+  llm_ms?: number;
+  execution_ms?: number;
+  confidence?: number;
 }
 
 interface SqlResultCardProps {
   result: SqlResultData;
   question: string;  // original user question, for feedback
   onRequery?: (query: string) => void;  // callback to re-run with different query
+  isAdmin?: boolean;
 }
 
-export default function SqlResultCard({ result, question, onRequery }: SqlResultCardProps) {
+export default function SqlResultCard({ result, question, onRequery, isAdmin }: SqlResultCardProps) {
   const [showSQL, setShowSQL] = useState(false);
   const [copied, setCopied] = useState(false);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
@@ -41,9 +52,16 @@ export default function SqlResultCard({ result, question, onRequery }: SqlResult
   const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>(result.chart_suggestion?.type || 'bar');
   const [showMeta, setShowMeta] = useState(false);
 
+  // Resolve technical fields from debug or top-level (backward compat)
+  const sql = result.debug?.sql || result.sql;
+  const model = result.debug?.model || result.model;
+  const llm_ms = result.debug?.llm_ms ?? result.llm_ms;
+  const execution_ms = result.debug?.execution_ms ?? result.execution_ms;
+  const confidence = result.debug?.confidence ?? result.confidence;
+
   const copySQL = () => {
-    if (result.sql) {
-      navigator.clipboard.writeText(result.sql);
+    if (sql) {
+      navigator.clipboard.writeText(sql);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -93,13 +111,13 @@ export default function SqlResultCard({ result, question, onRequery }: SqlResult
         }}>
           {result.row_count} 筆
         </span>
-        {result.confidence != null && (
+        {isAdmin && confidence != null && (
           <span style={{
             padding: '0.1rem 0.4rem', borderRadius: 99, fontSize: '0.65rem', fontWeight: 600,
-            background: result.confidence >= 0.8 ? 'rgba(66,190,101,0.12)' : result.confidence >= 0.5 ? 'rgba(241,194,50,0.12)' : 'rgba(218,30,40,0.12)',
-            color: result.confidence >= 0.8 ? '#42be65' : result.confidence >= 0.5 ? '#f1c232' : '#da1e28',
+            background: confidence >= 0.8 ? 'rgba(66,190,101,0.12)' : confidence >= 0.5 ? 'rgba(241,194,50,0.12)' : 'rgba(218,30,40,0.12)',
+            color: confidence >= 0.8 ? '#42be65' : confidence >= 0.5 ? '#f1c232' : '#da1e28',
           }}>
-            {Math.round(result.confidence * 100)}%
+            {Math.round(confidence * 100)}%
           </span>
         )}
         {result.cached && (
@@ -107,29 +125,31 @@ export default function SqlResultCard({ result, question, onRequery }: SqlResult
             快取
           </span>
         )}
-        <button
-          onClick={() => setShowMeta(v => !v)}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            fontSize: '0.65rem', color: 'var(--text-muted)', padding: '0.1rem 0.25rem',
-          }}
-          title="詳細資訊"
-        >
-          {showMeta ? '▲' : 'ⓘ'}
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setShowMeta(v => !v)}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: '0.65rem', color: 'var(--text-muted)', padding: '0.1rem 0.25rem',
+            }}
+            title="詳細資訊"
+          >
+            {showMeta ? '▲' : 'ⓘ'}
+          </button>
+        )}
       </div>
 
-      {/* Expanded meta info (toggled) */}
-      {showMeta && (
+      {/* Expanded meta info (toggled, admin only) */}
+      {isAdmin && showMeta && (
         <div style={{
           padding: '0.5rem 1rem', borderBottom: '1px solid var(--border)',
           fontSize: '0.7rem', color: 'var(--text-muted)',
           display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center',
         }}>
-          {result.model && <span>模型：<b>{result.model}</b></span>}
-          {result.llm_ms != null && <span>LLM：{(result.llm_ms / 1000).toFixed(1)}s</span>}
-          {result.execution_ms != null && <span>查詢：{result.execution_ms}ms</span>}
-          {result.confidence != null && <span>信心度：{Math.round(result.confidence * 100)}%</span>}
+          {model && <span>模型：<b>{model}</b></span>}
+          {llm_ms != null && <span>LLM：{(llm_ms / 1000).toFixed(1)}s</span>}
+          {execution_ms != null && <span>查詢：{execution_ms}ms</span>}
+          {confidence != null && <span>信心度：{Math.round(confidence * 100)}%</span>}
           {result.cached && <span>來源：快取 SQL</span>}
         </div>
       )}
@@ -234,10 +254,10 @@ export default function SqlResultCard({ result, question, onRequery }: SqlResult
         fontSize: '0.75rem',
       }}>
         {/* Feedback */}
-        {result.sql && <FeedbackButtons question={question} sql={result.sql} />}
+        {sql && <FeedbackButtons question={question} sql={sql} />}
 
-        {/* SQL toggle */}
-        {result.sql && (
+        {/* SQL toggle (admin only) */}
+        {isAdmin && sql && (
           <button onClick={() => setShowSQL(v => !v)} style={{
             display: 'flex', alignItems: 'center', gap: 4,
             background: 'none', border: 'none', cursor: 'pointer',
@@ -247,8 +267,8 @@ export default function SqlResultCard({ result, question, onRequery }: SqlResult
           </button>
         )}
 
-        {/* Copy SQL */}
-        {result.sql && (
+        {/* Copy SQL (admin only) */}
+        {isAdmin && sql && (
           <button onClick={copySQL} style={{
             display: 'flex', alignItems: 'center', gap: 4,
             background: 'none', border: 'none', cursor: 'pointer',
@@ -271,15 +291,15 @@ export default function SqlResultCard({ result, question, onRequery }: SqlResult
         )}
       </div>
 
-      {/* SQL block (expanded) */}
-      {showSQL && result.sql && (
+      {/* SQL block (expanded, admin only) */}
+      {isAdmin && showSQL && sql && (
         <pre style={{
           margin: 0, padding: '0.75rem 1rem',
           background: '#161616', color: '#f4f4f4',
           fontSize: '0.75rem', fontFamily: 'monospace',
           whiteSpace: 'pre-wrap', lineHeight: 1.5,
           borderTop: '1px solid var(--border)',
-        }}>{result.sql}</pre>
+        }}>{sql}</pre>
       )}
     </div>
   );
