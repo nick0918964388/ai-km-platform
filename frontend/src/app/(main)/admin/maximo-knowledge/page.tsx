@@ -93,21 +93,40 @@ export default function MaximoKnowledgePage() {
   };
 
   const handleReindex = async () => {
+    if (!confirm('重建 Schema 索引需要數分鐘，完成前請勿關閉頁面。確定繼續？')) return;
     setReindexing(true);
-    setReindexResult(null);
+    setReindexResult('索引中，請稍候（可能需要 1-3 分鐘）...');
     try {
+      // Use AbortController with 10min timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 600000);
+
       const res = await fetch(`${API}/api/maximo/schema/index`, {
         method: 'POST',
         headers: authHeaders(),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
+
+      // Check response content type before parsing
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`非 JSON 回應（${res.status}）：${text.slice(0, 100)}`);
+      }
+
       const data = await res.json();
       if (res.ok) {
-        setReindexResult(`索引完成：${data.tables_indexed || 0} 表、${data.attributes_indexed || 0} 屬性`);
+        setReindexResult(`✓ 索引完成：${data.tables_indexed || 0} 個資料表、${data.attributes_indexed || 0} 個屬性`);
       } else {
         setReindexResult(`索引失敗：${data.detail || '未知錯誤'}`);
       }
-    } catch (e) {
-      setReindexResult(`索引失敗：${e}`);
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        setReindexResult('索引超時（>10 分鐘）— 請檢查 backend log');
+      } else {
+        setReindexResult(`索引失敗：${e.message || e}`);
+      }
     } finally {
       setReindexing(false);
     }
