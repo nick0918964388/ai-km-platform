@@ -94,6 +94,76 @@ def _get_llm_client(light: bool = False, model_override: str = None):
     return client, model
 
 
+def _try_llm_with_fallback(messages: list, system: str, max_tokens: int = 4000, model_override: str = None):
+    """Pattern 4: Withholding — silently fall back through providers.
+    Tries configured primary → Anthropic → OpenAI → Ollama.
+    Only surfaces error if ALL fail. Yields content chunks (streaming).
+    """
+    settings = get_settings()
+    providers = []
+
+    # Build ordered provider list: configured primary first, then fallbacks
+    if settings.llm_provider == "anthropic" and settings.anthropic_api_key:
+        providers.append(("anthropic", model_override or settings.anthropic_model or "claude-haiku-4-5-20251001"))
+    if settings.llm_provider == "openai" and settings.openai_api_key:
+        providers.append(("openai", model_override or settings.openai_model or "gpt-4o"))
+    elif settings.openai_api_key:
+        providers.append(("openai", settings.openai_model or "gpt-4o"))
+    if settings.llm_provider == "ollama":
+        providers.append(("ollama", model_override or settings.ollama_chat_model))
+    elif settings.ollama_chat_url:
+        providers.append(("ollama", settings.ollama_chat_model))
+    # Add remaining fallbacks not already in list
+    if settings.anthropic_api_key and not any(p[0] == "anthropic" for p in providers):
+        providers.append(("anthropic", settings.anthropic_model or "claude-haiku-4-5-20251001"))
+
+    last_error = None
+    for provider_name, model in providers:
+        try:
+            if provider_name == "anthropic":
+                user_text = messages[0]["content"] if messages else ""
+                if isinstance(user_text, list):
+                    user_text = user_text[0].get("text", "") if user_text else ""
+                for chunk in _call_anthropic_stream(
+                    messages=[{"role": "user", "content": user_text}],
+                    model=model, system=system, max_tokens=max_tokens,
+                ):
+                    yield {"type": "content", "data": chunk}
+                logger.info("LLM fallback: using %s/%s", provider_name, model)
+                return
+            elif provider_name == "openai":
+                client = OpenAI(api_key=settings.openai_api_key)
+            else:
+                client = OpenAI(base_url=settings.ollama_chat_url, api_key=settings.ollama_chat_api_key)
+
+            stream = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system}] + messages,
+                max_tokens=max_tokens, temperature=0.5, stream=True,
+            )
+            emitted = False
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    emitted = True
+                    yield {"type": "content", "data": chunk.choices[0].delta.content}
+                if chunk.usage:
+                    yield {"type": "usage", "data": {
+                        "prompt_tokens": chunk.usage.prompt_tokens,
+                        "completion_tokens": chunk.usage.completion_tokens,
+                        "total_tokens": chunk.usage.total_tokens,
+                    }}
+            if emitted:
+                if provider_name != settings.llm_provider:
+                    logger.info("LLM silent fallback: %s → %s/%s", settings.llm_provider, provider_name, model)
+                return
+        except Exception as e:
+            last_error = e
+            logger.warning("LLM provider %s/%s failed: %s, trying next...", provider_name, model, e)
+            continue
+
+    yield {"type": "content", "data": f"生成回答時發生錯誤: {last_error}"}
+
+
 def _call_anthropic(messages: list, model: str, system: str = "", max_tokens: int = 2000) -> str:
     """Call Anthropic API (non-streaming) for simple completions."""
     import httpx
@@ -659,48 +729,15 @@ def chat_stream_with_metadata(
         output_tokens = 1024
 
     try:
-        # Anthropic path — use native streaming
-        if client == "anthropic":
-            # Anthropic uses plain text for user content, not list
-            user_text = user_content[0]["text"] if isinstance(user_content, list) else user_content
-            for text_chunk in _call_anthropic_stream(
-                messages=[{"role": "user", "content": user_text}],
-                model=model,
-                system=SYSTEM_PROMPT,
-                max_tokens=output_tokens,
-            ):
-                yield {"type": "content", "data": text_chunk}
-        else:
-            # OpenAI / Ollama path
-            is_openai = settings.llm_provider == "openai"
-            create_kwargs = dict(
-                model=model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_content},
-                ],
-                max_tokens=output_tokens,
-                temperature=0.5,
-                stream=True,
-            )
-            if is_openai:
-                create_kwargs["stream_options"] = {"include_usage": True}
-
-            stream = client.chat.completions.create(**create_kwargs)
-
-            usage_info = None
-            for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield {"type": "content", "data": chunk.choices[0].delta.content}
-                if chunk.usage:
-                    usage_info = {
-                        "prompt_tokens": chunk.usage.prompt_tokens,
-                        "completion_tokens": chunk.usage.completion_tokens,
-                        "total_tokens": chunk.usage.total_tokens,
-                    }
-
-            if usage_info:
-                yield {"type": "usage", "data": usage_info}
+        # Pattern 4: Withholding — use fallback pipeline for resilient LLM calls
+        messages = [{"role": "user", "content": user_content}]
+        for result in _try_llm_with_fallback(
+            messages=messages,
+            system=SYSTEM_PROMPT,
+            max_tokens=output_tokens,
+            model_override=model,
+        ):
+            yield result
 
     except Exception as e:
         yield {"type": "content", "data": f"生成回答時發生錯誤: {str(e)}"}

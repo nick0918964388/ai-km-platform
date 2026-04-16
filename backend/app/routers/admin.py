@@ -266,15 +266,11 @@ async def get_system_settings():
 async def update_system_settings(data: dict):
     """Update system settings. Accepts {key: value, ...}."""
     from app.services import settings_service
-    from app.config import get_settings
+    from app.config import invalidate_settings
 
     for key, value in data.items():
         await settings_service.set_setting(key, str(value))
 
-    # Reload into config singleton
-    settings = get_settings()
-    for key, value in data.items():
-        if hasattr(settings, key):
-            setattr(settings, key, str(value))
+    invalidate_settings()
 
     return {"status": "ok"}

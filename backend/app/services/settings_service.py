@@ -41,6 +41,9 @@ async def set_setting(key: str, value: str):
                 {"k": key, "v": value},
             )
         _cache[key] = value
+        from app.config import invalidate_settings, _notify_change
+        invalidate_settings()
+        _notify_change(key, value)
     except Exception as e:
         log.error("Failed to save setting %s: %s", key, e)
 

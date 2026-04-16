@@ -198,7 +198,9 @@ async def decompose_query(query: str, context: list = None) -> DecompositionResu
         return _heuristic_decompose(query)
 
 
-async def _run_sql_task(task: SubTask, sql_history: list = None) -> dict:
+async def _run_sql_task(task: SubTask, sql_history: list = None,
+                        prebuilt_schema: tuple = None) -> dict:
+    """Pattern 7: SQL Worker 只拿 schema + SQL history，不帶 RAG/KB context。"""
     t0 = time.time()
     try:
         from app.services.maximo_nl2sql import MaximoNL2SQL
@@ -210,6 +212,7 @@ async def _run_sql_task(task: SubTask, sql_history: list = None) -> dict:
                 question=task.sub_query,
                 mode="fast",
                 conversation_history=sql_history,
+                prebuilt_schema=prebuilt_schema,
             )
         return {
             "task_id": task.id,
@@ -231,12 +234,20 @@ async def _run_sql_task(task: SubTask, sql_history: list = None) -> dict:
         }
 
 
-async def _run_rag_task(task: SubTask, top_k: int = 5) -> dict:
+async def _run_rag_task(task: SubTask, top_k: int = 5,
+                        rag_context: list = None) -> dict:
+    """Pattern 7: RAG Worker 只拿最近 2 輪對話 context，不帶 SQL schema/history。"""
     t0 = time.time()
     try:
         from app.services import rag
 
-        sources = await asyncio.to_thread(rag.search, query=task.sub_query, top_k=top_k)
+        # 如果有對話 context，把它加入搜尋查詢以改善向量搜尋品質
+        search_query = task.sub_query
+        if rag_context:
+            recent = [f"{m.get('role','user')}: {m.get('content','')[:80]}" for m in rag_context[-2:]]
+            search_query = f"對話背景：{'；'.join(recent)}。\n問題：{task.sub_query}"
+
+        sources = await asyncio.to_thread(rag.search, query=search_query, top_k=top_k)
         return {
             "task_id": task.id,
             "type": "rag",
@@ -262,29 +273,56 @@ async def run_parallel_agents(
     query: str,
     request_top_k: int = 5,
     sql_history: list = None,
+    conversation_context: list = None,
 ) -> AsyncGenerator[dict, None]:
+    """Run sub-tasks in parallel.
+    Pattern 4: Withholding — suppress individual task failures silently.
+    Pattern 7: Context Stripping — SQL 只拿 sql_history，RAG 只拿最近對話。
+    """
     queue: asyncio.Queue[dict] = asyncio.Queue()
+
+    # Pattern 7: 為 RAG worker 準備精簡 context（只保留 role + content，去除 SQL/schema 資訊）
+    rag_context = None
+    if conversation_context:
+        rag_context = [
+            {"role": m.get("role", "user"), "content": m.get("content", "")[:150]}
+            for m in conversation_context[-2:]
+            if m.get("intent") != "sql"  # 排除 SQL 查詢的歷史
+        ]
 
     async def _worker(task: SubTask):
         if task.type == "sql":
             result = await _run_sql_task(task, sql_history)
         else:
-            result = await _run_rag_task(task, request_top_k)
+            result = await _run_rag_task(task, request_top_k, rag_context=rag_context)
         await queue.put(result)
 
     tasks = [asyncio.create_task(_worker(t)) for t in sub_tasks]
 
+    all_results = []
     for _ in range(len(tasks)):
         result = await queue.get()
-        yield result
+        all_results.append(result)
 
     await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Check if ALL tasks failed
+    all_failed = all(r.get("error") for r in all_results)
+
+    for result in all_results:
+        if result.get("error") and not all_failed:
+            # Suppress individual failure — log but don't expose to user
+            log.warning("Sub-task %s failed (suppressed): %s", result["task_id"], result["error"])
+            result["_suppressed"] = True
+        yield result
 
 
 def _build_synthesis_context(results: list[dict]) -> str:
     parts = []
     for r in results:
         if r.get("error"):
+            if r.get("_suppressed"):
+                continue
             parts.append(f"【{r['task_id']}】查詢失敗: {r['error']}")
             continue
 
@@ -293,11 +331,14 @@ def _build_synthesis_context(results: list[dict]) -> str:
             row_count = res.get("row_count", 0)
             data = res.get("data", [])
             sql = res.get("sql", "")
+            # Pattern 7: 精簡 synthesis context — 只帶 3 筆樣本 + 摘要
             summary = f"【{r['task_id']}】SQL 查詢結果（{row_count} 筆）\nSQL: {sql}\n"
+            if res.get("summary"):
+                summary += f"摘要：{res['summary']}\n"
             if data:
-                for row in data[:5]:
+                for row in data[:3]:
                     summary += str(row) + "\n"
-                if row_count > 5:
+                if row_count > 3:
                     summary += f"...（共 {row_count} 筆）\n"
             parts.append(summary)
 

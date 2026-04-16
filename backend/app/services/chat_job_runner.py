@@ -8,7 +8,7 @@ import re
 import time
 import logging
 
-from app.models.schemas import ChatRequest
+from app.models.schemas import ChatRequest, TerminalState
 from app.services import chat_job_manager as jm
 
 log = logging.getLogger(__name__)
@@ -68,16 +68,24 @@ async def run_chat_job(job_id: str, request_data: dict):
                 # Write event to Redis
                 jm.append_event(job_id, event)
 
-                if event_type == "done":
+                # Detect terminal state from SSE event
+                terminal = event.get("terminal")
+                if event_type == "done" or terminal in (TerminalState.ERROR.value, TerminalState.CLARIFICATION.value):
                     break
 
         duration_ms = int((time.time() - start_time) * 1000)
-        jm.complete_job(job_id, {
-            "answer": full_answer,
-            "duration_ms": duration_ms,
-        })
+        terminal = "completed"
+        # Check last event's terminal state
+        if event and event.get("terminal") == TerminalState.ERROR.value:
+            jm.fail_job(job_id, full_answer or "pipeline error")
+        else:
+            jm.complete_job(job_id, {
+                "answer": full_answer,
+                "duration_ms": duration_ms,
+                "terminal": event.get("terminal", TerminalState.COMPLETED.value),
+            })
 
     except Exception as e:
         log.exception(f"Chat job {job_id} failed: {e}")
-        jm.append_event(job_id, {"type": "error", "data": str(e)})
+        jm.append_event(job_id, {"type": "error", "data": str(e), "terminal": TerminalState.ERROR.value})
         jm.fail_job(job_id, str(e))

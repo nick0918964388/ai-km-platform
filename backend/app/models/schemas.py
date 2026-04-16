@@ -38,6 +38,13 @@ class ProcessingStep(str, Enum):
     DONE = "done"
 
 
+class TerminalState(str, Enum):
+    COMPLETED = "completed"
+    ERROR = "error"
+    CLARIFICATION = "clarification"
+    TIMEOUT = "timeout"
+
+
 class BackupStatus(str, Enum):
     """Backup status enum."""
     PENDING = "pending"

@@ -91,3 +91,23 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings."""
     return Settings()
+
+
+def invalidate_settings():
+    """Clear lru_cache so next get_settings() returns fresh instance."""
+    get_settings.cache_clear()
+
+
+_on_change_callbacks = []
+
+
+def on_settings_change(callback):
+    _on_change_callbacks.append(callback)
+
+
+def _notify_change(key: str, value):
+    for cb in _on_change_callbacks:
+        try:
+            cb(key, value)
+        except Exception:
+            pass

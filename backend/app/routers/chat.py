@@ -16,6 +16,7 @@ from app.models.schemas import (
     ChatResponse,
     SearchRequest,
     SearchResponse,
+    TerminalState,
 )
 from app.services import rag
 from app.services.intent_classifier import get_intent_classifier, QueryIntent
@@ -139,10 +140,12 @@ async def chat_stream(request: ChatRequest):
     settings = get_settings()
 
     async def generate():
-        def sse_event(event_type, data=None):
+        def sse_event(event_type, data=None, terminal: TerminalState = None):
             payload = {'type': event_type}
             if data is not None:
                 payload['data'] = data
+            if terminal is not None:
+                payload['terminal'] = terminal.value
             return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
         try:
@@ -211,9 +214,9 @@ async def chat_stream(request: ChatRequest):
                 yield sse_event('clarification', {
                     "message": cls_result.reasoning,
                     "options": cls_result.clarification_options,
-                })
+                }, terminal=TerminalState.CLARIFICATION)
                 asyncio.create_task(tracer.save())
-                yield sse_event('done', {})
+                yield sse_event('done', {}, terminal=TerminalState.CLARIFICATION)
                 return
 
             # If skipping clarification or intent was clarification, fallback to keyword-based routing
@@ -225,9 +228,9 @@ async def chat_stream(request: ChatRequest):
                 # Rule-based ambiguity for SQL-only (hybrid goes to multi-agent which handles disambiguation)
                 ambiguity = detect_ambiguity(query, history=request.context)
                 if ambiguity:
-                    yield sse_event('clarification', ambiguity)
+                    yield sse_event('clarification', ambiguity, terminal=TerminalState.CLARIFICATION)
                     asyncio.create_task(tracer.save())
-                    yield sse_event('done', {})
+                    yield sse_event('done', {}, terminal=TerminalState.CLARIFICATION)
                     return
 
             # === Multi-Agent Path (for hybrid queries that need parallel sub-tasks) ===
@@ -266,13 +269,20 @@ async def chat_stream(request: ChatRequest):
                     # Run sub-agents in parallel, stream results as they complete
                     all_results = []
                     all_sources = []
-                    async for result in run_parallel_agents(decomposition.sub_tasks, query, request.top_k, sql_history[-3:] if sql_history else None):
+                    async for result in run_parallel_agents(
+                        decomposition.sub_tasks, query, request.top_k,
+                        sql_history=sql_history[-3:] if sql_history else None,
+                        conversation_context=request.context,
+                    ):
                         all_results.append(result)
                         task_id = result["task_id"]
                         dur = result.get("duration_ms", 0)
 
                         if result.get("error"):
-                            yield sse_event('step', {'id': task_id, 'label': f'{task_id} 失敗（{dur}ms）', 'status': 'done'})
+                            if result.get("_suppressed"):
+                                yield sse_event('step', {'id': task_id, 'label': f'{task_id} 略過（{dur}ms）', 'status': 'done'})
+                            else:
+                                yield sse_event('step', {'id': task_id, 'label': f'{task_id} 失敗（{dur}ms）', 'status': 'done'})
                             continue
 
                         if result["type"] == "sql" and result.get("result", {}).get("success"):
@@ -327,7 +337,7 @@ async def chat_stream(request: ChatRequest):
                     metadata = {'model': settings.ollama_chat_model, 'duration_ms': total_ms, 'intent': intent_result, 'request_id': tracer.request_id}
                     yield sse_event('metadata', metadata)
                     asyncio.create_task(tracer.save())
-                    yield sse_event('done', {})
+                    yield sse_event('done', {}, terminal=TerminalState.COMPLETED)
 
                     try:
                         follow_ups = rag.generate_follow_up_questions(query=query, answer=full_answer, max_questions=3)
@@ -432,7 +442,7 @@ async def chat_stream(request: ChatRequest):
 
                     if intent == "sql":
                         asyncio.create_task(tracer.save())
-                        yield sse_event('done', {})
+                        yield sse_event('done', {}, terminal=TerminalState.COMPLETED)
                         return
 
                     yield sse_event('content', '\n\n---\n\n**相關文件參考：**\n\n')
@@ -451,7 +461,7 @@ async def chat_stream(request: ChatRequest):
                         if sql_result.get("suggestions"):
                             yield sse_event('sql_result', sql_result)
                         asyncio.create_task(tracer.save())
-                        yield sse_event('done', {})
+                        yield sse_event('done', {}, terminal=TerminalState.ERROR)
                         return
 
             # === RAG Path (intent == "rag" or hybrid fallthrough) ===
@@ -588,7 +598,7 @@ async def chat_stream(request: ChatRequest):
                 metadata["intent"] = intent_result
             yield sse_event('metadata', metadata)
             asyncio.create_task(tracer.save())
-            yield sse_event('done', {})
+            yield sse_event('done', {}, terminal=TerminalState.COMPLETED)
 
             try:
                 follow_up_questions = rag.generate_follow_up_questions(
@@ -604,7 +614,7 @@ async def chat_stream(request: ChatRequest):
 
         except Exception as e:
             log.exception("chat_stream error")
-            yield sse_event('error', str(e))
+            yield sse_event('error', str(e), terminal=TerminalState.ERROR)
 
     return StreamingResponse(
         generate(),
