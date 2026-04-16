@@ -1451,6 +1451,7 @@ h1, h2, h3, h4, h5, h6,
   /* Compact chat input on mobile */
   .chat-input-wrap {
     padding: 0.375rem 0.75rem 0.5rem !important;
+    flex-shrink: 0;
   }
 
   .chat-messages-inner {
@@ -1459,6 +1460,17 @@ h1, h2, h3, h4, h5, h6,
 
   .chat-empty-input {
     max-width: 100% !important;
+  }
+
+  /* Mobile: 縮小首頁招呼語 */
+  .chat-messages-area h2 {
+    font-size: 1.375rem !important;
+    margin-bottom: 1rem !important;
+  }
+
+  /* Mobile: 縮小輸入框 placeholder（保留 textarea 16px 避免 iOS zoom） */
+  .chat-input-wrap textarea::placeholder {
+    font-size: 0.875rem !important;
   }
 
   /* Keyboard handling */
@@ -1499,6 +1511,12 @@ h1, h2, h3, h4, h5, h6,
   .main-content {
     overflow-x: hidden;
     padding-bottom: 64px;
+  }
+
+  /* Chat 頁面 main 不需要底部 padding（輸入框需貼底） */
+  .chat-container.main-content,
+  main.main-content:has(.chat-input-wrap) {
+    padding-bottom: 0;
   }
 
   /* Touch-Friendly Spacing */

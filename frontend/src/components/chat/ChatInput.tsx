@@ -23,8 +23,16 @@ export default function ChatInput({
   const [input, setInput] = useState('');
   const [imageBase64, setImageBase64] = useState<string | undefined>(undefined);
   const [imagePreview, setImagePreview] = useState<string | undefined>(undefined);
+  const [isMobile, setIsMobile] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -183,7 +191,7 @@ export default function ChatInput({
           {/* Textarea */}
           <textarea
             ref={textareaRef}
-            placeholder="輸入您的問題... (Shift+Enter 換行)"
+            placeholder={isMobile ? '輸入您的問題...' : '輸入您的問題... (Shift+Enter 換行)'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
