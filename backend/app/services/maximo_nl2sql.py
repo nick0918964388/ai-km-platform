@@ -116,20 +116,48 @@ class MaximoNL2SQL:
         self.db = db
         from app.config import get_settings
         settings = get_settings()
+        self.provider = "ollama"
+        self.anthropic_key = None
 
         if settings.llm_provider == "anthropic" and settings.anthropic_api_key:
-            # Anthropic 透過 OpenAI-compatible proxy 不支援，改用 ollama light model 做 SQL 生成
-            # SQL 生成不需要最強模型，用快速模型即可
-            self.client = AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url)
-            self.model = settings.ollama_light_model
+            # Anthropic 原生呼叫（透過 httpx）
+            self.provider = "anthropic"
+            self.anthropic_key = settings.anthropic_api_key
+            self.model = settings.anthropic_model or "claude-sonnet-4-6"
+            self.client = None  # 不用 OpenAI SDK
         elif settings.llm_provider == "openai" and settings.openai_api_key:
+            self.provider = "openai"
             self.client = AsyncOpenAI(api_key=settings.openai_api_key)
             self.model = settings.openai_model or "gpt-4o"
         else:
+            self.provider = "ollama"
             self.client = AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url)
             self.model = settings.ollama_light_model or settings.ollama_chat_model
 
         self._query_plan: Optional[Dict[str, Any]] = None
+
+    async def _call_anthropic(self, system: str, user_msg: str, max_tokens: int = 2000) -> str:
+        """Anthropic 原生 API 呼叫（httpx）。比 Ollama 雲端模型快 5-10x。"""
+        import httpx
+        async with httpx.AsyncClient() as http:
+            resp = await http.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": self.anthropic_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "max_tokens": max_tokens,
+                    "system": system,
+                    "messages": [{"role": "user", "content": user_msg}],
+                },
+                timeout=60.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["content"][0]["text"]
 
     # Column name → Chinese display label
     _COL_LABELS = {
@@ -549,14 +577,21 @@ class MaximoNL2SQL:
 
         try:
             t_llm = time.monotonic()
-            resp = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0,
-                timeout=60,
-            )
+            if self.provider == "anthropic":
+                # 合併 messages 成單一 user_msg（Anthropic 不支援 system+user 疊加）
+                user_text = messages[-1]["content"] if messages else question
+                if feedback:
+                    user_text = f"{user_text}\n\n上次回覆：我上次產生的 SQL 有問題。\n{feedback}\n請重新產生正確的 SQL。"
+                content = await self._call_anthropic(system_prompt, user_text, max_tokens=2000)
+            else:
+                resp = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=0,
+                    timeout=60,
+                )
+                content = resp.choices[0].message.content or ""
             self._llm_ms = round((time.monotonic() - t_llm) * 1000, 1)
-            content = resp.choices[0].message.content or ""
             # Extract JSON block if wrapped in markdown
             match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
             if match:
@@ -686,14 +721,17 @@ SQL：{sql}
 
         try:
             t_verify = time.monotonic()
-            resp = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": verify_prompt}],
-                temperature=0,
-                max_tokens=300,
-            )
+            if self.provider == "anthropic":
+                content = await self._call_anthropic("", verify_prompt, max_tokens=300)
+            else:
+                resp = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": verify_prompt}],
+                    temperature=0,
+                    max_tokens=300,
+                )
+                content = resp.choices[0].message.content or ""
             self._verify_ms = round((time.monotonic() - t_verify) * 1000, 1)
-            content = resp.choices[0].message.content or ""
             # Parse JSON (same extraction logic as generate_sql)
             match = re.search(r'\{.*\}', content, re.DOTALL)
             if match:
