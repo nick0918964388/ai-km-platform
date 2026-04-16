@@ -30,6 +30,25 @@ from app.db.session import get_db_context
 log = logging.getLogger(__name__)
 
 
+def _is_multi_facet_query(query: str) -> bool:
+    """偵測查詢是否涉及多個資料面向（括號列舉 / 冒號列舉 / 多個頓號分隔的主題）。
+    這類查詢單一 SQL 難以涵蓋，應路由到 hybrid 分解。
+    """
+    import re
+    # 括號內含頓號分隔（如「(故障、檢修、成本)」）
+    if re.search(r'[（(][^）)]*[、,，][^）)]*[、,，][^）)]*[）)]', query):
+        return True
+    # 冒號後含頓號分隔（如「資料：工單、故障、成本」）
+    if re.search(r'[：:][^：:]*[、,，][^：:]*[、,，]', query):
+        return True
+    # 多個面向關鍵字同時出現（3 個以上）
+    facets = ['故障', '工單', '成本', '檢修', '維修', '資產', '車輛', '零件', '庫存']
+    hits = sum(1 for f in facets if f in query)
+    if hits >= 3:
+        return True
+    return False
+
+
 def _sanitize_explanation(text: str) -> str:
     """Remove internal table/column names from explanation text."""
     if not text:
@@ -227,6 +246,14 @@ async def chat_stream(request: ChatRequest):
             log.info("Intent detected: %s (confidence=%.2f) for query: %s", intent, cls_result.confidence, query[:80])
             trace_llm_call(tracer, "intent_classification", settings.intent_llm_url, settings.intent_llm_model,
                 [{"query": query}], cls_result.reasoning, intent_ms)
+
+            # 規則覆寫：多面向查詢（括號、冒號列舉多主題）必須走 hybrid 分解
+            if intent == "sql" and _is_multi_facet_query(query):
+                log.info("Override SQL → hybrid for multi-facet query: %s", query[:80])
+                intent = "hybrid"
+                intent_result["intent"] = "hybrid"
+                intent_result["reason"] = f"[覆寫] 多面向查詢改用分解：{intent_result.get('reason','')}"
+
             yield sse_event('step', {'id': 'intent', 'label': f'理解您的問題（{intent_ms}ms）', 'status': 'done'})
 
             sql_result = None

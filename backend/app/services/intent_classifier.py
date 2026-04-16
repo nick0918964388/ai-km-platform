@@ -72,6 +72,16 @@ FEW_SHOT_EXAMPLES = """
 使用者: 車輛狀況
 分析: 使用者想了解車輛狀況但沒有指定車號或查詢類型
 結果: {"intent": "clarification", "confidence": 0.65, "entities": {}, "reasoning": "未指定車輛編號或具體要查詢的面向", "clarification_options": [{"label": "全車隊資產總覽", "query": "全部車輛資產統計"}, {"label": "特定車號故障紀錄", "query": "EMU900 的故障紀錄"}, {"label": "車輛維修成本排名", "query": "各車輛維修成本排名"}]}
+
+範例 9 (多面向總覽 — 必須為 hybrid):
+使用者: EMU900 的車輛資訊總覽（故障、檢修、成本）
+分析: 括號內列出多個面向（故障、檢修、成本），單一 SQL 無法涵蓋，需分解為平行子任務
+結果: {"intent": "hybrid", "confidence": 0.92, "entities": {"vehicle_code": "EMU900", "aspects": ["fault", "maintenance", "cost"]}, "reasoning": "括號內多面向查詢，需分解為故障/檢修/成本三個子查詢平行執行"}
+
+範例 10 (多面向列舉 — 必須為 hybrid):
+使用者: TEMU2000 車型資料：工單、故障、維修成本
+分析: 冒號後列出多個面向，需分解查詢
+結果: {"intent": "hybrid", "confidence": 0.9, "entities": {"vehicle_type": "TEMU2000"}, "reasoning": "查詢涉及多個結構化面向（工單+故障+成本），應分解平行查詢"}
 """
 
 SYSTEM_PROMPT = f"""你是一個車輛維修知識管理系統的意圖分類器。
@@ -84,6 +94,7 @@ SYSTEM_PROMPT = f"""你是一個車輛維修知識管理系統的意圖分類器
 
 重要規則：
 - 如果對話脈絡已提供足夠資訊（例如使用者在追問上一個問題的細節），即使當前查詢較短或模糊，也應該判斷為 structured/knowledge/hybrid，而非 clarification。
+- **多面向查詢必須是 hybrid**：如果查詢中用括號、冒號、頓號（、）列舉 2 個以上資料面向（如「故障、檢修、成本」），必須分類為 hybrid，因為單一 SQL 無法涵蓋。
 - clarification_options 必須是 {{"label": "顯示文字", "query": "完整查詢"}} 格式的陣列。
 
 可識別的實體：
