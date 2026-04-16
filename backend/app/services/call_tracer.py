@@ -78,7 +78,7 @@ def trace_llm_call(tracer: Optional['CallTracer'], step: str, url: str, model: s
         url=url,
         model=model,
         request_body=req_body,
-        response_body=response_content[:2000],
+        response_body=(response_content or "")[:2000],
         duration_ms=duration_ms,
         status=status,
         error=error,

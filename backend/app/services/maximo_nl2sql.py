@@ -617,6 +617,7 @@ class MaximoNL2SQL:
             result["_llm_ms"] = getattr(self, "_llm_ms", None)
             return result
         except Exception as e:
+            log.exception("generate_sql failed")
             return {"error": str(e), "sql": None}
 
     def validate_sql(self, sql: str) -> Optional[str]:

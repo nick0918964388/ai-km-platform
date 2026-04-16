@@ -415,10 +415,10 @@ async def chat_stream(request: ChatRequest):
                             timing_parts.append(f'執行 {exec_ms}ms')
                         timing_str = '，'.join(timing_parts)
 
-                        trace_llm_call(tracer, "sql_generation", llm_url, sql_result.get("model", llm_model),
-                            [{"query": query}], sql_result.get("sql", ""), sql_ms,
+                        trace_llm_call(tracer, "sql_generation", llm_url, sql_result.get("model") or llm_model,
+                            [{"query": query}], sql_result.get("sql") or "", sql_ms,
                             status="ok" if sql_result.get("success") else "error",
-                            error=sql_result.get("error", "")[:200])
+                            error=(sql_result.get("error") or "")[:200])
                         yield sse_event('step', {'id': 'sql_generate', 'label': f'查詢完成（{sql_ms}ms）', 'status': 'done'})
 
                         if sql_result.get("success"):
