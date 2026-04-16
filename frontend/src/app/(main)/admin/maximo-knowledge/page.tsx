@@ -68,6 +68,8 @@ export default function MaximoKnowledgePage() {
   const [newSQL, setNewSQL]     = useState('');
   const [newExTag, setNewExTag] = useState('general');
   const [saving, setSaving]     = useState(false);
+  const [reindexing, setReindexing] = useState(false);
+  const [reindexResult, setReindexResult] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'rules' | 'examples'>('rules');
   const [filterTag, setFilterTag] = useState<string>('all');
 
@@ -87,6 +89,27 @@ export default function MaximoKnowledgePage() {
       setExamples(data.examples || []);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleReindex = async () => {
+    setReindexing(true);
+    setReindexResult(null);
+    try {
+      const res = await fetch(`${API}/api/maximo/schema/index`, {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setReindexResult(`索引完成：${data.tables_indexed || 0} 表、${data.attributes_indexed || 0} 屬性`);
+      } else {
+        setReindexResult(`索引失敗：${data.detail || '未知錯誤'}`);
+      }
+    } catch (e) {
+      setReindexResult(`索引失敗：${e}`);
+    } finally {
+      setReindexing(false);
     }
   };
 
@@ -250,11 +273,37 @@ export default function MaximoKnowledgePage() {
         ))}
         <button
           onClick={fetchKnowledge}
+          title="重新載入"
           style={{ padding: '0 1rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}
         >
           <Renew size={16} />
         </button>
+        <button
+          onClick={handleReindex}
+          disabled={reindexing}
+          title="重新建立 Schema 向量索引"
+          style={{
+            padding: '0.5rem 1rem', background: reindexing ? 'var(--bg-tertiary)' : 'var(--accent)',
+            border: 'none', borderRadius: 'var(--radius-md)', cursor: reindexing ? 'wait' : 'pointer',
+            color: reindexing ? 'var(--text-muted)' : '#fff', display: 'flex', alignItems: 'center', gap: 6,
+            fontSize: '0.8125rem', fontWeight: 600, whiteSpace: 'nowrap',
+          }}
+        >
+          <DataBase size={14} />
+          {reindexing ? '索引中...' : '重建 Schema 索引'}
+        </button>
       </div>
+      {reindexResult && (
+        <div style={{
+          marginBottom: '1rem', padding: '0.5rem 0.75rem',
+          background: reindexResult.includes('失敗') ? 'rgba(218,30,40,0.08)' : 'rgba(36,161,72,0.08)',
+          border: `1px solid ${reindexResult.includes('失敗') ? 'rgba(218,30,40,0.2)' : 'rgba(36,161,72,0.2)'}`,
+          borderRadius: 'var(--radius-sm)', fontSize: '0.8125rem',
+          color: reindexResult.includes('失敗') ? '#da1e28' : '#24a148',
+        }}>
+          {reindexResult}
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1rem', background: 'var(--bg-secondary)', padding: 4, borderRadius: 'var(--radius-sm)', width: 'fit-content' }}>
