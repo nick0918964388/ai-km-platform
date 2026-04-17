@@ -262,6 +262,26 @@ async def chat_stream(request: ChatRequest):
             tracer = CallTracer()
             budget = ResultBudget()  # Pattern 8: per-query 50, per-conversation 200
 
+            # Short follow-up merging: if query is very short and previous turn
+            # was a clarification or failed SQL, merge with previous user query
+            if len(query) <= 15 and request.context and len(request.context) >= 2:
+                prev_user = None
+                prev_assistant = None
+                for m in reversed(request.context):
+                    if m.get("role") == "assistant" and prev_assistant is None:
+                        prev_assistant = m.get("content", "")
+                    elif m.get("role") == "user" and prev_user is None:
+                        prev_user = m.get("content", "")
+                    if prev_user and prev_assistant:
+                        break
+                is_clarification_or_fail = prev_assistant and any(
+                    kw in prev_assistant for kw in ["釐清", "澄清", "clarif", "未能成功", "查詢失敗", "需要澄清"]
+                )
+                if prev_user and is_clarification_or_fail:
+                    merged = f"{prev_user}，{query}"
+                    log.info("Short follow-up merged: '%s' + '%s' → '%s'", prev_user[:30], query, merged)
+                    query = merged
+
             # === Pattern 1: Speculative Execution ===
             # 平行啟動 intent classification + schema pre-build（推測可能是 SQL 查詢）
             # 如果最終不是 SQL，丟棄 schema 結果即可
@@ -338,6 +358,10 @@ async def chat_stream(request: ChatRequest):
                     "options": cls_result.clarification_options,
                 }, terminal=TerminalState.CLARIFICATION)
                 asyncio.create_task(tracer.save())
+                asyncio.create_task(rag.log_search_metrics(
+                    query=query, search_query=None, sources=[], quality="clarification",
+                    duration_ms=intent_ms, intent="clarification", request_id=tracer.request_id,
+                ))
                 yield sse_event('done', {}, terminal=TerminalState.CLARIFICATION)
                 return
 
@@ -352,6 +376,11 @@ async def chat_stream(request: ChatRequest):
                 if ambiguity:
                     yield sse_event('clarification', ambiguity, terminal=TerminalState.CLARIFICATION)
                     asyncio.create_task(tracer.save())
+                    asyncio.create_task(rag.log_search_metrics(
+                        query=query, search_query=None, sources=[], quality="clarification",
+                        duration_ms=int((time.time() - total_start) * 1000), intent="clarification",
+                        request_id=tracer.request_id,
+                    ))
                     yield sse_event('done', {}, terminal=TerminalState.CLARIFICATION)
                     return
 
