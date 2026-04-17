@@ -610,29 +610,99 @@ async def chat_stream(request: ChatRequest):
                         yield sse_event('content', f'*（{friendly}改用知識庫搜尋）*\n\n')
                         intent = "rag"
                     else:
-                        yield sse_event('step', {'id': 'recovery', 'label': '嘗試理解您的需求...', 'status': 'running'})
-                        yield sse_event('reasoning', {'phase': 'recovery', 'text': f'SQL 查詢失敗（{iters} 次），嘗試自動釐清或改用知識庫搜尋。'})
+                        # === SQL-first recovery: rewrite → retry SQL → clarify → RAG (last resort) ===
+                        yield sse_event('step', {'id': 'recovery', 'label': '重新理解您的需求...', 'status': 'running'})
+                        yield sse_event('reasoning', {'phase': 'recovery', 'text': f'SQL 查詢失敗（{iters} 次），意圖明確為資料查詢，嘗試改寫問題後重試。'})
 
+                        sql_recovered = False
+                        recovery_options = []
+
+                        # Layer 1: Rewrite query → retry SQL
                         try:
-                            clarify_options = await _generate_sql_recovery_options(query, raw_error, request.context)
-                            yield sse_event('step', {'id': 'recovery', 'label': '分析完成', 'status': 'done'})
+                            recovery_options = await _generate_sql_recovery_options(query, raw_error, request.context)
+                            if recovery_options:
+                                rewritten_query = recovery_options[0]["query"]
+                                yield sse_event('reasoning', {'phase': 'recovery', 'text': f'改寫查詢：「{rewritten_query[:60]}」，重新嘗試 SQL。'})
+                                yield sse_event('step', {'id': 'sql_retry', 'label': f'重試：{rewritten_query[:30]}...', 'status': 'running'})
+                                t0 = time.time()
 
-                            if clarify_options:
-                                yield sse_event('reasoning', {'phase': 'recovery', 'text': f'已生成 {len(clarify_options)} 個替代建議。'})
-                                yield sse_event('content', f'{friendly}\n\n我無法直接查詢，但您可以試試以下方式：\n\n')
-                                yield sse_event('clarification', {
-                                    "message": f"{friendly} 請選擇更具體的查詢方式：",
-                                    "options": clarify_options,
-                                }, terminal=TerminalState.CLARIFICATION)
-                                asyncio.create_task(tracer.save())
-                                yield sse_event('done', {}, terminal=TerminalState.CLARIFICATION)
-                                return
+                                try:
+                                    from app.services.maximo_nl2sql import MaximoNL2SQL
+                                    async with get_db_context() as retry_db:
+                                        retry_service = MaximoNL2SQL(retry_db)
+                                        retry_result = await retry_service.query(
+                                            rewritten_query, mode="accurate",
+                                            conversation_history=sql_history[-3:] if sql_history else None,
+                                            prebuilt_schema=_speculative_schema_result)
+                                    retry_ms = int((time.time() - t0) * 1000)
+                                    yield sse_event('step', {'id': 'sql_retry', 'label': f'重試完成（{retry_ms}ms）', 'status': 'done'})
+
+                                    if retry_result.get("success"):
+                                        yield sse_event('reasoning', {'phase': 'recovery', 'text': f'改寫後查詢成功！取得 {len(retry_result.get("data", []))} 筆結果。'})
+                                        sql_result = retry_result
+                                        sql_recovered = True
+                                except Exception as retry_err:
+                                    retry_ms = int((time.time() - t0) * 1000)
+                                    yield sse_event('step', {'id': 'sql_retry', 'label': f'重試失敗（{retry_ms}ms）', 'status': 'done'})
+                                    log.warning("SQL retry with rewritten query failed: %s", retry_err)
                         except Exception as e:
-                            log.warning("SQL recovery clarification failed: %s", e)
+                            log.warning("SQL recovery rewrite failed: %s", e)
 
-                        yield sse_event('reasoning', {'phase': 'recovery', 'text': '改用知識庫搜尋相關資料。'})
-                        yield sse_event('content', f'*（{friendly}改用知識庫搜尋相關資料）*\n\n')
-                        yield sse_event('step', {'id': 'recovery', 'label': '改用知識庫搜尋', 'status': 'done'})
+                        yield sse_event('step', {'id': 'recovery', 'label': '分析完成', 'status': 'done'})
+
+                        if sql_recovered:
+                            # Rewritten SQL succeeded — render result (reuse success path)
+                            explanation = sql_result.get("explanation", "查詢完成")
+                            yield sse_event('content', _sanitize_explanation(explanation))
+                            budgeted = budget.allocate(
+                                sql_result.get("data", []),
+                                total_count=sql_result.get("row_count", 0),
+                            )
+                            sql_event_data = {
+                                "success": True,
+                                "explanation": _sanitize_explanation(sql_result.get("explanation")),
+                                "columns": sql_result.get("columns", []),
+                                "data": budgeted["data"],
+                                "row_count": sql_result.get("row_count", 0),
+                                "chart_suggestion": sql_result.get("chart_suggestion"),
+                                "cached": sql_result.get("cached", False),
+                                "summary": sql_result.get("summary"),
+                                "suggestions": sql_result.get("suggestions", []),
+                                "column_labels": sql_result.get("column_labels"),
+                                "budget": budgeted.get("notice"),
+                                "debug": {
+                                    "sql": sql_result.get("sql"),
+                                    "model": sql_result.get("model"),
+                                    "llm_ms": sql_result.get("llm_ms"),
+                                    "execution_ms": sql_result.get("execution_ms"),
+                                    "confidence": sql_result.get("confidence"),
+                                },
+                            }
+                            yield sse_event('sql_result', sql_event_data)
+                            total_ms = int((time.time() - total_start) * 1000)
+                            yield sse_event('metadata', {'duration_ms': total_ms, 'intent': {"intent": intent}, 'request_id': tracer.request_id})
+                            follow_ups = _generate_sql_follow_ups(query, sql_result)
+                            if follow_ups:
+                                yield sse_event('follow_up', follow_ups)
+                            asyncio.create_task(tracer.save())
+                            yield sse_event('done', {}, terminal=TerminalState.COMPLETED)
+                            return
+
+                        # Layer 2: Clarification options (SQL-focused)
+                        if recovery_options and len(recovery_options) > 1:
+                            yield sse_event('reasoning', {'phase': 'recovery', 'text': f'改寫重試也失敗，提供 {len(recovery_options)} 個替代建議。'})
+                            yield sse_event('content', f'{friendly}\n\n我無法直接查詢，但您可以試試以下方式：\n\n')
+                            yield sse_event('clarification', {
+                                "message": f"{friendly} 請選擇更具體的查詢方式：",
+                                "options": recovery_options,
+                            }, terminal=TerminalState.CLARIFICATION)
+                            asyncio.create_task(tracer.save())
+                            yield sse_event('done', {}, terminal=TerminalState.CLARIFICATION)
+                            return
+
+                        # Layer 3: RAG as last resort
+                        yield sse_event('reasoning', {'phase': 'recovery', 'text': 'SQL 改寫和釐清均未成功，最後嘗試知識庫搜尋。'})
+                        yield sse_event('content', f'*（{friendly}最後改用知識庫搜尋相關資料）*\n\n')
                         intent = "rag"
 
             # === RAG Path (intent == "rag" or hybrid fallthrough) ===
