@@ -6,7 +6,7 @@ import logging
 import urllib.request
 import urllib.error
 from typing import Optional
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -76,6 +76,7 @@ class ChatFeedback(BaseModel):
     query: str
     rating: str  # "up" or "down"
     comment: Optional[str] = None
+    sql_query: Optional[str] = None
 
 
 class SourceFeedback(BaseModel):
@@ -357,7 +358,7 @@ async def chat_stream(request: ChatRequest):
                                 sr.get("data", []),
                                 total_count=sr.get("row_count", 0),
                             )
-                            yield sse_event('sql_result', {
+                            hybrid_sql_event = {
                                 "success": True,
                                 "explanation": _sanitize_explanation(sr.get("explanation")),
                                 "columns": sr.get("columns", []),
@@ -375,7 +376,19 @@ async def chat_stream(request: ChatRequest):
                                     "execution_ms": sr.get("execution_ms"),
                                     "confidence": sr.get("confidence"),
                                 },
-                            })
+                            }
+                            if budgeted_hybrid["truncated"]:
+                                from app.services.result_spillover import should_spill, spill_result
+                                from app.services.cache import get_redis_client
+                                original_data = sr.get("data", [])
+                                if should_spill(original_data):
+                                    _redis = get_redis_client()
+                                    if _redis:
+                                        spill_info = spill_result(_redis, original_data, sr.get("columns", []))
+                                        hybrid_sql_event["result_id"] = spill_info["result_id"]
+                                        hybrid_sql_event["total_rows"] = spill_info["total_rows"]
+                                        hybrid_sql_event["spilled"] = True
+                            yield sse_event('sql_result', hybrid_sql_event)
                         elif result["type"] == "sql":
                             yield sse_event('step', {'id': task_id, 'label': f'查詢失敗（{dur}ms）', 'status': 'done'})
                         elif result["type"] == "rag" and result.get("sources"):
@@ -503,6 +516,17 @@ async def chat_stream(request: ChatRequest):
                             "confidence": sql_result.get("confidence"),
                         },
                     }
+                    if budgeted["truncated"]:
+                        from app.services.result_spillover import should_spill, spill_result
+                        from app.services.cache import get_redis_client
+                        original_data = sql_result.get("data", [])
+                        if should_spill(original_data):
+                            _redis = get_redis_client()
+                            if _redis:
+                                spill_info = spill_result(_redis, original_data, sql_result.get("columns", []))
+                                sql_event_data["result_id"] = spill_info["result_id"]
+                                sql_event_data["total_rows"] = spill_info["total_rows"]
+                                sql_event_data["spilled"] = True
                     yield sse_event('sql_result', sql_event_data)
 
                     total_ms = int((time.time() - total_start) * 1000)
@@ -784,7 +808,31 @@ async def submit_feedback(feedback: ChatFeedback):
                 "comment": feedback.comment,
             },
         )
-    return {"status": "ok"}
+
+    result = {"status": "ok"}
+
+    if feedback.rating == "up" and feedback.sql_query:
+        from app.services.sql_guard import scan_sql
+        is_safe, reason = scan_sql(feedback.sql_query)
+        if is_safe:
+            async with get_db_context() as session:
+                row = await session.execute(
+                    text("""
+                        INSERT INTO pending_sql_examples (question, sql_query, submitted_by)
+                        VALUES (:q, :sql, :by)
+                        RETURNING id
+                    """),
+                    {"q": feedback.query, "sql": feedback.sql_query, "by": feedback.message_id},
+                )
+                example_id = row.scalar()
+            result["promoted"] = True
+            result["example_id"] = example_id
+        else:
+            log.warning("SQL guard rejected feedback SQL: %s", reason)
+            result["promoted"] = False
+            result["guard_reason"] = reason
+
+    return result
 
 
 @router.post("/sources/feedback")
@@ -812,3 +860,18 @@ async def source_feedback(feedback: SourceFeedback):
     except Exception:
         pass
     return {"status": "ok"}
+
+
+@router.get("/chat/results/{result_id}")
+async def get_spilled_result(result_id: str, offset: int = 0, limit: int = 100):
+    from app.services.result_spillover import fetch_spilled_result
+    from app.services.cache import get_redis_client
+
+    redis = get_redis_client()
+    if not redis:
+        raise HTTPException(status_code=503, detail="Redis not available")
+
+    result = fetch_spilled_result(redis, result_id, offset, limit)
+    if not result:
+        raise HTTPException(status_code=404, detail="Result expired or not found")
+    return result

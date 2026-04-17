@@ -60,6 +60,82 @@ async def list_conversations(
     ]
 
 
+@router.get("/search")
+async def search_conversations(
+    q: str,
+    limit: int = 5,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    user_id = user["id"]
+
+    # Try FTS first
+    fts_result = await db.execute(text("""
+        WITH matches AS (
+            SELECT m.conversation_id, m.content, m.created_at,
+                   ROW_NUMBER() OVER (PARTITION BY m.conversation_id ORDER BY m.created_at) AS rn
+            FROM conversation_messages m
+            JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.content_tsv @@ plainto_tsquery('simple', :q)
+              AND c.user_id = :user_id
+        ),
+        grouped AS (
+            SELECT m.conversation_id,
+                   COUNT(*) OVER (PARTITION BY m.conversation_id) AS match_count,
+                   m.content AS preview,
+                   m.rn
+            FROM matches m
+        )
+        SELECT g.conversation_id, c.title, c.updated_at, g.match_count,
+               LEFT(g.preview, 200) AS preview
+        FROM grouped g
+        JOIN conversations c ON c.id = g.conversation_id
+        WHERE g.rn = 1
+        ORDER BY g.match_count DESC
+        LIMIT :limit
+    """), {"q": q, "user_id": user_id, "limit": limit})
+    rows = fts_result.fetchall()
+
+    # Fallback to ILIKE if FTS returns nothing
+    if not rows:
+        like_result = await db.execute(text("""
+            WITH matches AS (
+                SELECT m.conversation_id, m.content, m.created_at,
+                       ROW_NUMBER() OVER (PARTITION BY m.conversation_id ORDER BY m.created_at) AS rn
+                FROM conversation_messages m
+                JOIN conversations c ON c.id = m.conversation_id
+                WHERE m.content ILIKE :pattern
+                  AND c.user_id = :user_id
+            ),
+            grouped AS (
+                SELECT m.conversation_id,
+                       COUNT(*) OVER (PARTITION BY m.conversation_id) AS match_count,
+                       m.content AS preview,
+                       m.rn
+                FROM matches m
+            )
+            SELECT g.conversation_id, c.title, c.updated_at, g.match_count,
+                   LEFT(g.preview, 200) AS preview
+            FROM grouped g
+            JOIN conversations c ON c.id = g.conversation_id
+            WHERE g.rn = 1
+            ORDER BY g.match_count DESC
+            LIMIT :limit
+        """), {"pattern": f"%{q}%", "user_id": user_id, "limit": limit})
+        rows = like_result.fetchall()
+
+    return [
+        {
+            "conversationId": r.conversation_id,
+            "title": r.title,
+            "updatedAt": r.updated_at.isoformat() if r.updated_at else None,
+            "preview": r.preview,
+            "matchCount": r.match_count,
+        }
+        for r in rows
+    ]
+
+
 @router.get("/{conversation_id}")
 async def get_conversation(
     conversation_id: str,

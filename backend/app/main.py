@@ -94,6 +94,31 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Maximo tag migration skipped: {e}")
 
+    # Pending SQL examples table
+    try:
+        from app.db.session import get_db_context
+        from sqlalchemy import text
+        async with get_db_context() as db:
+            await db.execute(text("""
+                CREATE TABLE IF NOT EXISTS pending_sql_examples (
+                    id SERIAL PRIMARY KEY,
+                    question TEXT NOT NULL,
+                    sql_query TEXT NOT NULL,
+                    submitted_by VARCHAR(100) NOT NULL,
+                    submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    status VARCHAR(20) DEFAULT 'pending',
+                    reviewed_by VARCHAR(100),
+                    reviewed_at TIMESTAMP WITH TIME ZONE,
+                    notes TEXT
+                )
+            """))
+            await db.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_pending_sql_status ON pending_sql_examples(status)"
+            ))
+        print("✅ pending_sql_examples table ensured")
+    except Exception as e:
+        print(f"⚠️ pending_sql_examples migration skipped: {e}")
+
     # Permission tables migration
     try:
         from app.db.session import get_db_context
@@ -127,6 +152,23 @@ async def lifespan(app: FastAPI):
             print("✅ Conversations tables ensured")
     except Exception as e:
         print(f"⚠️ Conversations migration skipped: {e}")
+
+    # Conversations FTS migration
+    try:
+        from app.db.session import get_db_context
+        from sqlalchemy import text as _text
+        import pathlib
+        fts_sql = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "conversations_fts_migration.sql"
+        if fts_sql.exists():
+            sql_content = fts_sql.read_text()
+            async with get_db_context() as db:
+                for stmt in sql_content.split(";"):
+                    stmt = stmt.strip()
+                    if stmt and not stmt.startswith("--"):
+                        await db.execute(_text(stmt))
+            print("✅ Conversations FTS index ensured")
+    except Exception as e:
+        print(f"⚠️ Conversations FTS migration skipped: {e}")
 
     # System settings table migration
     try:

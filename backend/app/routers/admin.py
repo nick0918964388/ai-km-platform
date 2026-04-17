@@ -1,10 +1,12 @@
 """Admin API endpoints for RAG metrics and monitoring."""
 from typing import Optional
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from sqlalchemy import text
 
+from app.auth import require_admin
 from app.db.session import get_db_context
 
 router = APIRouter(tags=["admin"])
@@ -274,3 +276,90 @@ async def update_system_settings(data: dict):
     invalidate_settings()
 
     return {"status": "ok"}
+
+
+# ── Pending SQL Examples ─────────────────────────────────────────────
+
+class ReviewRequest(BaseModel):
+    notes: Optional[str] = None
+
+
+@router.get("/admin/pending-examples")
+async def list_pending_examples(
+    status: str = Query("pending"),
+    admin: dict = Depends(require_admin),
+):
+    async with get_db_context() as session:
+        result = await session.execute(
+            text("SELECT * FROM pending_sql_examples WHERE status = :s ORDER BY submitted_at DESC"),
+            {"s": status},
+        )
+        rows = result.fetchall()
+        columns = result.keys()
+    return [
+        {k: str(v) if k.endswith("_at") and v else v for k, v in zip(columns, row)}
+        for row in rows
+    ]
+
+
+@router.put("/admin/pending-examples/{example_id}/approve")
+async def approve_pending_example(
+    example_id: int,
+    body: ReviewRequest = ReviewRequest(),
+    admin: dict = Depends(require_admin),
+):
+    async with get_db_context() as session:
+        row = await session.execute(
+            text("SELECT question, sql_query, status FROM pending_sql_examples WHERE id = :id"),
+            {"id": example_id},
+        )
+        pending = row.fetchone()
+        if not pending:
+            raise HTTPException(404, "Example not found")
+        if pending[2] != "pending":
+            raise HTTPException(400, f"Already {pending[2]}")
+
+        await session.execute(
+            text("""
+                INSERT INTO nl_sql_examples (question, sql_query, verified, tag)
+                VALUES (:q, :sql, true, 'user_feedback')
+            """),
+            {"q": pending[0], "sql": pending[1]},
+        )
+        await session.execute(
+            text("""
+                UPDATE pending_sql_examples
+                SET status = 'approved', reviewed_by = :by, reviewed_at = NOW(), notes = :notes
+                WHERE id = :id
+            """),
+            {"id": example_id, "by": admin.get("email", "admin"), "notes": body.notes},
+        )
+    return {"status": "approved", "id": example_id}
+
+
+@router.put("/admin/pending-examples/{example_id}/reject")
+async def reject_pending_example(
+    example_id: int,
+    body: ReviewRequest = ReviewRequest(),
+    admin: dict = Depends(require_admin),
+):
+    async with get_db_context() as session:
+        row = await session.execute(
+            text("SELECT status FROM pending_sql_examples WHERE id = :id"),
+            {"id": example_id},
+        )
+        pending = row.fetchone()
+        if not pending:
+            raise HTTPException(404, "Example not found")
+        if pending[0] != "pending":
+            raise HTTPException(400, f"Already {pending[0]}")
+
+        await session.execute(
+            text("""
+                UPDATE pending_sql_examples
+                SET status = 'rejected', reviewed_by = :by, reviewed_at = NOW(), notes = :notes
+                WHERE id = :id
+            """),
+            {"id": example_id, "by": admin.get("email", "admin"), "notes": body.notes},
+        )
+    return {"status": "rejected", "id": example_id}
