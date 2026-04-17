@@ -11,6 +11,8 @@ interface ChatInputProps {
   isLoading: boolean;
   selectedModel: string;
   onModelChange: (model: string) => void;
+  exploreMode?: boolean;
+  onExploreModeChange?: (v: boolean) => void;
 }
 
 export default function ChatInput({
@@ -19,6 +21,8 @@ export default function ChatInput({
   isLoading,
   selectedModel,
   onModelChange,
+  exploreMode,
+  onExploreModeChange,
 }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [imageBase64, setImageBase64] = useState<string | undefined>(undefined);
@@ -215,8 +219,26 @@ export default function ChatInput({
 
           {/* Right: model + voice + send/stop */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0 }}>
-            <div className="hide-on-mobile" style={{ display: 'flex' }}>
+            <div className="hide-on-mobile" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
               <ModelSelector selectedModel={selectedModel} onModelChange={onModelChange} />
+              {onExploreModeChange && (
+                <button
+                  onClick={() => onExploreModeChange(!exploreMode)}
+                  title={exploreMode ? '切回一般模式' : '深度探索模式（Agent）'}
+                  style={{
+                    padding: '0.25rem 0.5rem',
+                    fontSize: '0.75rem',
+                    borderRadius: '6px',
+                    border: exploreMode ? '1px solid var(--accent)' : '1px solid var(--border-subtle, #e0e0e0)',
+                    background: exploreMode ? 'rgba(80,144,211,0.15)' : 'transparent',
+                    color: exploreMode ? 'var(--accent)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {exploreMode ? '探索中' : '探索'}
+                </button>
+              )}
             </div>
             <VoiceInputButton
               onTranscriptionReceived={(text) => {

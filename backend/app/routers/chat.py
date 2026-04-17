@@ -1071,6 +1071,47 @@ async def source_feedback(feedback: SourceFeedback):
     return {"status": "ok"}
 
 
+@router.post("/chat/explore")
+async def explore_chat(request: ChatRequest):
+    """Explore mode — Agent with LLM function calling for multi-step reasoning."""
+    from app.services.agent_explorer import run_agent_loop
+
+    async def generate():
+        memory_context = None
+        if request.conversation_id:
+            try:
+                from app.services.memory_prefetch import prefetch_memory
+                async with get_db_context() as db:
+                    row = await db.execute(text("SELECT user_id FROM conversations WHERE id = :id"), {"id": request.conversation_id})
+                    owner = row.scalar()
+                if owner:
+                    memory_context = await asyncio.wait_for(
+                        prefetch_memory(request.query, owner, request.conversation_id),
+                        timeout=3.0,
+                    )
+            except Exception:
+                pass
+
+        async for event in run_agent_loop(
+            query=request.query,
+            context=request.context,
+            memory_context=memory_context,
+        ):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done', 'data': {}}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.get("/chat/results/{result_id}")
 async def get_spilled_result(result_id: str, offset: int = 0, limit: int = 100):
     from app.services.result_spillover import fetch_spilled_result

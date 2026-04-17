@@ -120,6 +120,8 @@ export default function ChatWindow() {
   const [messageDurations, setMessageDurations] = useState<Record<string, number>>({});
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [selectedModel, setSelectedModel] = useState('qwen3-vl:32b');
+  const [exploreMode, setExploreMode] = useState(false);
+  const [agentSteps, setAgentSteps] = useState<{type: string; data: any}[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -385,6 +387,7 @@ export default function ChatWindow() {
     setIsLoading(true);
     setTaskSteps([]);
     setReasoningSteps([]);
+    setAgentSteps([]);
 
     const messageId = (Date.now() + 1).toString();
 
@@ -411,6 +414,95 @@ export default function ChatWindow() {
     };
 
     try {
+      // Explore mode — direct SSE stream from /api/chat/explore
+      if (exploreMode) {
+        const assistantMessage: Message = {
+          id: messageId,
+          role: 'assistant',
+          content: '',
+          timestamp: new Date(),
+        };
+        addMessage(convId!, assistantMessage);
+        setIsStreaming(true);
+        setMessageStreamingStatus(prev => ({ ...prev, [messageId]: true }));
+        const startTs = Date.now();
+        setStreamStartTime(startTs);
+        setElapsedSeconds(0);
+        if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+        elapsedTimerRef.current = setInterval(() => {
+          setElapsedSeconds(Math.round((Date.now() - startTs) / 1000));
+        }, 1000);
+
+        const response = await fetch(`${STREAM_API_URL}/api/chat/explore`, {
+          method: 'POST',
+          headers: { ...getApiHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: userQuery,
+            top_k: 5,
+            context: buildContext(),
+            conversation_id: convId || undefined,
+            ...(model ? { model } : {}),
+          }),
+          signal: abortController.signal,
+        });
+        if (!response.ok) throw new Error('Explore stream failed');
+
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let streamedContent = '';
+
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.type === 'agent_tool_call') {
+                  setAgentSteps(prev => [...prev, data]);
+                } else if (data.type === 'agent_tool_result') {
+                  setAgentSteps(prev => [...prev, data]);
+                } else if (data.type === 'agent_thinking') {
+                  setAgentSteps(prev => [...prev, data]);
+                } else if (data.type === 'content') {
+                  streamedContent += data.data;
+                  useStore.getState().updateMessage(convId!, messageId, streamedContent);
+                } else if (data.type === 'agent_done') {
+                  setAgentSteps(prev => [...prev, data]);
+                } else if (data.type === 'sources' && data.data?.length > 0) {
+                  setMessageSources(prev => ({ ...prev, [messageId]: data.data }));
+                } else if (data.type === 'metadata' && data.data) {
+                  setMessageMetadata(prev => ({ ...prev, [messageId]: data.data }));
+                } else if (data.type === 'sql_result' && data.data) {
+                  setMessageSqlResults(prev => ({
+                    ...prev,
+                    [messageId]: [...(prev[messageId] || []), data.data],
+                  }));
+                } else if (data.type === 'done') {
+                  setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
+                  if (elapsedTimerRef.current) { clearInterval(elapsedTimerRef.current); elapsedTimerRef.current = null; }
+                  const duration = startTs ? Math.round((Date.now() - startTs) / 1000) : 0;
+                  setMessageDurations(prev => ({ ...prev, [messageId]: duration }));
+                  setStreamStartTime(null);
+                }
+              } catch {}
+            }
+          }
+        }
+        setMessageStreamingStatus(prev => ({ ...prev, [messageId]: false }));
+        if (!streamedContent) {
+          useStore.getState().updateMessage(convId!, messageId, getSimulatedResponse(userQuery));
+        }
+        setIsLoading(false);
+        setIsStreaming(false);
+        return;
+      }
+
       // Step 1: Submit job to get job_id
       const jobPayload = {
         query: userQuery,
@@ -639,7 +731,7 @@ export default function ChatWindow() {
       setIsLoading(false);
       setIsStreaming(false);
     }
-  }, [activeConversationId, isLoading, conversations, addConversation, addMessage, updateConversationTitle]);
+  }, [activeConversationId, isLoading, conversations, addConversation, addMessage, updateConversationTitle, exploreMode]);
 
   // Handle follow-up question click - directly send the question
   const handleFollowUpClick = useCallback((question: string) => {
@@ -974,6 +1066,8 @@ export default function ChatWindow() {
                   isLoading={isLoading}
                   selectedModel={selectedModel}
                   onModelChange={setSelectedModel}
+                  exploreMode={exploreMode}
+                  onExploreModeChange={setExploreMode}
                 />
               </div>
 
@@ -1047,12 +1141,21 @@ export default function ChatWindow() {
                   }}>
                     {/* Thinking indicator: show only current step while streaming */}
                     {msg.role === 'assistant' && messageStreamingStatus[msg.id] && (() => {
-                      const runningStep = taskSteps.filter(s => s.status === 'running').pop();
-                      const lastDone = taskSteps.filter(s => s.status === 'done').pop();
-                      const currentLabel = runningStep?.label || lastDone?.label || '思考中...';
+                      let currentLabel: string;
+                      if (exploreMode && agentSteps.length > 0) {
+                        const last = agentSteps[agentSteps.length - 1];
+                        if (last.type === 'agent_thinking') currentLabel = last.data.text;
+                        else if (last.type === 'agent_tool_call') currentLabel = `正在${last.data.tool === 'sql_query' ? '查詢資料' : '搜尋知識庫'}...`;
+                        else if (last.type === 'agent_tool_result') currentLabel = '分析結果中...';
+                        else currentLabel = '探索中...';
+                      } else {
+                        const runningStep = taskSteps.filter(s => s.status === 'running').pop();
+                        const lastDone = taskSteps.filter(s => s.status === 'done').pop();
+                        currentLabel = runningStep?.label || lastDone?.label || '思考中...';
+                      }
                       return (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem', marginBottom: msg.content ? '0.5rem' : 0 }}>
-                          <span className="shimmer-text">檢修助手</span>
+                          <span className="shimmer-text">{exploreMode ? '探索模式' : '檢修助手'}</span>
                           <span style={{ fontStyle: 'italic' }}>{currentLabel}</span>
                           {elapsedSeconds > 0 && (
                             <span style={{ fontSize: '0.7rem', fontFamily: 'monospace' }}>
@@ -1077,6 +1180,53 @@ export default function ChatWindow() {
                         {reasoningSteps.map((r, i) => (
                           <div key={i} style={{ lineHeight: 1.5 }}>
                             <span style={{ fontStyle: 'italic' }}>{r.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Agent explore steps */}
+                    {msg.role === 'assistant' && msgIdx === messages.length - 1 && agentSteps.length > 0 && (
+                      <div style={{
+                        fontSize: '0.8125rem',
+                        borderLeft: '2px solid var(--accent)',
+                        paddingLeft: '0.75rem',
+                        marginBottom: '0.75rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.375rem',
+                      }}>
+                        {agentSteps.map((step, i) => (
+                          <div key={i} style={{ lineHeight: 1.5 }}>
+                            {step.type === 'agent_tool_call' && (
+                              <div>
+                                <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Step {step.data.iteration}</span>
+                                <span style={{ color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
+                                  {step.data.tool === 'sql_query' ? '查詢資料' : step.data.tool === 'kb_search' ? '搜尋知識庫' : step.data.tool}:
+                                </span>
+                                <span style={{ fontStyle: 'italic', marginLeft: '0.25rem' }}>
+                                  {step.data.args?.question || step.data.args?.query || ''}
+                                </span>
+                              </div>
+                            )}
+                            {step.type === 'agent_tool_result' && (
+                              <div style={{ color: step.data.result?.success === false || step.data.result?.error ? '#da1e28' : '#42be65', fontSize: '0.75rem' }}>
+                                {step.data.result?.error
+                                  ? `${step.data.result.error}`
+                                  : step.data.tool === 'sql_query'
+                                    ? `${step.data.result?.row_count || 0} 筆結果`
+                                    : `${step.data.result?.count || 0} 筆文件`}
+                              </div>
+                            )}
+                            {step.type === 'agent_thinking' && (
+                              <div style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                {step.data.text}
+                              </div>
+                            )}
+                            {step.type === 'agent_done' && (
+                              <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', borderTop: '1px solid var(--border-subtle, #e0e0e0)', paddingTop: '0.25rem', marginTop: '0.25rem' }}>
+                                探索完成：{step.data.iterations} 步、{step.data.tools_used?.length || 0} 次工具呼叫、{((step.data.duration_ms || 0) / 1000).toFixed(1)}s
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
