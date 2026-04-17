@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Code, Copy, Checkmark, DocumentDownload } from '@carbon/icons-react';
 import ChartRenderer from './ChartRenderer';
 import FeedbackButtons from './FeedbackButtons';
@@ -18,6 +18,9 @@ interface SqlResultData {
   suggestions?: Array<{label: string; query: string; type?: string}>;
   column_labels?: Record<string, string>;
   budget?: string;
+  spilled?: boolean;
+  result_id?: string;
+  total_rows?: number;
   // Technical details (admin only)
   debug?: {
     sql?: string;
@@ -51,6 +54,16 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
   );
   const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>(result.chart_suggestion?.type || 'bar');
   const [showMeta, setShowMeta] = useState(false);
+  const [extraData, setExtraData] = useState<any[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadOffset, setLoadOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+
+  useEffect(() => {
+    setExtraData([]);
+    setLoadOffset(result.data?.length || 0);
+    setHasMore(!!result.spilled && !!result.result_id);
+  }, [result]);
 
   // Resolve technical fields from debug or top-level (backward compat)
   const sql = result.debug?.sql || result.sql;
@@ -65,6 +78,27 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const handleLoadMore = async () => {
+    if (!result.result_id || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const { STREAM_API_URL, getApiHeaders } = await import('@/lib/api');
+      const res = await fetch(
+        `${STREAM_API_URL}/chat/results/${result.result_id}?offset=${loadOffset}&limit=100`,
+        { headers: getApiHeaders() }
+      );
+      if (res.ok) {
+        const page = await res.json();
+        setExtraData(prev => [...prev, ...page.data]);
+        setLoadOffset(prev => prev + page.data.length);
+        setHasMore(page.has_more);
+      }
+    } catch (e) {
+      console.error('Failed to load more:', e);
+    }
+    setLoadingMore(false);
   };
 
   const exportExcel = async () => {
@@ -190,12 +224,29 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
           <div style={{ marginTop: '0.5rem' }}>
             <QueryResultTable
               columns={result.columns}
-              data={result.data}
+              data={[...result.data, ...extraData]}
               rowCount={result.row_count || 0}
               selectedRow={selectedRow}
               onDocSearch={(row, i) => { setSelectedRow(i); setDocSearchRow(row); }}
               columnLabels={result.column_labels}
             />
+          </div>
+        )}
+
+        {hasMore && (
+          <div style={{ textAlign: 'center', padding: '0.5rem' }}>
+            <button
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              style={{
+                padding: '0.4rem 1rem', fontSize: '0.8125rem',
+                background: 'var(--accent)', color: '#fff',
+                border: 'none', borderRadius: '6px', cursor: 'pointer',
+                opacity: loadingMore ? 0.6 : 1,
+              }}
+            >
+              {loadingMore ? '載入中...' : `載入更多（已顯示 ${(result.data?.length || 0) + extraData.length} / ${result.total_rows || result.row_count} 筆）`}
+            </button>
           </div>
         )}
 

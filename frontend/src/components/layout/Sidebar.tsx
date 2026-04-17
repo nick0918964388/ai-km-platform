@@ -15,6 +15,7 @@ import {
   User,
   Query,
   Activity,
+  DataTable,
 } from '@carbon/icons-react';
 import { useStore } from '@/store/useStore';
 import AccountInitials from '@/components/profile/AccountInitials';
@@ -27,6 +28,7 @@ const navItems = [
   { href: '/admin/knowledge-base', label: '知識庫管理', icon: DataBase, adminOnly: true },
   { href: '/admin/maximo-knowledge', label: 'Maximo 知識庫', icon: DataBase, adminOnly: true },
   { href: '/admin/audit', label: '稽核日誌', icon: Activity, adminOnly: true },
+  { href: '/admin/pending-examples', label: 'SQL 範例審核', icon: DataTable, adminOnly: true },
 ];
 
 const settingsItems = [

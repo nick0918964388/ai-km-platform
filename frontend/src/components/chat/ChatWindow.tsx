@@ -121,6 +121,10 @@ export default function ChatWindow() {
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [selectedModel, setSelectedModel] = useState('qwen3-vl:32b');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
@@ -155,11 +159,33 @@ export default function ChatWindow() {
     const handleClickOutside = (e: MouseEvent) => {
       if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
         setHistoryOpen(false);
+        setHistorySearch('');
+        setSearchResults([]);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const handleHistorySearch = (q: string) => {
+    setHistorySearch(q);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (!q.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    searchTimeoutRef.current = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const { apiSearchConversations } = await import('@/lib/api');
+        const results = await apiSearchConversations(q.trim());
+        setSearchResults(results);
+      } catch {
+        setSearchResults([]);
+      }
+      setIsSearching(false);
+    }, 300);
+  };
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
   const messages = activeConversation?.messages || [];
@@ -687,7 +713,12 @@ export default function ChatWindow() {
             {/* History dropdown */}
             <div ref={historyRef} style={{ position: 'relative' }}>
               <button
-                onClick={() => setHistoryOpen(o => !o)}
+                onClick={() => {
+                  setHistoryOpen(o => {
+                    if (o) { setHistorySearch(''); setSearchResults([]); }
+                    return !o;
+                  });
+                }}
                 title="歷史對話"
                 style={{
                   display: 'flex',
@@ -736,7 +767,69 @@ export default function ChatWindow() {
                   }}>
                     歷史對話
                   </div>
-                  {conversations.length === 0 ? (
+                  <div style={{ padding: '0.5rem 0.75rem 0' }}>
+                    <input
+                      type="text"
+                      placeholder="搜尋對話..."
+                      value={historySearch}
+                      onChange={(e) => handleHistorySearch(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.5rem 0.75rem',
+                        marginBottom: '0.5rem',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: '8px',
+                        fontSize: '0.8125rem',
+                        background: 'var(--bg-secondary)',
+                        color: 'var(--text-primary)',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                  {historySearch.trim() ? (
+                    isSearching ? (
+                      <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                        搜尋中...
+                      </div>
+                    ) : searchResults.length > 0 ? (
+                      <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                        {searchResults.map((r) => (
+                          <div
+                            key={r.id}
+                            onClick={() => {
+                              setActiveConversation(r.id);
+                              setHistoryOpen(false);
+                              setHistorySearch('');
+                              setSearchResults([]);
+                            }}
+                            style={{
+                              padding: '0.625rem 1rem',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid var(--border-subtle)',
+                              transition: 'background 0.15s',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-primary)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                          >
+                            <div style={{ fontWeight: 500, fontSize: '0.8125rem', color: 'var(--text-primary)' }}>{r.title}</div>
+                            {r.preview && (
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {r.preview}
+                              </div>
+                            )}
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
+                              {r.matchCount} 個匹配 · {new Date(r.updatedAt).toLocaleDateString()}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                        沒有找到相關對話
+                      </div>
+                    )
+                  ) : conversations.length === 0 ? (
                     <div style={{ padding: '1rem', fontSize: '0.8125rem', color: 'var(--text-muted)', textAlign: 'center' }}>
                       尚無對話紀錄
                     </div>
