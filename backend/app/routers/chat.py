@@ -122,6 +122,65 @@ def _generate_sql_follow_ups(query: str, result: dict) -> list:
     return suggestions[:3]
 
 
+async def _generate_sql_recovery_options(query: str, error: str, context: list = None) -> list[dict]:
+    """Generate clarification options when SQL query fails."""
+    settings = get_settings()
+    llm_url, llm_model = get_active_llm_info()
+
+    context_str = ""
+    if context:
+        recent = context[-3:]
+        context_str = "\n".join(f"{m.get('role','user')}: {m.get('content','')[:100]}" for m in recent)
+
+    prompt = f"""使用者的查詢無法用 SQL 完成。請分析原因，並產生 2-3 個替代查詢建議。
+
+使用者問題：{query}
+錯誤原因：{error[:200]}
+{"對話脈絡：" + context_str if context_str else ""}
+
+可查詢的資料表：
+- maximo_assets（資產/車輛）
+- maximo_pm_workorders（預防保養工單）
+- maximo_cm_workorders（矯正維修工單）
+- maximo_fault_reports（故障通報）
+
+請回傳 JSON 陣列，每個項目包含 label（中文顯示）和 query（改寫後的完整問題）：
+[{{"label": "按機務段統計核簽中工單", "query": "核簽中的工單按機務段分布統計"}}, ...]
+
+只回傳 JSON，不要其他文字。"""
+
+    try:
+        import re as _re
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(base_url=llm_url, api_key=settings.llm_api_key or "sk-unused")
+
+        response = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=llm_model,
+                messages=[{"role": "user", "content": f"/no_think\n{prompt}"}],
+                temperature=0.3,
+                max_tokens=500,
+            ),
+            timeout=10.0,
+        )
+        content = response.choices[0].message.content.strip()
+
+        content = _re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+
+        start = content.find('[')
+        end = content.rfind(']') + 1
+        if start >= 0 and end > start:
+            options = json.loads(content[start:end])
+            valid = [o for o in options if isinstance(o, dict) and "label" in o and "query" in o]
+            return valid[:3]
+    except Exception as e:
+        log.warning("Failed to generate recovery options: %s", e)
+
+    return []
+
+
 # --- Async Chat Job endpoints ---
 
 @router.post("/chat/jobs")
@@ -551,14 +610,30 @@ async def chat_stream(request: ChatRequest):
                         yield sse_event('content', f'*（{friendly}改用知識庫搜尋）*\n\n')
                         intent = "rag"
                     else:
-                        short_error = raw_error.split('\n')[0][:150] if raw_error else "未知錯誤"
-                        error_content = f"{friendly}\n\n🔧 **錯誤摘要：** `{short_error}`"
-                        yield sse_event('content', error_content)
-                        if sql_result.get("suggestions"):
-                            yield sse_event('sql_result', sql_result)
-                        asyncio.create_task(tracer.save())
-                        yield sse_event('done', {}, terminal=TerminalState.ERROR)
-                        return
+                        yield sse_event('step', {'id': 'recovery', 'label': '嘗試理解您的需求...', 'status': 'running'})
+                        yield sse_event('reasoning', {'phase': 'recovery', 'text': f'SQL 查詢失敗（{iters} 次），嘗試自動釐清或改用知識庫搜尋。'})
+
+                        try:
+                            clarify_options = await _generate_sql_recovery_options(query, raw_error, request.context)
+                            yield sse_event('step', {'id': 'recovery', 'label': '分析完成', 'status': 'done'})
+
+                            if clarify_options:
+                                yield sse_event('reasoning', {'phase': 'recovery', 'text': f'已生成 {len(clarify_options)} 個替代建議。'})
+                                yield sse_event('content', f'{friendly}\n\n我無法直接查詢，但您可以試試以下方式：\n\n')
+                                yield sse_event('clarification', {
+                                    "message": f"{friendly} 請選擇更具體的查詢方式：",
+                                    "options": clarify_options,
+                                }, terminal=TerminalState.CLARIFICATION)
+                                asyncio.create_task(tracer.save())
+                                yield sse_event('done', {}, terminal=TerminalState.CLARIFICATION)
+                                return
+                        except Exception as e:
+                            log.warning("SQL recovery clarification failed: %s", e)
+
+                        yield sse_event('reasoning', {'phase': 'recovery', 'text': '改用知識庫搜尋相關資料。'})
+                        yield sse_event('content', f'*（{friendly}改用知識庫搜尋相關資料）*\n\n')
+                        yield sse_event('step', {'id': 'recovery', 'label': '改用知識庫搜尋', 'status': 'done'})
+                        intent = "rag"
 
             # === RAG Path (intent == "rag" or hybrid fallthrough) ===
             # Build optimized context (dynamic token budget, replaces hardcoded 3-turn limit)
