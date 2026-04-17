@@ -822,6 +822,7 @@ def chat_stream_with_metadata(
     sources: list[SearchResult],
     image_base64: Optional[str] = None,
     model: Optional[str] = None,
+    memory_context: Optional[str] = None,
 ):
     """
     Streaming RAG chat with metadata: generate answer using GPT-4o with streaming.
@@ -897,10 +898,13 @@ def chat_stream_with_metadata(
 
     try:
         # Pattern 4: Withholding — use fallback pipeline for resilient LLM calls
+        system_prompt = SYSTEM_PROMPT
+        if memory_context:
+            system_prompt = system_prompt + "\n\n" + memory_context
         messages = [{"role": "user", "content": user_content}]
         for result in _try_llm_with_fallback(
             messages=messages,
-            system=SYSTEM_PROMPT,
+            system=system_prompt,
             max_tokens=output_tokens,
             model_override=model,
         ):

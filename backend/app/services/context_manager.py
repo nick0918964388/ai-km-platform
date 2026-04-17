@@ -1,5 +1,6 @@
 """Dynamic Context Manager — token budget management + context compression."""
 import logging
+import re
 from typing import Optional
 
 import tiktoken
@@ -195,6 +196,135 @@ def build_optimized_context(
 
     optimized = compressed + recent
     return sanitize_tool_pairs(optimized)
+
+
+async def compress_context(
+    messages: list[dict],
+    max_tokens: int = MAX_CONTEXT_TOKENS,
+    system_tokens: int = 0,
+    schema_tokens: int = 0,
+) -> list[dict]:
+    """Compress conversation context using LLM summarization.
+
+    Strategy (inspired by Hermes context_compressor):
+    - Protect head (first 2 messages) and tail (last 6 messages)
+    - Summarize middle section using cheap LLM
+    - Summary budget: max(500, content_tokens * 0.20)
+    - Preserve tool-call pairing
+    """
+    if not messages:
+        return []
+
+    effective_max = max_tokens - system_tokens - schema_tokens - OUTPUT_TOKEN_RESERVE
+    if effective_max < 1000:
+        effective_max = 1000
+
+    total_tokens = estimate_context_tokens(messages)
+
+    if total_tokens <= effective_max:
+        return sanitize_tool_pairs(messages)
+
+    PROTECT_HEAD = 2
+    PROTECT_TAIL = 6
+
+    if len(messages) <= PROTECT_HEAD + PROTECT_TAIL:
+        return sanitize_tool_pairs(_truncate_messages(messages, effective_max))
+
+    head = messages[:PROTECT_HEAD]
+    tail = messages[-PROTECT_TAIL:]
+    middle = messages[PROTECT_HEAD:-PROTECT_TAIL]
+
+    if not middle:
+        return sanitize_tool_pairs(head + tail)
+
+    middle_text = "\n".join(
+        f"{m.get('role', 'user')}: {m.get('content', '')[:500]}"
+        for m in middle
+    )
+    middle_tokens = estimate_tokens(middle_text)
+    summary_budget = max(500, int(middle_tokens * 0.20))
+
+    try:
+        summary = await _llm_summarize(middle_text, summary_budget)
+    except Exception as e:
+        log.warning("LLM summarization failed, falling back to truncation: %s", e)
+        summary = _naive_summarize(middle)
+
+    summary_msg = {
+        "role": "assistant",
+        "content": f"[以下是先前對話的摘要]\n{summary}\n[摘要結束 — 請根據以下最新對話回應]",
+    }
+
+    compressed = head + [summary_msg] + tail
+    return sanitize_tool_pairs(compressed)
+
+
+def _naive_summarize(messages: list[dict]) -> str:
+    """Fallback: extract key points without LLM."""
+    parts = []
+    for m in messages:
+        content = m.get("content", "")
+        role = "用戶" if m.get("role") == "user" else "AI"
+        summary = content[:80]
+        if m.get("intent"):
+            summary += f" [intent: {m['intent']}]"
+        if m.get("sql"):
+            summary += f" [SQL: {m['sql'][:60]}]"
+        parts.append(f"{role}: {summary}")
+    return "\n".join(parts)
+
+
+async def _llm_summarize(text: str, max_tokens: int = 500) -> str:
+    """Summarize conversation text using cheap/fast LLM."""
+    import asyncio
+    from openai import AsyncOpenAI
+    from app.config import get_settings, get_active_llm_info
+
+    settings = get_settings()
+    llm_url, llm_model = get_active_llm_info()
+
+    prompt = f"""請用中文摘要以下對話，保留：
+1. 使用者問了什麼問題（保留關鍵字）
+2. 系統回答的重點結論
+3. 任何 SQL 查詢結果的關鍵數字
+4. 使用者表達的偏好或修正
+
+摘要需精簡，不超過 {max_tokens} tokens。
+
+對話內容：
+{text[:3000]}"""
+
+    client = AsyncOpenAI(base_url=llm_url, api_key=settings.llm_api_key or "sk-unused")
+    response = await asyncio.wait_for(
+        client.chat.completions.create(
+            model=llm_model,
+            messages=[{"role": "user", "content": f"/no_think\n{prompt}"}],
+            temperature=0.1,
+            max_tokens=max_tokens,
+        ),
+        timeout=15.0,
+    )
+    content = response.choices[0].message.content.strip()
+    content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
+    return content
+
+
+def _truncate_messages(messages: list[dict], max_tokens: int) -> list[dict]:
+    """Truncate message contents to fit within token budget."""
+    result = []
+    budget = max_tokens
+    for m in reversed(messages):
+        tokens = estimate_tokens(m.get("content", ""))
+        if tokens <= budget:
+            result.insert(0, m)
+            budget -= tokens
+        else:
+            truncated = {**m, "content": m.get("content", "")[:200] + "..."}
+            result.insert(0, truncated)
+            budget -= estimate_tokens(truncated["content"])
+        if budget <= 0:
+            break
+    return result
 
 
 class TaskFocusState:

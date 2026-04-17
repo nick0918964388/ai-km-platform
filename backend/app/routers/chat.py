@@ -21,7 +21,7 @@ from app.models.schemas import (
 from app.services import rag
 from app.services.intent_classifier import get_intent_classifier, QueryIntent
 from app.services.intent_router import detect_intent, detect_ambiguity
-from app.services.context_manager import build_optimized_context
+from app.services.context_manager import build_optimized_context, compress_context
 from app.services.call_tracer import CallTracer, trace_llm_call
 from app.services.result_budget import ResultBudget
 from app.config import get_settings, get_active_llm_info
@@ -292,6 +292,26 @@ async def chat_stream(request: ChatRequest):
                     merged = f"{prev_user}，{query}"
                     log.info("Short follow-up merged: '%s' + '%s' → '%s'", prev_user[:30], query, merged)
                     query = merged
+
+            # === Proactive Memory Prefetch ===
+            memory_context = None
+            if conversation_id:
+                from app.services.memory_prefetch import prefetch_memory
+                try:
+                    async with get_db_context() as _db:
+                        _row = await _db.execute(text("SELECT user_id FROM conversations WHERE id = :id"), {"id": conversation_id})
+                        _conv_owner = _row.scalar()
+                    if _conv_owner:
+                        memory_context = await asyncio.wait_for(
+                            prefetch_memory(query, _conv_owner, conversation_id),
+                            timeout=3.0,
+                        )
+                        if memory_context:
+                            yield sse_event('reasoning', {'phase': 'memory', 'text': '找到相關歷史對話記憶，已注入上下文。'})
+                except asyncio.TimeoutError:
+                    log.debug("Memory prefetch timed out")
+                except Exception:
+                    pass
 
             # === Pattern 1: Speculative Execution ===
             # 平行啟動 intent classification + schema pre-build（推測可能是 SQL 查詢）
@@ -748,8 +768,8 @@ async def chat_stream(request: ChatRequest):
                         intent = "rag"
 
             # === RAG Path (intent == "rag" or hybrid fallthrough) ===
-            # Build optimized context (dynamic token budget, replaces hardcoded 3-turn limit)
-            optimized_context = build_optimized_context(request.context)
+            # Compress context with LLM summarization (async, falls back to truncation)
+            optimized_context = await compress_context(request.context)
 
             search_query = query
             if optimized_context:
@@ -859,6 +879,7 @@ async def chat_stream(request: ChatRequest):
                 sources=sources,
                 image_base64=request.image_base64,
                 model=request.model,
+                memory_context=memory_context,
             ):
                 if result.get("type") == "content":
                     content_chunk = rag.strip_context_fences(result['data'])
