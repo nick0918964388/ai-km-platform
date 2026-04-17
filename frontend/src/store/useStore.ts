@@ -162,13 +162,42 @@ export const useStore = create<AppState>((set, get) => ({
   setUser: (user) => {
     saveStoredUser(user);
     set({ user });
-    // Load user-specific conversations when user changes
     if (user) {
-      const conversations = loadUserConversations(user.id);
-      const activeConversationId = loadActiveConversationId(user.id);
-      set({ conversations, activeConversationId });
+      import('@/lib/api').then(({ apiListConversations, apiGetConversation }) => {
+        apiListConversations().then(async (serverConvs) => {
+          if (!serverConvs?.length) {
+            set({ conversations: loadUserConversations(user.id) });
+            return;
+          }
+          const fullConvs = await Promise.all(
+            serverConvs.slice(0, 30).map(async (c: any) => {
+              try {
+                const full = await apiGetConversation(c.id);
+                return {
+                  id: full.id,
+                  title: full.title,
+                  createdAt: new Date(full.createdAt),
+                  updatedAt: new Date(full.updatedAt),
+                  messages: (full.messages || []).map((m: any) => ({
+                    ...m,
+                    timestamp: new Date(m.timestamp || m.created_at),
+                  })),
+                };
+              } catch {
+                return null;
+              }
+            })
+          );
+          const valid = fullConvs.filter(Boolean) as Conversation[];
+          set({ conversations: valid });
+          saveUserConversations(user.id, valid);
+        }).catch(() => {
+          set({ conversations: loadUserConversations(user.id) });
+        });
+      });
+      const storedActiveId = loadActiveConversationId(user.id);
+      set({ activeConversationId: storedActiveId || null });
     } else {
-      // Clear JWT token on logout
       if (typeof window !== 'undefined') {
         localStorage.removeItem('auth_token');
       }
@@ -231,9 +260,36 @@ export const useStore = create<AppState>((set, get) => ({
   loadUserData: () => {
     const { user } = get();
     if (user) {
+      // Load from localStorage immediately, then sync from server
       const conversations = loadUserConversations(user.id);
-      // Don't restore activeConversationId - always start fresh
       set({ conversations, activeConversationId: null });
+      import('@/lib/api').then(({ apiListConversations, apiGetConversation }) => {
+        apiListConversations().then(async (serverConvs) => {
+          if (!serverConvs?.length) return;
+          const fullConvs = await Promise.all(
+            serverConvs.slice(0, 30).map(async (c: any) => {
+              try {
+                const full = await apiGetConversation(c.id);
+                return {
+                  id: full.id,
+                  title: full.title,
+                  createdAt: new Date(full.createdAt),
+                  updatedAt: new Date(full.updatedAt),
+                  messages: (full.messages || []).map((m: any) => ({
+                    ...m,
+                    timestamp: new Date(m.timestamp || m.created_at),
+                  })),
+                };
+              } catch {
+                return null;
+              }
+            })
+          );
+          const valid = fullConvs.filter(Boolean) as Conversation[];
+          set({ conversations: valid });
+          saveUserConversations(user.id, valid);
+        }).catch(console.error);
+      });
     }
   },
   
@@ -243,80 +299,109 @@ export const useStore = create<AppState>((set, get) => ({
     set({ activeConversationId: id });
   },
   
-  addConversation: (conversation) =>
-    set((state) => {
-      const newConversations = [conversation, ...state.conversations];
-      saveUserConversations(state.user?.id || null, newConversations);
-      saveActiveConversationId(state.user?.id || null, conversation.id);
-      return {
-        conversations: newConversations,
-        activeConversationId: conversation.id,
-      };
-    }),
+  addConversation: (conversation) => {
+    const state = get();
+    const updated = [conversation, ...state.conversations];
+    set({ conversations: updated, activeConversationId: conversation.id });
+    import('@/lib/api').then(({ apiCreateConversation }) => {
+      apiCreateConversation(conversation.id, conversation.title).catch(console.error);
+    });
+    if (state.user?.id) {
+      saveUserConversations(state.user.id, updated);
+      saveActiveConversationId(state.user.id, conversation.id);
+    }
+  },
 
-  deleteConversation: (conversationId) =>
-    set((state) => {
-      const newConversations = state.conversations.filter((conv) => conv.id !== conversationId);
-      saveUserConversations(state.user?.id || null, newConversations);
-      // If deleting active conversation, switch to the first remaining one
-      const newActiveId = state.activeConversationId === conversationId
-        ? (newConversations[0]?.id || null)
-        : state.activeConversationId;
-      if (newActiveId !== state.activeConversationId) {
-        saveActiveConversationId(state.user?.id || null, newActiveId);
+  deleteConversation: (conversationId) => {
+    const state = get();
+    const updated = state.conversations.filter(c => c.id !== conversationId);
+    const newActive = state.activeConversationId === conversationId
+      ? (updated[0]?.id || null)
+      : state.activeConversationId;
+    set({ conversations: updated, activeConversationId: newActive });
+    import('@/lib/api').then(({ apiDeleteConversation }) => {
+      apiDeleteConversation(conversationId).catch(console.error);
+    });
+    if (state.user?.id) {
+      saveUserConversations(state.user.id, updated);
+      if (newActive !== state.activeConversationId) {
+        saveActiveConversationId(state.user.id, newActive);
       }
-      return {
-        conversations: newConversations,
-        activeConversationId: newActiveId,
-      };
-    }),
+    }
+  },
 
-  updateConversationTitle: (conversationId, title) =>
-    set((state) => {
-      const newConversations = state.conversations.map((conv) =>
-        conv.id === conversationId ? { ...conv, title, updatedAt: new Date() } : conv
-      );
-      saveUserConversations(state.user?.id || null, newConversations);
-      return { conversations: newConversations };
-    }),
+  updateConversationTitle: (conversationId, title) => {
+    const state = get();
+    const updated = state.conversations.map(c =>
+      c.id === conversationId ? { ...c, title, updatedAt: new Date() } : c
+    );
+    set({ conversations: updated });
+    import('@/lib/api').then(({ apiUpdateConversationTitle }) => {
+      apiUpdateConversationTitle(conversationId, title).catch(console.error);
+    });
+    if (state.user?.id) saveUserConversations(state.user.id, updated);
+  },
     
-  addMessage: (conversationId, message) =>
-    set((state) => {
-      const newConversations = state.conversations.map((conv) =>
-        conv.id === conversationId
-          ? { ...conv, messages: [...conv.messages, message], updatedAt: new Date() }
-          : conv
-      );
-      saveUserConversations(state.user?.id || null, newConversations);
-      return { conversations: newConversations };
-    }),
+  addMessage: (conversationId, message) => {
+    const state = get();
+    const updated = state.conversations.map(c =>
+      c.id === conversationId
+        ? { ...c, messages: [...c.messages, message], updatedAt: new Date() }
+        : c
+    );
+    set({ conversations: updated });
+    import('@/lib/api').then(({ apiAddMessage }) => {
+      const { sources, sqlResult, clarification, query, jobId, ...rest } = message as any;
+      const metadata = { sources, sqlResult, clarification, query, jobId };
+      apiAddMessage(conversationId, {
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        metadata: Object.fromEntries(Object.entries(metadata).filter(([_, v]) => v !== undefined)),
+      }).catch(console.error);
+    });
+    if (state.user?.id) saveUserConversations(state.user.id, updated);
+  },
 
-  updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string; sqlResult?: any; clarification?: any; jobId?: string }) =>
-    set((state) => {
-      const newConversations = state.conversations.map((conv) =>
-        conv.id === conversationId
-          ? {
-              ...conv,
-              messages: conv.messages.map((msg) =>
-                msg.id === messageId
-                  ? {
-                      ...msg,
-                      content,
-                      ...(extra?.sources !== undefined && { sources: extra.sources }),
-                      ...(extra?.query !== undefined && { query: extra.query }),
-                      ...(extra?.sqlResult !== undefined && { sqlResult: extra.sqlResult }),
-                      ...(extra?.clarification !== undefined && { clarification: extra.clarification }),
-                      ...(extra?.jobId !== undefined && { jobId: extra.jobId }),
-                    }
-                  : msg
-              ),
-              updatedAt: new Date(),
-            }
-          : conv
-      );
-      saveUserConversations(state.user?.id || null, newConversations);
-      return { conversations: newConversations };
-    }),
+  updateMessage: (conversationId: string, messageId: string, content: string, extra?: { sources?: any[]; query?: string; sqlResult?: any; clarification?: any; jobId?: string }) => {
+    const state = get();
+    const updated = state.conversations.map(c => {
+      if (c.id !== conversationId) return c;
+      return {
+        ...c,
+        updatedAt: new Date(),
+        messages: c.messages.map(m => {
+          if (m.id !== messageId) return m;
+          return {
+            ...m,
+            content,
+            ...(extra?.sources !== undefined && { sources: extra.sources }),
+            ...(extra?.query !== undefined && { query: extra.query }),
+            ...(extra?.sqlResult !== undefined && { sqlResult: extra.sqlResult }),
+            ...(extra?.clarification !== undefined && { clarification: extra.clarification }),
+            ...(extra?.jobId !== undefined && { jobId: extra.jobId }),
+          };
+        }),
+      };
+    });
+    set({ conversations: updated });
+    if (extra?.sources || extra?.sqlResult || extra?.query || extra?.clarification) {
+      import('@/lib/api').then(({ apiAddMessage }) => {
+        const msg = updated.find(c => c.id === conversationId)?.messages.find(m => m.id === messageId);
+        if (msg) {
+          const { sources, sqlResult, clarification, query, jobId, ...rest } = msg as any;
+          const metadata = { sources, sqlResult, clarification, query, jobId };
+          apiAddMessage(conversationId, {
+            id: messageId,
+            role: msg.role,
+            content: msg.content,
+            metadata: Object.fromEntries(Object.entries(metadata).filter(([_, v]) => v !== undefined)),
+          }).catch(console.error);
+        }
+      });
+    }
+    if (state.user?.id) saveUserConversations(state.user.id, updated);
+  },
   
   // UI
   sidebarOpen: false, // Start closed on mobile to avoid flash

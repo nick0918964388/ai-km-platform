@@ -378,4 +378,57 @@ export function getApiHeaders(): HeadersInit {
   return headers;
 }
 
+// --- Conversation persistence API ---
+
+export async function apiListConversations(limit = 50): Promise<any[]> {
+  const res = await fetch(`${API_URL}/api/conversations?limit=${limit}`, { headers: getApiHeaders() });
+  if (!res.ok) throw new Error('Failed to load conversations');
+  return res.json();
+}
+
+export async function apiGetConversation(id: string): Promise<any> {
+  const res = await fetch(`${API_URL}/api/conversations/${id}`, { headers: getApiHeaders() });
+  if (!res.ok) throw new Error('Failed to load conversation');
+  return res.json();
+}
+
+export async function apiCreateConversation(id: string, title: string): Promise<any> {
+  const res = await fetch(`${API_URL}/api/conversations`, {
+    method: 'POST',
+    headers: getApiHeaders(),
+    body: JSON.stringify({ id, title }),
+  });
+  if (!res.ok) throw new Error('Failed to create conversation');
+  return res.json();
+}
+
+export async function apiUpdateConversationTitle(id: string, title: string): Promise<void> {
+  await fetch(`${API_URL}/api/conversations/${id}`, {
+    method: 'PUT',
+    headers: getApiHeaders(),
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function apiDeleteConversation(id: string): Promise<void> {
+  await fetch(`${API_URL}/api/conversations/${id}`, {
+    method: 'DELETE',
+    headers: getApiHeaders(),
+  });
+}
+
+export async function apiAddMessage(conversationId: string, message: { id: string; role: string; content: string; metadata?: any }): Promise<void> {
+  await fetch(`${API_URL}/api/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    headers: getApiHeaders(),
+    body: JSON.stringify(message),
+  });
+}
+
+export async function apiSearchConversations(q: string, limit = 5): Promise<any[]> {
+  const res = await fetch(`${API_URL}/api/conversations/search?q=${encodeURIComponent(q)}&limit=${limit}`, { headers: getApiHeaders() });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export { API_URL, API_KEY, STREAM_API_URL };
