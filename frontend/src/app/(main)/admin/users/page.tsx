@@ -19,7 +19,7 @@ export default function UsersPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
 
-  const filteredUsers = users.filter(u => 
+  const filteredUsers = users.filter(u =>
     u.name.toLowerCase().includes(search.toLowerCase()) ||
     u.email.toLowerCase().includes(search.toLowerCase())
   );
@@ -33,8 +33,8 @@ export default function UsersPage() {
   const handleSave = (userData: Partial<User> & { password?: string }) => {
     if (userData.id) {
       // Update existing user
-      setUsers(users.map(u => 
-        u.id === userData.id 
+      setUsers(users.map(u =>
+        u.id === userData.id
           ? { ...u, name: userData.name!, email: userData.email!, role: userData.role! }
           : u
       ));
@@ -80,16 +80,26 @@ export default function UsersPage() {
 
   return (
     <div className="settings-container" style={{ maxWidth: 1000 }}>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
+      {/* Page Header - stacks on mobile */}
+      <div className="users-page-header" style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.75rem',
         marginBottom: '1.5rem'
       }}>
+        <style>{`
+          @media (min-width: 640px) {
+            .users-page-header {
+              flex-direction: row !important;
+              justify-content: space-between !important;
+              align-items: center !important;
+            }
+          }
+        `}</style>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 600 }}>
           使用者管理
         </h1>
-        <button className="btn btn-primary" onClick={handleAddNew}>
+        <button className="btn btn-primary" onClick={handleAddNew} style={{ alignSelf: 'flex-start' }}>
           <Add size={16} />
           新增使用者
         </button>
@@ -98,15 +108,15 @@ export default function UsersPage() {
       {/* Search */}
       <div className="settings-section" style={{ padding: '1rem' }}>
         <div style={{ position: 'relative' }}>
-          <Search 
-            size={18} 
-            style={{ 
-              position: 'absolute', 
-              left: 12, 
-              top: '50%', 
+          <Search
+            size={18}
+            style={{
+              position: 'absolute',
+              left: 12,
+              top: '50%',
               transform: 'translateY(-50%)',
               color: 'var(--text-secondary)'
-            }} 
+            }}
           />
           <input
             type="text"
@@ -114,81 +124,84 @@ export default function UsersPage() {
             placeholder="搜尋使用者..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ paddingLeft: 40 }}
+            style={{ paddingLeft: 40, width: '100%' }}
           />
         </div>
       </div>
 
       {/* Users Table */}
       <div className="settings-section" style={{ padding: 0, overflow: 'hidden' }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>名稱</th>
-              <th>電子郵件</th>
-              <th>角色</th>
-              <th>建立日期</th>
-              <th style={{ width: 100 }}>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredUsers.map((user) => (
-              <tr key={user.id}>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: '50%',
-                      background: 'var(--primary)',
-                      color: 'white',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '0.75rem',
-                      fontWeight: 500
-                    }}>
-                      {user.name.charAt(0)}
-                    </div>
-                    {user.name}
-                  </div>
-                </td>
-                <td>{user.email}</td>
-                <td>
-                  <span className={getRoleBadgeClass(user.role)}>
-                    {getRoleLabel(user.role)}
-                  </span>
-                </td>
-                <td>{user.createdAt.toLocaleDateString('zh-TW')}</td>
-                <td>
-                  <div style={{ display: 'flex', gap: '0.25rem' }}>
-                    <button 
-                      className="input-btn" 
-                      title="編輯"
-                      onClick={() => handleEdit(user)}
-                    >
-                      <Edit size={16} />
-                    </button>
-                    <button 
-                      className="input-btn" 
-                      title="刪除"
-                      onClick={() => handleDelete(user.id)}
-                      style={{ color: '#da1e28' }}
-                    >
-                      <TrashCan size={16} />
-                    </button>
-                  </div>
-                </td>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table" style={{ minWidth: 500 }}>
+            <thead>
+              <tr>
+                <th>名稱</th>
+                <th>電子郵件</th>
+                <th>角色</th>
+                <th>建立日期</th>
+                <th style={{ width: 100 }}>操作</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {filteredUsers.map((user) => (
+                <tr key={user.id}>
+                  <td data-label="名稱">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: '50%',
+                        background: 'var(--primary)',
+                        color: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.75rem',
+                        fontWeight: 500,
+                        flexShrink: 0,
+                      }}>
+                        {user.name.charAt(0)}
+                      </div>
+                      {user.name}
+                    </div>
+                  </td>
+                  <td data-label="電子郵件" style={{ fontSize: '0.8125rem' }}>{user.email}</td>
+                  <td data-label="角色">
+                    <span className={getRoleBadgeClass(user.role)}>
+                      {getRoleLabel(user.role)}
+                    </span>
+                  </td>
+                  <td data-label="建立日期" style={{ fontSize: '0.8125rem' }}>{user.createdAt.toLocaleDateString('zh-TW')}</td>
+                  <td data-label="操作">
+                    <div style={{ display: 'flex', gap: '0.25rem' }}>
+                      <button
+                        className="input-btn"
+                        title="編輯"
+                        onClick={() => handleEdit(user)}
+                      >
+                        <Edit size={16} />
+                      </button>
+                      <button
+                        className="input-btn"
+                        title="刪除"
+                        onClick={() => handleDelete(user.id)}
+                        style={{ color: 'var(--error)' }}
+                      >
+                        <TrashCan size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
         {filteredUsers.length === 0 && (
-          <div style={{ 
-            padding: '3rem', 
-            textAlign: 'center', 
-            color: 'var(--text-secondary)' 
+          <div style={{
+            padding: '3rem',
+            textAlign: 'center',
+            color: 'var(--text-secondary)'
           }}>
             找不到符合的使用者
           </div>
@@ -196,16 +209,16 @@ export default function UsersPage() {
       </div>
 
       {/* Stats */}
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(3, 1fr)', 
+      <div className="users-stats-grid" style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(3, 1fr)',
         gap: '1rem',
         marginTop: '1.5rem'
       }}>
         {[
-          { label: '管理員', count: users.filter(u => u.role === 'admin').length, color: '#da1e28' },
-          { label: '使用者', count: users.filter(u => u.role === 'user').length, color: '#0043ce' },
-          { label: '訪客', count: users.filter(u => u.role === 'guest').length, color: '#525252' },
+          { label: '管理員', count: users.filter(u => u.role === 'admin').length, color: 'var(--error)' },
+          { label: '使用者', count: users.filter(u => u.role === 'user').length, color: 'var(--primary)' },
+          { label: '訪客', count: users.filter(u => u.role === 'guest').length, color: 'var(--text-muted)' },
         ].map((stat) => (
           <div key={stat.label} className="settings-section" style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '2rem', fontWeight: 600, color: stat.color }}>

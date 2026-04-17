@@ -1,36 +1,37 @@
-"""
-Intent Classifier Service - Determine query type and route accordingly.
-Uses LLM to classify user intent into: structured, knowledge, hybrid, or clarification.
-"""
+"""Intent Classifier Service — LLM-based query intent classification with Ollama."""
 
-import os
+import asyncio
 import json
+import re
+import logging
 from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from openai import AsyncOpenAI
 
+from app.config import get_settings
+from app.services.circuit_breaker import LLM_BREAKER
+
+log = logging.getLogger(__name__)
+
 
 class QueryIntent(str, Enum):
-    """Query intent types"""
-    STRUCTURED = "structured"  # Query structured data (vehicles, faults, etc.)
-    KNOWLEDGE = "knowledge"    # Query knowledge base (documents, manuals)
-    HYBRID = "hybrid"          # Both structured and knowledge
-    CLARIFICATION = "clarification"  # Need more info from user
+    STRUCTURED = "structured"
+    KNOWLEDGE = "knowledge"
+    HYBRID = "hybrid"
+    CLARIFICATION = "clarification"
 
 
 @dataclass
 class IntentResult:
-    """Intent classification result"""
     intent: QueryIntent
     confidence: float
-    entities: Dict[str, Any]  # Extracted entities (vehicle_code, date_range, etc.)
+    entities: Dict[str, Any]
     reasoning: str
-    suggested_queries: List[str] = None  # For clarification
+    clarification_options: List[Dict[str, str]] = None
 
 
-# Few-shot examples for intent classification
 FEW_SHOT_EXAMPLES = """
 範例 1:
 使用者: 查詢 EMU801 故障歷程
@@ -50,7 +51,7 @@ FEW_SHOT_EXAMPLES = """
 範例 4:
 使用者: 最近的故障情況
 分析: 使用者沒有指定車輛或時間範圍，需要澄清
-結果: {"intent": "clarification", "confidence": 0.7, "entities": {}, "reasoning": "缺少具體查詢條件", "suggested_queries": ["請問您要查詢哪台車輛？", "請問要查詢多長時間內的故障？"]}
+結果: {"intent": "clarification", "confidence": 0.7, "entities": {}, "reasoning": "缺少具體查詢條件，需要知道車輛和時間範圍", "clarification_options": [{"label": "最近一週全車隊故障", "query": "最近一週全部車輛的故障通報"}, {"label": "指定車輛故障歷程", "query": "EMU801 的故障歷程"}]}
 
 範例 5:
 使用者: 新竹機務段所有車輛的維修成本統計
@@ -61,6 +62,26 @@ FEW_SHOT_EXAMPLES = """
 使用者: 如何更換集電弓碳條？
 分析: 使用者要查詢操作程序文件
 結果: {"intent": "knowledge", "confidence": 0.95, "entities": {"topic": "集電弓碳條更換", "doc_type": "操作程序"}, "reasoning": "查詢操作步驟屬於文件知識"}
+
+範例 7:
+使用者: 工單
+分析: 使用者只說了「工單」，不確定要查哪種工單或什麼操作
+結果: {"intent": "clarification", "confidence": 0.6, "entities": {}, "reasoning": "查詢過於簡短，需要更多資訊", "clarification_options": [{"label": "所有工單列表", "query": "列出所有工單"}, {"label": "核簽中的工單", "query": "核簽中的工單有哪些"}, {"label": "最近的臨修工單", "query": "最近一週的臨修工單"}]}
+
+範例 8:
+使用者: 車輛狀況
+分析: 使用者想了解車輛狀況但沒有指定車號或查詢類型
+結果: {"intent": "clarification", "confidence": 0.65, "entities": {}, "reasoning": "未指定車輛編號或具體要查詢的面向", "clarification_options": [{"label": "全車隊資產總覽", "query": "全部車輛資產統計"}, {"label": "特定車號故障紀錄", "query": "EMU900 的故障紀錄"}, {"label": "車輛維修成本排名", "query": "各車輛維修成本排名"}]}
+
+範例 9 (多面向總覽 — 必須為 hybrid):
+使用者: EMU900 的車輛資訊總覽（故障、檢修、成本）
+分析: 括號內列出多個面向（故障、檢修、成本），單一 SQL 無法涵蓋，需分解為平行子任務
+結果: {"intent": "hybrid", "confidence": 0.92, "entities": {"vehicle_code": "EMU900", "aspects": ["fault", "maintenance", "cost"]}, "reasoning": "括號內多面向查詢，需分解為故障/檢修/成本三個子查詢平行執行"}
+
+範例 10 (多面向列舉 — 必須為 hybrid):
+使用者: TEMU2000 車型資料：工單、故障、維修成本
+分析: 冒號後列出多個面向，需分解查詢
+結果: {"intent": "hybrid", "confidence": 0.9, "entities": {"vehicle_type": "TEMU2000"}, "reasoning": "查詢涉及多個結構化面向（工單+故障+成本），應分解平行查詢"}
 """
 
 SYSTEM_PROMPT = f"""你是一個車輛維修知識管理系統的意圖分類器。
@@ -70,6 +91,11 @@ SYSTEM_PROMPT = f"""你是一個車輛維修知識管理系統的意圖分類器
 2. **knowledge**: 查詢知識庫文件（維修手冊、操作程序、技術規範）
 3. **hybrid**: 同時需要結構化資料和知識文件
 4. **clarification**: 查詢不明確，需要使用者提供更多資訊
+
+重要規則：
+- 如果對話脈絡已提供足夠資訊（例如使用者在追問上一個問題的細節），即使當前查詢較短或模糊，也應該判斷為 structured/knowledge/hybrid，而非 clarification。
+- **多面向查詢必須是 hybrid**：如果查詢中用括號、冒號、頓號（、）列舉 2 個以上資料面向（如「故障、檢修、成本」），必須分類為 hybrid，因為單一 SQL 無法涵蓋。
+- clarification_options 必須是 {{"label": "顯示文字", "query": "完整查詢"}} 格式的陣列。
 
 可識別的實體：
 - vehicle_code: 車輛編號 (如 EMU801, TEMU2001)
@@ -86,79 +112,162 @@ SYSTEM_PROMPT = f"""你是一個車輛維修知識管理系統的意圖分類器
 - confidence: 信心度 (0-1)
 - entities: 識別的實體
 - reasoning: 判斷理由
-- suggested_queries: (僅 clarification 時) 建議的澄清問題
+- clarification_options: (僅 clarification 時) 建議選項，格式為 [{{"label": "顯示文字", "query": "完整查詢"}}]
 """
 
 
 class IntentClassifierService:
-    """Service for classifying user query intent"""
-    
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4o")
-    
-    async def classify(self, query: str, context: Optional[str] = None) -> IntentResult:
-        """
-        Classify user query intent.
-        
-        Args:
-            query: User's natural language query
-            context: Optional conversation context
-            
-        Returns:
-            IntentResult with classification details
-        """
+        settings = get_settings()
+        self.provider = settings.intent_provider  # "ollama", "anthropic", "openai"
+        self.model = settings.intent_llm_model
+
+        if self.provider == "anthropic" and settings.anthropic_api_key:
+            self.anthropic_key = settings.anthropic_api_key
+            self.model = settings.intent_anthropic_model or "claude-haiku-4-5-20251001"
+            self.client = None  # Use anthropic SDK directly
+        elif self.provider == "openai" and settings.openai_api_key:
+            self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+            self.model = settings.openai_model or "gpt-4o-mini"
+            self.anthropic_key = None
+        else:
+            # Default: ollama
+            self.client = AsyncOpenAI(api_key="ollama", base_url=settings.intent_llm_url)
+            self.anthropic_key = None
+
+    async def _call_anthropic(self, system: str, user_msg: str) -> str:
+        """Call Anthropic API directly using httpx."""
+        import httpx
+        async with httpx.AsyncClient() as http:
+            resp = await http.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": self.anthropic_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "max_tokens": 500,
+                    "system": system,
+                    "messages": [{"role": "user", "content": user_msg}],
+                },
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["content"][0]["text"]
+
+    async def classify(self, query: str, context: list = None) -> IntentResult:
         user_prompt = f"使用者查詢: {query}"
         if context:
-            user_prompt = f"對話脈絡: {context}\n\n{user_prompt}"
-        
+            conv_parts = []
+            for m in context[-3:]:
+                role = m.get("role", "user")
+                content = m.get("content", "")[:100]
+                part = f"{role}: {content}"
+                if m.get("intent") == "sql" and m.get("sql"):
+                    part += f" [SQL查詢: {m['sql'][:80]}]"
+                conv_parts.append(part)
+            if conv_parts:
+                user_prompt = f"對話脈絡:\n" + "\n".join(conv_parts) + f"\n\n{user_prompt}"
+
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0,
-                response_format={"type": "json_object"}
-            )
-            
-            result = json.loads(response.choices[0].message.content)
-            
+            # Pattern 5: Circuit Breaker — LLM 斷路保護
+            if not LLM_BREAKER.is_available:
+                log.warning("LLM circuit breaker OPEN — skipping to keyword fallback")
+                raise RuntimeError("LLM circuit breaker is open")
+
+            if self.anthropic_key:
+                content = await self._call_anthropic(SYSTEM_PROMPT, user_prompt)
+            else:
+                # Add /no_think for ollama models
+                ollama_prompt = f"/no_think\n{user_prompt}" if not self.anthropic_key else user_prompt
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": ollama_prompt}
+                    ],
+                    temperature=0,
+                    max_tokens=500,
+                    extra_body={"keep_alive": -1},
+                )
+                content = response.choices[0].message.content
+
+            # Strip <think>...</think> tags from qwen/ollama models
+            content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
+
+            # Strip markdown code fences if present
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+
+            # Extract outermost JSON object by bracket matching
+            start = content.find('{')
+            if start == -1:
+                raise ValueError(f"No JSON found in response: {content[:200]}")
+            depth, end = 0, start
+            for i in range(start, len(content)):
+                if content[i] == '{':
+                    depth += 1
+                elif content[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            result = json.loads(content[start:end])
+
+            LLM_BREAKER.record_success()
             return IntentResult(
                 intent=QueryIntent(result.get("intent", "clarification")),
                 confidence=result.get("confidence", 0.5),
                 entities=result.get("entities", {}),
                 reasoning=result.get("reasoning", ""),
-                suggested_queries=result.get("suggested_queries")
+                clarification_options=result.get("clarification_options"),
             )
-            
+
         except Exception as e:
-            # Fallback to clarification on error
+            LLM_BREAKER.record_failure()
+            log.warning("Intent classification error: %s", e)
             return IntentResult(
                 intent=QueryIntent.CLARIFICATION,
                 confidence=0.0,
                 entities={},
                 reasoning=f"分類錯誤: {str(e)}",
-                suggested_queries=["請重新描述您的問題"]
+                clarification_options=[{"label": "請重新描述您的問題", "query": query}],
             )
-    
-    async def classify_batch(self, queries: List[str]) -> List[IntentResult]:
-        """Classify multiple queries"""
-        results = []
-        for query in queries:
-            result = await self.classify(query)
-            results.append(result)
-        return results
+
+    async def classify_with_fallback(self, query: str, context: list = None, timeout: float = 10.0) -> IntentResult:
+        try:
+            return await asyncio.wait_for(self.classify(query, context), timeout=timeout)
+        except (asyncio.TimeoutError, Exception) as e:
+            log.warning("LLM intent classification failed (%s: %s), falling back to keywords", type(e).__name__, e)
+            from app.services.intent_router import detect_intent
+            kw = detect_intent(query, context=context)
+            intent_map = {"sql": QueryIntent.STRUCTURED, "rag": QueryIntent.KNOWLEDGE, "hybrid": QueryIntent.HYBRID}
+            return IntentResult(
+                intent=intent_map.get(kw["intent"], QueryIntent.KNOWLEDGE),
+                confidence=kw["confidence"],
+                entities={},
+                reasoning=f"[fallback] {kw['reason']}",
+            )
 
 
-# Singleton instance
 _intent_classifier = None
+_intent_classifier_config_hash = None
+
+
+def _get_config_hash() -> str:
+    """Get a hash of intent-related settings to detect changes."""
+    settings = get_settings()
+    return f"{settings.intent_provider}|{settings.intent_llm_url}|{settings.intent_llm_model}|{settings.anthropic_api_key[:8] if settings.anthropic_api_key else ''}|{settings.intent_anthropic_model}"
 
 
 def get_intent_classifier() -> IntentClassifierService:
-    """Get or create intent classifier instance"""
-    global _intent_classifier
-    if _intent_classifier is None:
+    global _intent_classifier, _intent_classifier_config_hash
+    current_hash = _get_config_hash()
+    if _intent_classifier is None or _intent_classifier_config_hash != current_hash:
         _intent_classifier = IntentClassifierService()
+        _intent_classifier_config_hash = current_hash
+        log.info("Intent classifier (re)initialized: %s", current_hash)
     return _intent_classifier

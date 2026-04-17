@@ -43,8 +43,11 @@ def _get_llm():
     if not api_key:
         raise ValueError("OPENAI_API_KEY environment variable is not set")
 
+    from app.config import get_settings
+    settings = get_settings()
+    model = settings.openai_model or "gpt-4o"
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model=model,
         api_key=api_key,
         temperature=0,
     )
@@ -222,7 +225,7 @@ def run_evaluation(
             "sample_count": len(dataset.samples),
             "metrics_evaluated": metrics,
             "top_k": top_k,
-            "model": "gpt-4o",
+            "model": "ragas-evaluator",
         },
     }
 

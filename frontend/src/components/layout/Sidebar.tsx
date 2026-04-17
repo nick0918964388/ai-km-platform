@@ -1,12 +1,9 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import {
   Chat,
   Settings,
-  UserMultiple,
-  Add,
   Logout,
   Dashboard,
   RecentlyViewed,
@@ -14,56 +11,61 @@ import {
   DataBase,
   ChevronLeft,
   ChevronRight,
-  Search,
-  Document,
+  ChevronDown,
+  ChevronUp,
   Bot,
-  User
+  User,
+  Query,
+  Activity,
+  DataTable,
+  SettingsAdjust,
 } from '@carbon/icons-react';
+import { useState } from 'react';
 import { useStore } from '@/store/useStore';
+import AccountInitials from '@/components/profile/AccountInitials';
 
-const navItems = [
-  { href: '/admin/dashboard', label: '儀表板', icon: Dashboard },
+const userNavItems = [
   { href: '/chat', label: 'AI 問答', icon: Chat },
-  { href: '/admin/knowledge-base', label: '知識庫管理', icon: DataBase },
   { href: '/history', label: '查詢紀錄', icon: RecentlyViewed },
 ];
 
-const settingsItems = [
+const adminNavItems = [
+  { href: '/admin/dashboard', label: '管理儀表板', icon: Dashboard },
+  { href: '/maximo-query', label: 'Maximo 查詢', icon: Query },
+  { href: '/admin/knowledge-base', label: '知識庫管理', icon: DataBase },
+  { href: '/admin/maximo-knowledge', label: 'Maximo 知識庫', icon: DataBase },
+  { href: '/admin/audit', label: '稽核日誌', icon: Activity },
+  { href: '/admin/pending-examples', label: 'SQL 範例審核', icon: DataTable },
   { href: '/admin/permissions', label: '權限設定', icon: Locked },
+];
+
+const settingsItems = [
   { href: '/settings', label: '系統設定', icon: Settings },
   { href: '/profile', label: '個人資料', icon: User },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
-  const { user, setUser, conversations, addConversation, setActiveConversation, activeConversationId, sidebarOpen, toggleSidebar, sidebarCollapsed, toggleSidebarCollapsed } = useStore();
+  const { user, setUser, profile, sidebarOpen, toggleSidebar, sidebarCollapsed, toggleSidebarCollapsed } = useStore();
 
   const handleLogout = () => {
     setUser(null);
-    router.push('/login');
-  };
-
-  const handleNewChat = () => {
-    const newConv = {
-      id: Date.now().toString(),
-      title: '新對話',
-      messages: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    addConversation(newConv);
-    router.push('/chat');
-    if (window.innerWidth <= 768) {
-      toggleSidebar();
-    }
+    window.location.href = '/login';
   };
 
   const handleNavClick = () => {
+    // Close sidebar on mobile after navigation starts
     if (window.innerWidth <= 768) {
-      toggleSidebar();
+      // Use setTimeout to ensure navigation starts before closing sidebar
+      setTimeout(() => {
+        toggleSidebar();
+      }, 50);
     }
   };
+
+  const [adminExpanded, setAdminExpanded] = useState(() => {
+    return pathname.startsWith('/admin') || pathname === '/maximo-query';
+  });
 
   return (
     <aside className={`sidebar ${sidebarOpen ? 'open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}>
@@ -74,10 +76,10 @@ export default function Sidebar() {
         </div>
         {!sidebarCollapsed && (
           <div>
-            <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
+            <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1A1A1A' }}>
               台鐵問答 AI
             </div>
-            <div style={{ fontSize: '0.625rem', color: 'var(--accent)' }}>
+            <div style={{ fontSize: '0.625rem', color: 'var(--primary)' }}>
               車輛維修知識庫
             </div>
           </div>
@@ -87,72 +89,70 @@ export default function Sidebar() {
       {/* Navigation */}
       <nav className="sidebar-nav">
         {!sidebarCollapsed && <div className="nav-section">主選單</div>}
-        {navItems.map((item) => (
-          <Link
+        {userNavItems.map((item) => (
+          <a
             key={item.href}
             href={item.href}
-            className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + '/') ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
+            className={`nav-item ${pathname === item.href ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
             onClick={handleNavClick}
             title={sidebarCollapsed ? item.label : undefined}
           >
             <item.icon size={20} />
             {!sidebarCollapsed && item.label}
-          </Link>
+          </a>
         ))}
 
-        {/* Settings Section */}
+        {/* Admin Section (collapsible) */}
         {user?.role === 'admin' && (
           <>
-            {!sidebarCollapsed && <div className="nav-section">設定</div>}
-            {settingsItems.map((item) => (
-              <Link
+            {!sidebarCollapsed ? (
+              <div
+                className="nav-section"
+                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' }}
+                onClick={() => setAdminExpanded(v => !v)}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <SettingsAdjust size={14} />
+                  管理員
+                </span>
+                {adminExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </div>
+            ) : (
+              <div className="nav-section" style={{ cursor: 'pointer' }} onClick={() => setAdminExpanded(v => !v)} title="管理員區">
+                <SettingsAdjust size={16} />
+              </div>
+            )}
+            {(adminExpanded || sidebarCollapsed) && adminNavItems.map((item) => (
+              <a
                 key={item.href}
                 href={item.href}
-                className={`nav-item ${pathname === item.href ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
+                className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + '/') ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
                 onClick={handleNavClick}
                 title={sidebarCollapsed ? item.label : undefined}
+                style={!sidebarCollapsed ? { paddingLeft: '2rem', fontSize: '0.8125rem' } : undefined}
               >
-                <item.icon size={20} />
+                <item.icon size={18} />
                 {!sidebarCollapsed && item.label}
-              </Link>
+              </a>
             ))}
           </>
         )}
 
-        {/* Recent Conversations - hide when collapsed */}
-        {!sidebarCollapsed && conversations.length > 0 && (
-          <>
-            <div className="nav-section">對話紀錄</div>
-            {conversations.slice(0, 4).map((conv) => (
-              <div
-                key={conv.id}
-                className={`nav-item ${conv.id === activeConversationId ? 'active' : ''}`}
-                onClick={() => {
-                  setActiveConversation(conv.id);
-                  router.push('/chat');
-                  handleNavClick();
-                }}
-                style={{
-                  fontSize: '0.8125rem',
-                  cursor: 'pointer',
-                  height: '40px',
-                  padding: '0.5rem 0.75rem',
-                  background: conv.id === activeConversationId ? 'var(--bg-primary)' : 'transparent',
-                  borderRadius: 'var(--radius-md)'
-                }}
-              >
-                <Chat size={16} />
-                <span style={{
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}>
-                  {conv.title}
-                </span>
-              </div>
-            ))}
-          </>
-        )}
+        {/* Settings */}
+        {!sidebarCollapsed && <div className="nav-section">設定</div>}
+        {settingsItems.map((item) => (
+          <a
+            key={item.href}
+            href={item.href}
+            className={`nav-item ${pathname === item.href ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
+            onClick={handleNavClick}
+            title={sidebarCollapsed ? item.label : undefined}
+          >
+            <item.icon size={20} />
+            {!sidebarCollapsed && item.label}
+          </a>
+        ))}
+
       </nav>
 
       {/* Collapse Toggle Button */}
@@ -166,14 +166,32 @@ export default function Sidebar() {
 
       {/* User Info */}
       <div className={`sidebar-user ${sidebarCollapsed ? 'collapsed' : ''}`}>
-        <div className="sidebar-user-avatar">
-          {user?.name?.charAt(0) || 'U'}
-        </div>
+        {/* Avatar - use profile avatar_url or AccountInitials */}
+        {profile?.avatar_url ? (
+          <img
+            src={profile.avatar_url}
+            alt={profile.display_name}
+            className="sidebar-user-avatar"
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              objectFit: 'cover',
+            }}
+          />
+        ) : (
+          <div style={{ width: '36px', height: '36px' }}>
+            <AccountInitials
+              displayName={profile?.display_name || user?.name || 'User'}
+              size={36}
+            />
+          </div>
+        )}
         {!sidebarCollapsed && (
           <>
             <div className="sidebar-user-info">
               <div className="sidebar-user-name">
-                {user?.name || '訪客'}
+                {profile?.display_name || user?.name || '訪客'}
               </div>
               <div className="sidebar-user-role">
                 {user?.role === 'admin' ? '系統管理員' : user?.role === 'user' ? '使用者' : '訪客'}

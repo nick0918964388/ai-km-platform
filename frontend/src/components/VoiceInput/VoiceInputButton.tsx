@@ -57,6 +57,7 @@ export function VoiceInputButton({
         onClick={handleClick}
         disabled={state === 'processing'}
         className={isRecording || isProcessing ? 'text-red-600' : ''}
+        style={{ minWidth: 44, minHeight: 44 }}
       >
         {isRecording || isProcessing ? <StopFilled size={20} /> : <Microphone size={20} />}
       </IconButton>

@@ -1,18 +1,36 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   Chat,
   Search,
   Upload,
   Document,
-  ArrowUp,
   Notification,
   Bot,
   DataBase,
-  CheckmarkFilled,
-  Time,
+  WarningFilled,
+  TaskComplete,
+  Van,
 } from '@carbon/icons-react';
+import { useStore } from '@/store/useStore';
+import { apiGet, getErrorMessage } from '@/lib/api';
+
+interface DashboardSummary {
+  total_documents: number;
+  total_queries_today: number;
+  total_vehicles: number;
+  open_faults: number;
+  pending_workorders: number;
+}
+
+interface RecentQuery {
+  id: string;
+  user_id: string | null;
+  question: string | null;
+  created_at: string | null;
+}
 
 interface StatCardProps {
   title: string;
@@ -21,9 +39,10 @@ interface StatCardProps {
   changeType?: 'positive' | 'negative' | 'neutral';
   icon: React.ReactNode;
   iconBg: string;
+  loading?: boolean;
 }
 
-function StatCard({ title, value, change, changeType = 'neutral', icon, iconBg }: StatCardProps) {
+function StatCard({ title, value, change, changeType = 'neutral', icon, iconBg, loading }: StatCardProps) {
   return (
     <div className="stat-card">
       <div className="stat-card-header">
@@ -32,7 +51,9 @@ function StatCard({ title, value, change, changeType = 'neutral', icon, iconBg }
           {icon}
         </div>
       </div>
-      <div className="stat-card-value">{value}</div>
+      <div className="stat-card-value">
+        {loading ? '...' : value}
+      </div>
       {change && (
         <div className={`stat-card-change ${changeType}`}>
           {change}
@@ -77,7 +98,10 @@ function QueryItem({ icon, title, subtitle, time }: QueryItemProps) {
           fontWeight: 500,
           color: 'var(--text-primary)',
           fontSize: '0.875rem',
-          marginBottom: '0.125rem'
+          marginBottom: '0.125rem',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
         }}>
           {title}
         </div>
@@ -133,27 +157,55 @@ function QuickAction({ icon, label, href, primary }: QuickActionProps) {
   );
 }
 
+function formatTimeAgo(isoString: string): string {
+  const now = new Date();
+  const date = new Date(isoString);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return '剛剛';
+  if (diffMin < 60) return `${diffMin} 分鐘前`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour} 小時前`;
+  const diffDay = Math.floor(diffHour / 24);
+  return `${diffDay} 天前`;
+}
+
 export default function DashboardPage() {
-  const recentQueries = [
-    {
-      icon: <Chat size={18} />,
-      title: 'EMU900 引擎維修手冊查詢',
-      subtitle: '找到 3 份相關文件',
-      time: '5 分鐘前'
-    },
-    {
-      icon: <Document size={18} />,
-      title: '柴電機車 R100 保養紀錄查詢',
-      subtitle: '已匯出 PDF 報表',
-      time: '1 小時前'
-    },
-    {
-      icon: <Search size={18} />,
-      title: '普悠瑪號轉向架維修作業流程',
-      subtitle: '檢視完整作業程序',
-      time: '2 小時前'
-    },
-  ];
+  const user = useStore((s) => s.user);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [recentQueries, setRecentQueries] = useState<RecentQuery[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchData() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [summaryData, queriesData] = await Promise.all([
+          apiGet<DashboardSummary>('/api/dashboard/summary'),
+          apiGet<RecentQuery[]>('/api/dashboard/recent-queries?limit=5'),
+        ]);
+        if (!cancelled) {
+          setSummary(summaryData);
+          setRecentQueries(queriesData);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(getErrorMessage(e));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchData();
+    return () => { cancelled = true; };
+  }, []);
+
+  const userName = user?.name || '使用者';
 
   return (
     <div style={{
@@ -182,13 +234,27 @@ export default function DashboardPage() {
             fontSize: '0.875rem',
             color: 'var(--accent)'
           }}>
-            歡迎回來，王小明
+            歡迎回來，{userName}
           </p>
         </div>
         <button className="btn-icon">
           <Notification size={20} />
         </button>
       </div>
+
+      {error && (
+        <div style={{
+          padding: '0.75rem 1rem',
+          marginBottom: '1rem',
+          background: 'var(--danger-light, #fff1f0)',
+          border: '1px solid var(--danger, #da1e28)',
+          borderRadius: 'var(--radius-md)',
+          color: 'var(--danger, #da1e28)',
+          fontSize: '0.875rem',
+        }}>
+          載入失敗：{error}
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="dashboard-grid" style={{
@@ -198,36 +264,34 @@ export default function DashboardPage() {
         marginBottom: '1.5rem'
       }}>
         <StatCard
-          title="今日查詢次數"
-          value="128"
-          change="↑ 12% 較昨日"
-          changeType="positive"
-          icon={<Chat size={20} style={{ color: 'var(--accent)' }} />}
-          iconBg="var(--primary-light)"
-        />
-        <StatCard
-          title="回覆滿意度"
-          value="1,456"
-          change="本月累計"
-          changeType="neutral"
-          icon={<CheckmarkFilled size={20} style={{ color: 'var(--success)' }} />}
-          iconBg="var(--success-light)"
-        />
-        <StatCard
           title="知識庫文件"
-          value="3,892"
-          change="↑ 23 本週新增"
-          changeType="positive"
+          value={summary?.total_documents ?? 0}
           icon={<DataBase size={20} style={{ color: 'var(--accent)' }} />}
           iconBg="var(--primary-light)"
+          loading={loading}
         />
         <StatCard
-          title="系統準確率"
-          value="96.8%"
-          change="優於目標 95%"
-          changeType="positive"
-          icon={<Bot size={20} style={{ color: 'var(--accent)' }} />}
+          title="今日查詢"
+          value={summary?.total_queries_today ?? 0}
+          icon={<Chat size={20} style={{ color: 'var(--accent)' }} />}
           iconBg="var(--primary-light)"
+          loading={loading}
+        />
+        <StatCard
+          title="車輛資產"
+          value={summary?.total_vehicles ?? 0}
+          icon={<Van size={20} style={{ color: 'var(--accent)' }} />}
+          iconBg="var(--primary-light)"
+          loading={loading}
+        />
+        <StatCard
+          title="故障通報"
+          value={summary?.open_faults ?? 0}
+          change={summary ? '未關閉' : undefined}
+          changeType="neutral"
+          icon={<WarningFilled size={20} style={{ color: 'var(--warning, #f1c21b)' }} />}
+          iconBg="var(--warning-light, #fff8e1)"
+          loading={loading}
         />
       </div>
 
@@ -267,9 +331,25 @@ export default function DashboardPage() {
             gap: '0.75rem',
             flex: 1,
           }}>
-            {recentQueries.map((query, index) => (
-              <QueryItem key={index} {...query} />
-            ))}
+            {loading ? (
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', padding: '1rem 0' }}>
+                載入中...
+              </div>
+            ) : recentQueries.length === 0 ? (
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', padding: '1rem 0' }}>
+                尚無查詢紀錄
+              </div>
+            ) : (
+              recentQueries.map((q) => (
+                <QueryItem
+                  key={q.id}
+                  icon={<Chat size={18} />}
+                  title={q.question || '(無問題內容)'}
+                  subtitle={q.user_id || ''}
+                  time={q.created_at ? formatTimeAgo(q.created_at) : ''}
+                />
+              ))
+            )}
           </div>
         </div>
 

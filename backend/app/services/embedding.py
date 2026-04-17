@@ -1,6 +1,7 @@
 """Embedding service for text and images."""
 import base64
 import json
+import logging
 import os
 from io import BytesIO
 from pathlib import Path
@@ -8,6 +9,10 @@ from typing import Optional
 
 import requests
 from PIL import Image
+
+from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 # Lazy loading for clients
 _openai_client = None
@@ -23,6 +28,11 @@ JINA_CLIP_DIMENSION = 768
 JINA_API_URL = "https://api.jina.ai/v1/embeddings"
 
 
+def get_embedding_provider() -> str:
+    """Get the configured embedding provider."""
+    return get_settings().embedding_provider
+
+
 def get_openai_client():
     """Get or initialize OpenAI client."""
     global _openai_client
@@ -33,6 +43,25 @@ def get_openai_client():
             raise ValueError("OPENAI_API_KEY environment variable is not set")
         _openai_client = OpenAI(api_key=api_key)
     return _openai_client
+
+
+def _ollama_embed(texts: list[str], batch_size: int = 5) -> list[list[float]]:
+    """Embed texts using Ollama API with batching to avoid timeouts."""
+    settings = get_settings()
+    url = f"{settings.ollama_base_url}/api/embed"
+    all_embeddings: list[list[float]] = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        logger.info(f"Embedding batch {i // batch_size + 1}/{(len(texts) + batch_size - 1) // batch_size} ({len(batch)} texts)")
+        resp = requests.post(
+            url,
+            json={"model": settings.ollama_embedding_model, "input": batch},
+            timeout=180,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        all_embeddings.extend(data["embeddings"])
+    return all_embeddings
 
 
 def get_jina_api_key() -> str:
@@ -54,7 +83,9 @@ def get_jina_api_key() -> str:
 
 
 def embed_text(text: str) -> list[float]:
-    """Embed text using OpenAI API."""
+    """Embed text using configured provider (OpenAI or Ollama)."""
+    if get_embedding_provider() == "ollama":
+        return _ollama_embed([text])[0]
     client = get_openai_client()
     response = client.embeddings.create(
         input=text,
@@ -64,9 +95,11 @@ def embed_text(text: str) -> list[float]:
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Embed multiple texts using OpenAI API."""
+    """Embed multiple texts using configured provider (OpenAI or Ollama)."""
     if not texts:
         return []
+    if get_embedding_provider() == "ollama":
+        return _ollama_embed(texts)
     client = get_openai_client()
     response = client.embeddings.create(
         input=texts,
@@ -142,8 +175,29 @@ def embed_image_from_bytes(image_bytes: bytes) -> list[float]:
 
 
 def get_text_embedding_dimension() -> int:
-    """Get text embedding dimension."""
+    """Get text embedding dimension based on configured provider."""
+    if get_embedding_provider() == "ollama":
+        return get_settings().ollama_embedding_dimension
     return OPENAI_EMBEDDING_DIMENSION  # text-embedding-3-small
+
+
+def get_embedding_info() -> dict:
+    """Get current embedding model info."""
+    settings = get_settings()
+    provider = settings.embedding_provider
+    if provider == "ollama":
+        return {
+            "provider": "ollama",
+            "model": settings.ollama_embedding_model,
+            "dimension": settings.ollama_embedding_dimension,
+            "base_url": settings.ollama_base_url,
+        }
+    return {
+        "provider": "openai",
+        "model": OPENAI_EMBEDDING_MODEL,
+        "dimension": OPENAI_EMBEDDING_DIMENSION,
+        "base_url": "https://api.openai.com",
+    }
 
 
 def get_image_embedding_dimension() -> int:

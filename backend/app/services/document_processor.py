@@ -3,6 +3,8 @@ import asyncio
 import base64
 import io
 import logging
+import os
+import re
 import uuid
 from typing import Optional, Callable
 
@@ -16,13 +18,60 @@ from PIL import Image
 from app.services import embedding as embed_service
 from app.services import vector_store
 from app.services import file_storage
-from app.services.chunking import smart_chunk, chunk_document
+from app.services.chunking import smart_chunk, recursive_chunk, chunk_document
 from app.models.schemas import ProcessingStep
 
 logger = logging.getLogger(__name__)
 
+
+async def _generate_document_context(full_text: str, filename: str) -> str:
+    """Generate a 1-2 sentence context prefix for chunks using LLM (Contextual Retrieval)."""
+    try:
+        import requests as _requests
+        from app.config import get_settings
+
+        settings = get_settings()
+        if settings.llm_provider != "ollama":
+            return f"文件：{filename}"
+
+        # Use native Ollama API to get full response including think tags
+        sample = full_text[:1000]
+        resp = _requests.post(
+            f"{settings.ollama_base_url}/api/chat",
+            json={
+                "model": settings.ollama_light_model,
+                "messages": [{"role": "user", "content": f"/no_think\n請用一句話（30字以內）描述這份文件的主題和類型。\n檔名：{filename}\n內容摘要：{sample}"}],
+                "stream": False,
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        content = resp.json().get("message", {}).get("content", "")
+        # Strip think tags if present
+        content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
+        if not content:
+            return f"文件：{filename}"
+        return content[:100]
+    except Exception as e:
+        logger.warning("Failed to generate document context: %s", e)
+        return f"文件：{filename}"
+
 # Progress callback type: (step, progress_percent, message, chunk_count)
 ProgressCallback = Callable[[ProcessingStep, int, str, Optional[int]], None]
+
+
+async def _get_chunk_settings() -> dict:
+    """Read chunk settings from DB (with defaults)."""
+    try:
+        from app.services import settings_service
+        settings = await settings_service.get_all_settings()
+        return {
+            'chunk_size': int(settings.get('chunk_size', '500')),
+            'overlap': int(settings.get('chunk_overlap', '100')),
+            'strategy': settings.get('chunk_strategy', 'smart'),
+        }
+    except Exception:
+        return {'chunk_size': 500, 'overlap': 100, 'strategy': 'smart'}
 
 
 async def process_pdf(
@@ -102,12 +151,20 @@ async def process_pdf(
     doc.close()
     emit_progress(ProcessingStep.PARSING, 25, f"解析完成，找到 {len(images_data)} 張圖片")
 
+    # Contextual Retrieval: generate document context prefix
+    doc_context = await _generate_document_context(full_text, filename)
+    logger.info(f"Document context for {filename}: {doc_context}")
+
     # Step 2: Chunking (25-50%)
     emit_progress(ProcessingStep.CHUNKING, 25, "文件分塊中...")
 
-    # Use smart chunking for technical documents
+    chunk_cfg = await _get_chunk_settings()
+
     if use_smart_chunking and full_text.strip():
-        chunks = smart_chunk(full_text, chunk_size=500, overlap=100)
+        if chunk_cfg['strategy'] == 'recursive':
+            chunks = recursive_chunk(full_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
+        else:
+            chunks = smart_chunk(full_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
     else:
         # Fallback to simple paragraph chunking
         chunks = [
@@ -115,6 +172,11 @@ async def process_pdf(
             for p in full_text.split("\n\n")
             if p.strip() and len(p.strip()) > 30
         ]
+
+    # Prefix each chunk with document context
+    for chunk in chunks:
+        chunk["content"] = f"[{doc_context}] {chunk['content']}"
+        chunk.setdefault("metadata", {})["doc_context"] = doc_context
 
     total_items = len(chunks) + len(images_data)
     emit_progress(ProcessingStep.CHUNKING, 50, f"分塊完成，共 {len(chunks)} 個文字區塊", len(chunks))
@@ -258,12 +320,20 @@ async def process_word(
                 continue
     emit_progress(ProcessingStep.PARSING, 25, f"解析完成，找到 {len(images_data)} 張圖片")
 
+    # Contextual Retrieval: generate document context prefix
+    doc_context = await _generate_document_context(full_text, filename)
+    logger.info(f"Document context for {filename}: {doc_context}")
+
     # Step 2: Chunking (25-50%)
     emit_progress(ProcessingStep.CHUNKING, 25, "文件分塊中...")
 
-    # Use smart chunking
+    chunk_cfg = await _get_chunk_settings()
+
     if use_smart_chunking and full_text.strip():
-        chunks = smart_chunk(full_text, chunk_size=500, overlap=100)
+        if chunk_cfg['strategy'] == 'recursive':
+            chunks = recursive_chunk(full_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
+        else:
+            chunks = smart_chunk(full_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
     else:
         # Fallback
         chunks = [
@@ -271,6 +341,11 @@ async def process_word(
             for p in full_text.split("\n\n")
             if p.strip() and len(p.strip()) > 30
         ]
+
+    # Prefix each chunk with document context
+    for chunk in chunks:
+        chunk["content"] = f"[{doc_context}] {chunk['content']}"
+        chunk.setdefault("metadata", {})["doc_context"] = doc_context
 
     total_items = len(chunks) + len(images_data)
     emit_progress(ProcessingStep.CHUNKING, 50, f"分塊完成，共 {len(chunks)} 個文字區塊", len(chunks))
@@ -508,8 +583,20 @@ async def process_excel(
 
     emit_progress(ProcessingStep.PARSING, 25, f"解析完成，共 {len(sheets_data)} 個工作表")
 
+    # Contextual Retrieval: generate document context prefix
+    # Build a text sample from all sheets for context generation
+    excel_sample_text = ""
+    for sheet in sheets_data:
+        excel_sample_text += f"工作表: {sheet['name']}\n"
+        for row in sheet["rows"][:5]:  # First 5 rows per sheet
+            excel_sample_text += " | ".join(row) + "\n"
+    doc_context = await _generate_document_context(excel_sample_text, filename)
+    logger.info(f"Document context for {filename}: {doc_context}")
+
     # Step 2: Chunking (25-50%)
     emit_progress(ProcessingStep.CHUNKING, 25, "文件分塊中...")
+
+    chunk_cfg = await _get_chunk_settings()
 
     chunks = []
     for sheet in sheets_data:
@@ -546,7 +633,10 @@ async def process_excel(
 
         # Smart chunking or fallback
         if use_smart_chunking and sheet_text.strip():
-            sheet_chunks = smart_chunk(sheet_text, chunk_size=500, overlap=100)
+            if chunk_cfg['strategy'] == 'recursive':
+                sheet_chunks = recursive_chunk(sheet_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
+            else:
+                sheet_chunks = smart_chunk(sheet_text, chunk_size=chunk_cfg['chunk_size'], overlap=chunk_cfg['overlap'])
             for chunk in sheet_chunks:
                 chunk["metadata"]["sheet_name"] = sheet_name
                 chunks.append(chunk)
@@ -557,6 +647,11 @@ async def process_excel(
                     "content": sheet_text.strip(),
                     "metadata": {"sheet_name": sheet_name},
                 })
+
+    # Prefix each chunk with document context
+    for chunk in chunks:
+        chunk["content"] = f"[{doc_context}] {chunk['content']}"
+        chunk.setdefault("metadata", {})["doc_context"] = doc_context
 
     emit_progress(ProcessingStep.CHUNKING, 50, f"分塊完成，共 {len(chunks)} 個文字區塊", len(chunks))
 

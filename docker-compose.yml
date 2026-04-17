@@ -12,7 +12,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./backend/scripts/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./backend/scripts/maximo_schema.sql:/docker-entrypoint-initdb.d/02_maximo.sql:ro
     environment:
       POSTGRES_USER: aikm
       POSTGRES_PASSWORD: aikm
@@ -72,6 +73,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: aikm-backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     volumes:
@@ -89,11 +92,24 @@ services:
       # Embedding Models
       TEXT_EMBEDDING_MODEL: all-MiniLM-L6-v2
       CLIP_MODEL: openai/clip-vit-base-patch32
+      EMBEDDING_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://ollama.webtw.xyz:11434
+      OLLAMA_EMBEDDING_MODEL: qwen3-embedding:latest
+      OLLAMA_EMBEDDING_DIMENSION: "4096"
       # Reranking
       COHERE_API_KEY: ${COHERE_API_KEY:-}
       COHERE_MODEL: rerank-v3.5
       RERANK_TOP_N: 10
-      # LLM (optional)
+      # LLM Configuration
+      LLM_PROVIDER: ollama
+      OLLAMA_CHAT_URL: http://ollama.webtw.xyz:11434/v1
+      OLLAMA_CHAT_API_KEY: ollama
+      OLLAMA_CHAT_MODEL: qwen3.5:397b-cloud
+      OLLAMA_LIGHT_MODEL: gemma4:31b-cloud
+      # Intent Classification (fast model)
+      INTENT_LLM_URL: http://ollama.webtw.xyz:11434/v1
+      INTENT_LLM_MODEL: gemma4:31b-cloud
+      # Fallback OpenAI (optional)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       JINA_API_KEY: ${JINA_API_KEY:-}
       # Server
@@ -116,6 +132,30 @@ services:
     networks:
       - aikm-network
 
+  # ============================================
+  # Maximo ETL 工具（maximo-data-extractor）
+  # ============================================
+
+  maximo-extractor:
+    build:
+      context: ./maximo-extractor
+      dockerfile: Dockerfile
+    container_name: aikm-maximo-extractor
+    ports:
+      - "8080:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - maximo_extractor_data:/app/data
+    environment:
+      RELOAD: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - aikm-network
+
   frontend:
     build:
       context: ./frontend
@@ -132,7 +172,7 @@ services:
       - backend
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -151,3 +191,4 @@ volumes:
   postgres_data:
   qdrant_data:
   redis_data:
+  maximo_extractor_data:

@@ -12,7 +12,7 @@ from qdrant_client.models import (
     FieldCondition,
     MatchValue,
 )
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -63,17 +63,37 @@ def get_client() -> QdrantClient:
 
 
 def _ensure_collections():
-    """Ensure collections exist in persistent Qdrant."""
+    """Ensure collections exist in persistent Qdrant.
+
+    If an existing collection has a different dimension than the current
+    embedding config, it will be recreated (old vectors are lost).
+    Re-upload documents after changing the embedding model.
+    """
     client = _client
     collections = client.get_collections().collections
     collection_names = [c.name for c in collections]
 
+    expected_text_dim = get_text_embedding_dimension()
+
+    if TEXT_COLLECTION in collection_names:
+        info = client.get_collection(TEXT_COLLECTION)
+        existing_dim = info.config.params.vectors.size
+        if existing_dim != expected_text_dim:
+            logger.warning(
+                f"Collection '{TEXT_COLLECTION}' dimension mismatch: "
+                f"existing={existing_dim}, expected={expected_text_dim}. "
+                f"Recreating collection — existing vectors will be lost. "
+                f"Please re-upload documents."
+            )
+            client.delete_collection(TEXT_COLLECTION)
+            collection_names.remove(TEXT_COLLECTION)
+
     if TEXT_COLLECTION not in collection_names:
-        logger.info(f"Creating collection: {TEXT_COLLECTION}")
+        logger.info(f"Creating collection: {TEXT_COLLECTION} (dim={expected_text_dim})")
         client.create_collection(
             collection_name=TEXT_COLLECTION,
             vectors_config=VectorParams(
-                size=get_text_embedding_dimension(),
+                size=expected_text_dim,
                 distance=Distance.COSINE,
             ),
         )
@@ -119,7 +139,7 @@ async def add_document(
     file_size: int,
     chunk_count: int,
 ) -> None:
-    """Add document metadata to PostgreSQL."""
+    """Add document metadata to PostgreSQL and create version record."""
     async with get_db_context() as db:
         doc = Document(
             id=document_id,
@@ -127,10 +147,27 @@ async def add_document(
             doc_type=doc_type,
             file_size=file_size,
             chunk_count=chunk_count,
+            current_version=1,
             uploaded_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
         db.add(doc)
+        await db.flush()
+
+        # Insert version record
+        try:
+            await db.execute(text("""
+                INSERT INTO document_versions (document_id, version, filename, file_size, chunk_count)
+                VALUES (:doc_id, 1, :filename, :file_size, :chunk_count)
+            """), {
+                "doc_id": document_id,
+                "filename": filename,
+                "file_size": file_size,
+                "chunk_count": chunk_count,
+            })
+        except Exception as e:
+            logger.warning(f"Failed to insert version record (table may not exist): {e}")
+
         await db.commit()
         logger.info(f"Document {document_id} ({filename}) saved to database")
 
@@ -318,6 +355,36 @@ def search_images(
             **r.payload,
         }
         for r in results.points
+    ]
+
+
+def get_document_chunks(document_id: str, limit: int = 3) -> list[dict]:
+    """Get text chunks belonging to a document from Qdrant."""
+    client = get_client()
+
+    results = client.scroll(
+        collection_name=TEXT_COLLECTION,
+        scroll_filter=Filter(
+            must=[
+                FieldCondition(
+                    key="document_id",
+                    match=MatchValue(value=document_id),
+                )
+            ]
+        ),
+        limit=limit,
+        with_payload=True,
+        with_vectors=False,
+    )
+
+    points = results[0] if results else []
+    return [
+        {
+            "id": str(p.id),
+            "content": p.payload.get("content", "") if p.payload else "",
+            "chunk_index": p.payload.get("chunk_index", 0) if p.payload else 0,
+        }
+        for p in points
     ]
 
 

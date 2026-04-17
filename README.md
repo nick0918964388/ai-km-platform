@@ -1,36 +1,144 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Knowledge Management Platform (AIKM)
 
-## Getting Started
+智慧知識管理平台 - 基於 RAG 的多模態知識庫系統
 
-First, run the development server:
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Next.js-16.1+-black.svg)](https://nextjs.org)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## 📖 專案概述
+
+AIKM 是一個企業級 AI 知識管理平台，結合 RAG (Retrieval-Augmented Generation) 技術，提供智慧文件檢索、多模態問答和結構化資料查詢功能。專為車輛維修管理等專業領域設計。
+
+### ✨ 核心功能
+
+- **🔍 智慧 RAG 問答** - 基於文件內容的 AI 問答，支援文字與圖片輸入
+- **📄 多模態文件處理** - 支援 PDF、Word、Excel、圖片等格式
+- **💬 串流式回應** - Server-Sent Events (SSE) 即時串流回應
+- **📊 來源文件預覽** - Modal 彈窗即時預覽引用來源
+- **📈 相似度分數視覺化** - 顯示文件相關性分數
+- **💡 引導問題功能** - AI 自動生成後續問題建議
+- **🗂️ 來源文件可收合顯示** - 優化的 UI 呈現方式
+- **🗃️ 結構化資料查詢** - 自然語言轉 SQL 查詢
+- **🔄 智慧意圖分類** - 自動識別查詢類型並路由
+
+## 🏗️ 系統架構
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Frontend (Next.js 16)                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
+│  │  ChatWindow │  │   Admin     │  │   Dashboard        │  │
+│  │  + Preview  │  │  Console    │  │   Analytics        │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     Backend (FastAPI)                        │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐│
+│  │   RAG    │  │   NL2SQL │  │  Intent  │  │   Document   ││
+│  │  Service │  │  Service │  │Classifier│  │  Processor   ││
+│  └──────────┘  └──────────┘  └──────────┘  └──────────────┘│
+└─────────────────────────────────────────────────────────────┘
+           │              │              │
+           ▼              ▼              ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│    Qdrant    │  │  PostgreSQL  │  │    Redis     │
+│  (Vectors)   │  │  (Structured)│  │   (Cache)    │
+└──────────────┘  └──────────────┘  └──────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🚀 快速開始
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 前置需求
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Docker & Docker Compose
+- Node.js 20+ (僅本地開發)
+- Python 3.10+ (僅本地開發)
 
-## Learn More
+### 使用 Docker Compose (推薦)
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+# 1. 複製環境變數檔
+cp .env.example .env
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# 2. 編輯 .env 設定必要的 API Keys
+#    - OPENAI_API_KEY (必要)
+#    - COHERE_API_KEY (可選，用於 Reranking)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# 3. 啟動所有服務
+docker compose up -d
 
-## Deploy on Vercel
+# 4. 檢查服務狀態
+docker compose ps
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# 5. 開啟瀏覽器
+#    Frontend: http://localhost:3000
+#    Backend API: http://localhost:8000
+#    API Docs: http://localhost:8000/docs
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 本地開發
+
+```bash
+# 啟動資料庫服務
+docker compose up -d postgres qdrant redis
+
+# Backend
+cd backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+
+# Frontend (新終端)
+cd frontend
+npm install
+npm run dev
+```
+
+## 📚 文檔
+
+| 文檔 | 說明 |
+|------|------|
+| [架構設計](docs/ARCHITECTURE.md) | 系統架構、技術棧詳細說明 |
+| [API 文檔](docs/API.md) | REST API 端點完整說明 |
+| [功能清單](docs/FEATURES.md) | 所有功能詳細介紹 |
+| [設計系統](DESIGN_SYSTEM.md) | UI/UX 設計規範 |
+
+## 🔧 環境變數
+
+| 變數名稱 | 說明 | 必要 |
+|----------|------|------|
+| `OPENAI_API_KEY` | OpenAI API 金鑰 | ✅ |
+| `COHERE_API_KEY` | Cohere API 金鑰 (Reranking) | ❌ |
+| `JINA_API_KEY` | Jina API 金鑰 (備用 Embedding) | ❌ |
+| `AIKM_API_KEY` | 平台 API 認證金鑰 | 生產環境必要 |
+| `DATABASE_URL` | PostgreSQL 連線字串 | ✅ |
+| `QDRANT_URL` | Qdrant 服務地址 | ✅ |
+| `REDIS_URL` | Redis 服務地址 | ✅ |
+
+## 🛠️ 技術棧
+
+### Backend
+- **FastAPI** - 高效能 Python Web 框架
+- **Qdrant** - 向量資料庫
+- **PostgreSQL** - 關聯式資料庫
+- **Redis** - 快取層
+- **Sentence Transformers** - 文本嵌入
+- **Cohere Rerank** - 語義重排序
+- **OpenAI GPT-4o** - LLM 推理
+
+### Frontend
+- **Next.js 16** - React 全端框架
+- **React 19** - UI 框架
+- **IBM Carbon Design** - 企業級 UI 元件庫
+- **Tailwind CSS v4** - 樣式框架
+- **Zustand** - 狀態管理
+- **Recharts** - 資料視覺化
+
+## 📝 License
+
+MIT License - 詳見 [LICENSE](LICENSE)

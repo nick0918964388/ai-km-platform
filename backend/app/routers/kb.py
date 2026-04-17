@@ -2,8 +2,12 @@
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.session import get_db
 
 from app.models.schemas import (
     DocumentType,
@@ -101,6 +105,7 @@ async def list_documents():
             chunk_count=doc["chunk_count"],
             uploaded_at=datetime.fromisoformat(doc["uploaded_at"]),
             file_size=doc["file_size"],
+            current_version=doc.get("current_version", 1),
         )
         for doc in docs
     ]
@@ -129,6 +134,34 @@ async def delete_document(document_id: str):
         success=True,
         message=f"成功刪除文件 {document_id}",
     )
+
+
+@router.post("/documents/batch-delete")
+async def batch_delete_documents(request: dict):
+    """Delete multiple documents at once."""
+    doc_ids = request.get("document_ids", [])
+    if not doc_ids:
+        raise HTTPException(status_code=400, detail="document_ids 不可為空")
+
+    deleted = []
+    failed = []
+    for doc_id in doc_ids:
+        try:
+            success = await vector_store.delete_document(doc_id)
+            if success:
+                cache_service.invalidate_cache(document_id=doc_id)
+                deleted.append(doc_id)
+            else:
+                failed.append(doc_id)
+        except Exception:
+            failed.append(doc_id)
+
+    return {
+        "success": True,
+        "deleted": deleted,
+        "failed": failed,
+        "message": f"成功刪除 {len(deleted)} 筆文件" + (f"，{len(failed)} 筆失敗" if failed else ""),
+    }
 
 
 @router.get("/stats", response_model=StatsResponse)
@@ -192,6 +225,35 @@ async def get_document_file(document_id: str):
         media_type=file_info["content_type"],
         headers={"Content-Disposition": content_disposition},
     )
+
+
+@router.get("/documents/{document_id}/preview")
+async def preview_document(document_id: str):
+    """Get text preview of a document's content (first few chunks)."""
+    chunks = vector_store.get_document_chunks(document_id, limit=3)
+    if not chunks:
+        raise HTTPException(status_code=404, detail="找不到文件內容")
+    preview_text = "\n\n---\n\n".join([c.get("content", "") for c in chunks])
+    return {"document_id": document_id, "preview": preview_text[:2000]}
+
+
+# ============================================================================
+# Document Version Endpoints
+# ============================================================================
+
+@router.get("/documents/{document_id}/versions")
+async def get_document_versions(document_id: str, db: AsyncSession = Depends(get_db)):
+    """Get version history for a document."""
+    try:
+        result = await db.execute(
+            text("SELECT * FROM document_versions WHERE document_id = :id ORDER BY version DESC"),
+            {"id": document_id}
+        )
+        versions = [dict(r._mapping) for r in result.fetchall()]
+        return {"document_id": document_id, "versions": versions}
+    except Exception as e:
+        # Table may not exist yet
+        return {"document_id": document_id, "versions": []}
 
 
 # ============================================================================

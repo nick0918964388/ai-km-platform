@@ -128,10 +128,16 @@ ALLOWED_TABLES = {
 
 class NL2SQLService:
     """Service for converting natural language to SQL"""
-    
+
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4o")
+        from app.config import get_settings
+        settings = get_settings()
+        if settings.llm_provider == "openai" and settings.openai_api_key:
+            self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+            self.model = settings.openai_model or "gpt-4o"
+        else:
+            self.client = AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url)
+            self.model = settings.ollama_light_model or settings.ollama_chat_model
     
     async def convert_to_sql(self, query: str, context: Optional[str] = None) -> SQLQuery:
         """

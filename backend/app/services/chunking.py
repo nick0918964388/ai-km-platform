@@ -157,6 +157,81 @@ def _extract_chunk_metadata(text: str) -> dict:
     }
 
 
+def recursive_chunk(text: str, chunk_size: int = 500, overlap: int = 100) -> list[dict]:
+    """Recursive character text splitting — tries multiple separators in order.
+
+    Strategy: Split by the largest separator first, then recursively split
+    any chunks that are still too large using smaller separators.
+
+    Separators (in order):
+    1. \\n\\n (double newline — paragraph boundary)
+    2. \\n (single newline — line boundary)
+    3. 。(Chinese period)
+    4. ！？(Chinese exclamation/question)
+    5. ；(Chinese semicolon)
+    6. ，(Chinese comma)
+    7. ' ' (space)
+    8. '' (character-level — last resort)
+    """
+    separators = ['\n\n', '\n', '。', '！', '？', '；', '，', ' ', '']
+
+    def _split_recursive(text: str, seps: list[str]) -> list[str]:
+        if not text or not seps:
+            return [text] if text else []
+
+        sep = seps[0]
+        remaining_seps = seps[1:]
+
+        if not sep:  # Character-level split (last resort)
+            chunks = []
+            for i in range(0, len(text), chunk_size - overlap):
+                chunks.append(text[i:i + chunk_size])
+            return chunks
+
+        parts = text.split(sep)
+
+        # Merge small parts back together
+        merged = []
+        current = ""
+        for part in parts:
+            candidate = current + sep + part if current else part
+            if len(candidate) <= chunk_size:
+                current = candidate
+            else:
+                if current:
+                    merged.append(current)
+                # If single part is too large, recurse with next separator
+                if len(part) > chunk_size:
+                    merged.extend(_split_recursive(part, remaining_seps))
+                else:
+                    current = part
+        if current:
+            merged.append(current)
+
+        return merged
+
+    raw_chunks = _split_recursive(text, separators)
+
+    # Add overlap between chunks
+    result = []
+    for i, chunk_text in enumerate(raw_chunks):
+        if len(chunk_text.strip()) < 30:  # Skip tiny chunks
+            continue
+
+        # Add overlap from previous chunk
+        if i > 0 and overlap > 0:
+            prev_text = raw_chunks[i - 1]
+            overlap_text = prev_text[-overlap:] if len(prev_text) > overlap else prev_text
+            chunk_text = overlap_text + chunk_text
+
+        result.append({
+            "content": chunk_text.strip(),
+            "metadata": {"chunk_strategy": "recursive", "chunk_index": i},
+        })
+
+    return result
+
+
 def chunk_document(
     text: str,
     filename: str,
@@ -177,6 +252,8 @@ def chunk_document(
     """
     if chunk_strategy == "smart":
         return smart_chunk(text, **kwargs)
+    elif chunk_strategy == "recursive":
+        return recursive_chunk(text, **kwargs)
     elif chunk_strategy == "paragraph":
         return _paragraph_chunk(text, **kwargs)
     else:

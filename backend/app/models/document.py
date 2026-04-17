@@ -17,6 +17,7 @@ class Document(Base):
     doc_type = Column(String(20), nullable=False)
     file_size = Column(BigInteger, nullable=False, default=0)
     chunk_count = Column(Integer, nullable=False, default=0)
+    current_version = Column(Integer, nullable=False, default=1)
     uploaded_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
     
@@ -28,6 +29,7 @@ class Document(Base):
             "doc_type": self.doc_type,
             "file_size": self.file_size,
             "chunk_count": self.chunk_count,
+            "current_version": self.current_version or 1,
             "uploaded_at": self.uploaded_at.isoformat() if self.uploaded_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

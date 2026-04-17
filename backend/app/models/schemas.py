@@ -1,6 +1,6 @@
 """Pydantic schemas for API requests and responses."""
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Dict, List, Optional
 from datetime import datetime
 from enum import Enum
 
@@ -38,6 +38,13 @@ class ProcessingStep(str, Enum):
     DONE = "done"
 
 
+class TerminalState(str, Enum):
+    COMPLETED = "completed"
+    ERROR = "error"
+    CLARIFICATION = "clarification"
+    TIMEOUT = "timeout"
+
+
 class BackupStatus(str, Enum):
     """Backup status enum."""
     PENDING = "pending"
@@ -52,6 +59,10 @@ class ChatRequest(BaseModel):
     query: str = Field(..., min_length=1, description="User query")
     image_base64: Optional[str] = Field(None, description="Base64 encoded image for multimodal query")
     top_k: int = Field(5, ge=1, le=20, description="Number of documents to retrieve")
+    model: Optional[str] = None
+    context: List[Dict[str, str]] = []  # conversation history [{role, content, intent?, sql?}]
+    skip_clarification: bool = False  # Skip intent clarification, go straight to search
+    conversation_id: Optional[str] = None
 
 
 class SearchRequest(BaseModel):
@@ -69,6 +80,7 @@ class DocumentInfo(BaseModel):
     chunk_count: int
     uploaded_at: datetime
     file_size: int
+    current_version: int = 1
 
 
 class DocumentListResponse(BaseModel):
@@ -87,6 +99,14 @@ class UploadResponse(BaseModel):
     message: str
 
 
+class RerankerMetadata(BaseModel):
+    """Metadata about the reranking process."""
+    provider: str = Field(..., description="Provider used: 'cohere' / 'bge' / 'none'")
+    latency_ms: float = Field(..., description="Reranking latency in milliseconds")
+    fallback_used: bool = Field(False, description="Whether fallback was triggered")
+    original_rank: Optional[int] = Field(None, description="Original position before reranking (1-indexed)")
+
+
 class SearchResult(BaseModel):
     """Single search result."""
     id: str
@@ -97,6 +117,10 @@ class SearchResult(BaseModel):
     score: float
     image_base64: Optional[str] = None
     file_url: Optional[str] = None
+    # Reranker fields (optional, added when reranking is applied)
+    relevance_score: Optional[float] = Field(None, description="Reranker relevance score (0-1)")
+    reranker_metadata: Optional[RerankerMetadata] = Field(None, description="Reranking process metadata")
+    injection_warning: bool = Field(False, description="True if prompt injection patterns detected")
 
 
 class ChatResponse(BaseModel):

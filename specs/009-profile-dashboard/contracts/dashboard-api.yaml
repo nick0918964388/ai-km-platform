@@ -1,0 +1,362 @@
+openapi: 3.0.3
+info:
+  title: Dashboard API
+  description: API endpoints for retrieving user dashboard metrics including document counts, query statistics, recent activity, and top topics
+  version: 1.0.0
+  contact:
+    name: AI Knowledge Management Platform
+
+servers:
+  - url: http://localhost:8000/api
+    description: Local development server
+  - url: https://api.example.com/api
+    description: Production server
+
+tags:
+  - name: Dashboard
+    description: User dashboard and analytics operations
+
+paths:
+  /dashboard/metrics:
+    get:
+      tags:
+        - Dashboard
+      summary: Get dashboard metrics
+      description: Retrieve comprehensive dashboard metrics for the authenticated user, including document count, query count, account information, recent activity timeline, and top searched topics. Results are cached for 60 seconds.
+      operationId: getDashboardMetrics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Force refresh cache and fetch latest data
+      responses:
+        '200':
+          description: Dashboard metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardMetrics'
+              example:
+                userId: "a3f2c9d4-5e6f-4a5b-8c9d-0e1f2a3b4c5d"
+                documentCount: 42
+                queryCount: 187
+                accountLevel: "pro"
+                createdAt: "2025-01-15T10:30:00Z"
+                recentActivity:
+                  - actionType: "query"
+                    timestamp: "2026-02-03T14:30:00Z"
+                    metadata:
+                      queryText: "quarterly sales report"
+                      resultsCount: 5
+                  - actionType: "document_upload"
+                    timestamp: "2026-02-03T14:15:00Z"
+                    metadata:
+                      documentName: "Q1_Report.pdf"
+                      documentSize: 2048576
+                  - actionType: "profile_update"
+                    timestamp: "2026-02-03T14:00:00Z"
+                    metadata:
+                      field: "displayName"
+                      oldValue: "John D"
+                      newValue: "John Doe"
+                topTopics:
+                  - queryText: "sales report"
+                    count: 23
+                  - queryText: "customer feedback"
+                    count: 18
+                  - queryText: "product roadmap"
+                    count: 15
+                  - queryText: "budget analysis"
+                    count: 12
+                  - queryText: "team metrics"
+                    count: 9
+        '401':
+          description: Unauthorized - invalid or missing authentication token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /dashboard/activity:
+    get:
+      tags:
+        - Dashboard
+      summary: Get recent activity timeline
+      description: Retrieve recent user activity timeline with pagination support. Returns chronological list of actions (document uploads, queries, profile updates).
+      operationId: getRecentActivity
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Maximum number of activity entries to return
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Number of entries to skip for pagination
+      responses:
+        '200':
+          description: Activity timeline retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityTimelineResponse'
+              example:
+                activities:
+                  - actionType: "query"
+                    timestamp: "2026-02-03T14:30:00Z"
+                    metadata:
+                      queryText: "quarterly sales report"
+                      resultsCount: 5
+                  - actionType: "document_upload"
+                    timestamp: "2026-02-03T14:15:00Z"
+                    metadata:
+                      documentName: "Q1_Report.pdf"
+                      documentSize: 2048576
+                total: 42
+                limit: 20
+                offset: 0
+        '401':
+          description: Unauthorized - invalid or missing authentication token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /dashboard/topics:
+    get:
+      tags:
+        - Dashboard
+      summary: Get top searched topics
+      description: Retrieve top N most frequently searched topics/keywords for the authenticated user, ordered by search count descending.
+      operationId: getTopTopics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 5
+          description: Maximum number of topics to return
+      responses:
+        '200':
+          description: Top topics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TopTopicsResponse'
+              example:
+                topics:
+                  - queryText: "sales report"
+                    count: 23
+                  - queryText: "customer feedback"
+                    count: 18
+                  - queryText: "product roadmap"
+                    count: 15
+                  - queryText: "budget analysis"
+                    count: 12
+                  - queryText: "team metrics"
+                    count: 9
+                total: 5
+        '401':
+          description: Unauthorized - invalid or missing authentication token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from authentication endpoint
+
+  schemas:
+    DashboardMetrics:
+      type: object
+      required:
+        - userId
+        - documentCount
+        - queryCount
+        - accountLevel
+        - createdAt
+        - recentActivity
+        - topTopics
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: User unique identifier
+          example: "a3f2c9d4-5e6f-4a5b-8c9d-0e1f2a3b4c5d"
+        documentCount:
+          type: integer
+          minimum: 0
+          description: Total number of documents uploaded by user
+          example: 42
+        queryCount:
+          type: integer
+          minimum: 0
+          description: Total number of queries made by user
+          example: 187
+        accountLevel:
+          type: string
+          enum: [free, pro, enterprise]
+          description: User subscription tier
+          example: "pro"
+        createdAt:
+          type: string
+          format: date-time
+          description: Account creation timestamp (ISO 8601)
+          example: "2025-01-15T10:30:00Z"
+        recentActivity:
+          type: array
+          description: Last 20 user actions, ordered by timestamp descending
+          items:
+            $ref: '#/components/schemas/ActivityEntry'
+        topTopics:
+          type: array
+          description: Top 5 most searched topics/keywords with counts
+          items:
+            $ref: '#/components/schemas/TopicEntry'
+
+    ActivityEntry:
+      type: object
+      required:
+        - actionType
+        - timestamp
+      properties:
+        actionType:
+          type: string
+          enum: [document_upload, query, profile_update]
+          description: Type of action performed
+          example: "query"
+        timestamp:
+          type: string
+          format: date-time
+          description: When action occurred (ISO 8601)
+          example: "2026-02-03T14:30:00Z"
+        metadata:
+          type: object
+          description: Additional context about the action
+          additionalProperties: true
+          example:
+            queryText: "quarterly sales report"
+            resultsCount: 5
+
+    TopicEntry:
+      type: object
+      required:
+        - queryText
+        - count
+      properties:
+        queryText:
+          type: string
+          description: Search query text
+          example: "sales report"
+        count:
+          type: integer
+          minimum: 1
+          description: Number of times this query was searched
+          example: 23
+
+    ActivityTimelineResponse:
+      type: object
+      required:
+        - activities
+        - total
+        - limit
+        - offset
+      properties:
+        activities:
+          type: array
+          description: List of activity entries
+          items:
+            $ref: '#/components/schemas/ActivityEntry'
+        total:
+          type: integer
+          minimum: 0
+          description: Total number of activity entries for this user
+          example: 42
+        limit:
+          type: integer
+          description: Number of entries returned
+          example: 20
+        offset:
+          type: integer
+          description: Number of entries skipped
+          example: 0
+
+    TopTopicsResponse:
+      type: object
+      required:
+        - topics
+        - total
+      properties:
+        topics:
+          type: array
+          description: List of top topics
+          items:
+            $ref: '#/components/schemas/TopicEntry'
+        total:
+          type: integer
+          minimum: 0
+          description: Number of topics returned
+          example: 5
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: "Authentication error"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Invalid or expired authentication token"
+        details:
+          type: object
+          description: Optional additional error details
+          additionalProperties: true

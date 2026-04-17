@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import {
@@ -8,6 +8,8 @@ import {
   Document,
   Search,
   Analytics,
+  ViewFilled,
+  ViewOffFilled,
 } from '@carbon/icons-react';
 
 export default function LoginPage() {
@@ -18,47 +20,75 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Load remembered email on mount
+  useEffect(() => {
+    const remembered = localStorage.getItem('remembered_email');
+    if (remembered) {
+      setEmail(remembered);
+      setRememberMe(true);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    // Demo login - will be replaced with actual auth
-    setTimeout(() => {
-      if (email === 'admin@example.com' && password === 'admin') {
-        setUser({
-          id: '1',
-          name: '管理員',
-          email: 'admin@example.com',
-          role: 'admin',
-          createdAt: new Date(),
-        });
-        router.push('/chat');
-      } else if (email && password) {
-        setUser({
-          id: '2',
-          name: email.split('@')[0],
-          email: email,
-          role: 'user',
-          createdAt: new Date(),
-        });
-        router.push('/chat');
-      } else {
-        setError('請輸入帳號密碼');
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        setError(err.detail || '登入失敗');
+        setLoading(false);
+        return;
       }
+
+      const data = await res.json();
+
+      // Remember email preference
+      if (rememberMe) {
+        localStorage.setItem('remembered_email', email);
+      } else {
+        localStorage.removeItem('remembered_email');
+      }
+
+      // Store JWT token
+      localStorage.setItem('auth_token', data.token);
+
+      // Store user in Zustand
+      setUser({
+        id: data.user.id,
+        name: data.user.name,
+        email: data.user.email,
+        role: data.user.role as 'admin' | 'user' | 'guest',
+        createdAt: new Date(),
+      });
+
+      router.push('/chat');
+    } catch (err) {
+      setError('無法連線到伺服器');
       setLoading(false);
-    }, 500);
+    }
   };
 
   return (
     <div className="login-container">
       {/* Left Panel - Train Image with Branding */}
-      <div className="login-image-panel" style={{
-        backgroundImage: 'url(https://images.unsplash.com/photo-1474487548417-781cb71495f3?w=1200)',
-        flex: 1,
-        minWidth: 0,
-      }}>
+      <div
+        className="login-image-panel"
+        style={{
+          backgroundImage: 'url(https://images.unsplash.com/photo-1474487548417-781cb71495f3?w=1200)',
+          flex: 1,
+          minWidth: 0,
+        }}
+      >
         <div className="login-image-overlay" />
         <div className="login-image-content" style={{ gap: '1rem', display: 'flex', flexDirection: 'column' }}>
           <h1 className="login-branding-text">AIKM 台鐵問答 AI</h1>
@@ -66,13 +96,15 @@ export default function LoginPage() {
             AI 驅動的車輛維修知識管理平台，快速查詢維修知識與技術文件
           </p>
 
-          {/* Feature Cards */}
-          <div style={{
-            display: 'flex',
-            gap: '1.5rem',
-            marginTop: '1.5rem',
-            flexWrap: 'wrap',
-          }}>
+          {/* Feature Cards - hidden on mobile to save space */}
+          <div
+            className="hidden sm:flex"
+            style={{
+              gap: '1.5rem',
+              marginTop: '1.5rem',
+              flexWrap: 'wrap',
+            }}
+          >
             <div className="feature-card" style={{ flex: 1, minWidth: 180 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                 <Bot size={20} style={{ color: 'var(--accent)' }} />
@@ -100,7 +132,7 @@ export default function LoginPage() {
 
       {/* Right Panel - Login Form */}
       <div className="login-panel">
-        <div className="login-card">
+        <div className="login-card" style={{ width: '100%', maxWidth: 400 }}>
           {/* Logo Section */}
           <div className="login-logo-section">
             <div className="login-logo-icon">
@@ -145,14 +177,37 @@ export default function LoginPage() {
 
             <div className="form-group">
               <label className="form-label">密碼</label>
-              <input
-                type="password"
-                className="form-input"
-                placeholder="請輸入密碼"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  className="form-input"
+                  placeholder="請輸入密碼"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  style={{ paddingRight: '2.5rem' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{
+                    position: 'absolute',
+                    right: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-muted)',
+                    padding: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                  aria-label={showPassword ? '隱藏密碼' : '顯示密碼'}
+                >
+                  {showPassword ? <ViewOffFilled size={18} /> : <ViewFilled size={18} />}
+                </button>
+              </div>
             </div>
 
             <div className="login-options">

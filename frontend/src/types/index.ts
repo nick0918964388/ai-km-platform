@@ -10,6 +10,11 @@ export interface User {
   lastLogin?: Date;
 }
 
+export interface ClarificationData {
+  message: string;
+  options: { label: string; query: string }[];
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -18,6 +23,9 @@ export interface Message {
   attachments?: Attachment[];
   sources?: SearchResult[];
   query?: string; // Store original query for highlighting
+  sqlResult?: any; // NL→SQL structured result (persisted for history reload)
+  clarification?: ClarificationData; // Agentic RAG clarification options
+  jobId?: string; // For async job recovery
 }
 
 export interface Attachment {

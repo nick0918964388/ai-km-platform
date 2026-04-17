@@ -73,9 +73,9 @@ const COLUMN_LABELS: Record<string, string> = {
 };
 
 // Status tag colors
-const STATUS_COLORS: Record<string, 'red' | 'green' | 'blue' | 'gray' | 'orange'> = {
+const STATUS_COLORS: Record<string, 'red' | 'green' | 'blue' | 'gray' | 'warm-gray'> = {
   critical: 'red',
-  major: 'orange',
+  major: 'warm-gray',
   minor: 'blue',
   active: 'green',
   maintenance: 'blue',
@@ -217,9 +217,11 @@ export default function DataTable({
               <TableToolbarContent>
                 <TableToolbarSearch
                   placeholder="搜尋..."
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                    setSearchTerm(e.target.value);
-                    setPage(1);
+                  onChange={(e: '' | React.ChangeEvent<HTMLInputElement>) => {
+                    if (e && typeof e !== 'string') {
+                      setSearchTerm(e.target.value);
+                      setPage(1);
+                    }
                   }}
                 />
                 {onExport && (
@@ -237,11 +239,14 @@ export default function DataTable({
             <Table {...getTableProps()}>
               <TableHead>
                 <TableRow>
-                  {tableHeaders.map(header => (
-                    <TableHeader key={header.key} {...getHeaderProps({ header })}>
-                      {header.header}
-                    </TableHeader>
-                  ))}
+                  {tableHeaders.map(header => {
+                    const headerProps = getHeaderProps({ header });
+                    return (
+                      <TableHeader {...headerProps}>
+                        {header.header}
+                      </TableHeader>
+                    );
+                  })}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -254,20 +259,22 @@ export default function DataTable({
                     </TableCell>
                   </TableRow>
                 ) : (
-                  tableRows.map(row => (
-                    <TableRow
-                      key={row.id}
-                      {...getRowProps({ row })}
-                      onClick={() => onRowClick?.(data.find(d => d.id === row.id) || {})}
-                      style={{ cursor: onRowClick ? 'pointer' : 'default' }}
-                    >
-                      {row.cells.map(cell => (
-                        <TableCell key={cell.id}>
-                          {formatCellValue(cell.value, cell.info.header)}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
+                  tableRows.map(row => {
+                    const rowProps = getRowProps({ row });
+                    return (
+                      <TableRow
+                        {...rowProps}
+                        onClick={() => onRowClick?.(data.find(d => d.id === row.id) || {})}
+                        style={{ cursor: onRowClick ? 'pointer' : 'default' }}
+                      >
+                        {row.cells.map(cell => (
+                          <TableCell key={cell.id}>
+                            {formatCellValue(cell.value, cell.info.header)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>

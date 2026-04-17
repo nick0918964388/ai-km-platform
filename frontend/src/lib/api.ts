@@ -2,8 +2,17 @@
  * API utility for making authenticated requests to the backend
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Use relative URLs on client side so Next.js rewrites proxy to backend (avoids CORS)
+// On server side (SSR), use the absolute URL
+const API_URL = typeof window !== 'undefined'
+  ? ''
+  : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
+
+// Direct backend URL for SSE streaming (bypass Next.js rewrite proxy which buffers SSE)
+const STREAM_API_URL = typeof window !== 'undefined'
+  ? (process.env.NEXT_PUBLIC_API_URL || `${window.location.protocol}//${window.location.hostname}:8000`)
+  : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 
 /**
  * Timeout configuration for different types of requests
@@ -204,6 +213,11 @@ export async function apiRequest<T>(
     headers.set('X-API-Key', API_KEY);
   }
 
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
   const response = await fetchWithTimeout(`${API_URL}${endpoint}`, {
     ...fetchOptions,
     headers,
@@ -212,6 +226,14 @@ export async function apiRequest<T>(
     signal,
     onRetry,
   });
+
+  if (response.status === 401) {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('user_session');
+      window.location.href = '/login';
+    }
+  }
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -290,6 +312,11 @@ export async function apiUpload<T>(
     headers.set('X-API-Key', API_KEY);
   }
 
+  const uploadToken = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  if (uploadToken) {
+    headers.set('Authorization', `Bearer ${uploadToken}`);
+  }
+
   const response = await fetchWithTimeout(`${API_URL}${endpoint}`, {
     method: 'POST',
     body: formData,
@@ -335,15 +362,73 @@ export function getErrorMessage(error: unknown): string {
  * Get base headers with API key
  */
 export function getApiHeaders(): HeadersInit {
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  
+
   if (API_KEY) {
     headers['X-API-Key'] = API_KEY;
   }
-  
+
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   return headers;
 }
 
-export { API_URL, API_KEY };
+// --- Conversation persistence API ---
+
+export async function apiListConversations(limit = 50): Promise<any[]> {
+  const res = await fetch(`${API_URL}/api/conversations?limit=${limit}`, { headers: getApiHeaders() });
+  if (!res.ok) throw new Error('Failed to load conversations');
+  return res.json();
+}
+
+export async function apiGetConversation(id: string): Promise<any> {
+  const res = await fetch(`${API_URL}/api/conversations/${id}`, { headers: getApiHeaders() });
+  if (!res.ok) throw new Error('Failed to load conversation');
+  return res.json();
+}
+
+export async function apiCreateConversation(id: string, title: string): Promise<any> {
+  const res = await fetch(`${API_URL}/api/conversations`, {
+    method: 'POST',
+    headers: getApiHeaders(),
+    body: JSON.stringify({ id, title }),
+  });
+  if (!res.ok) throw new Error('Failed to create conversation');
+  return res.json();
+}
+
+export async function apiUpdateConversationTitle(id: string, title: string): Promise<void> {
+  await fetch(`${API_URL}/api/conversations/${id}`, {
+    method: 'PUT',
+    headers: getApiHeaders(),
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function apiDeleteConversation(id: string): Promise<void> {
+  await fetch(`${API_URL}/api/conversations/${id}`, {
+    method: 'DELETE',
+    headers: getApiHeaders(),
+  });
+}
+
+export async function apiAddMessage(conversationId: string, message: { id: string; role: string; content: string; metadata?: any }): Promise<void> {
+  await fetch(`${API_URL}/api/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    headers: getApiHeaders(),
+    body: JSON.stringify(message),
+  });
+}
+
+export async function apiSearchConversations(q: string, limit = 5): Promise<any[]> {
+  const res = await fetch(`${API_URL}/api/conversations/search?q=${encodeURIComponent(q)}&limit=${limit}`, { headers: getApiHeaders() });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export { API_URL, API_KEY, STREAM_API_URL };
