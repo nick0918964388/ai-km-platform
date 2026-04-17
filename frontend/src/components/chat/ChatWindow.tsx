@@ -129,6 +129,7 @@ export default function ChatWindow() {
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const currentJobIdRef = useRef<string | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -347,6 +348,13 @@ export default function ChatWindow() {
 
   const handleStop = useCallback(() => {
     abortControllerRef.current?.abort();
+    // Also cancel backend job to stop LLM calls
+    if (currentJobIdRef.current) {
+      fetch(`${STREAM_API_URL}/api/chat/jobs/${currentJobIdRef.current}/cancel`, {
+        method: 'POST', headers: getApiHeaders(),
+      }).catch(() => {});
+      currentJobIdRef.current = null;
+    }
   }, []);
 
   const handleSend = useCallback(async (queryToSend: string, imageBase64?: string, model?: string, skipClarification?: boolean) => {
@@ -520,6 +528,7 @@ export default function ChatWindow() {
       });
       if (!jobRes.ok) throw new Error('Failed to submit job');
       const { job_id } = await jobRes.json();
+      currentJobIdRef.current = job_id;
 
       // Step 2: Stream events from job
       const response = await fetchWithTimeout(`${STREAM_API_URL}/api/chat/jobs/${job_id}/stream`, {

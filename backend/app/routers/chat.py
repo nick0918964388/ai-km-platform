@@ -205,6 +205,17 @@ async def get_chat_job(job_id: str, after: int = 0):
     return status
 
 
+@router.post("/chat/jobs/{job_id}/cancel")
+async def cancel_chat_job(job_id: str):
+    """Cancel a running chat job."""
+    from app.services import chat_job_manager as jm
+    status = jm.get_status(job_id)
+    if not status:
+        return JSONResponse({"error": "Job not found"}, status_code=404)
+    jm.cancel_job(job_id)
+    return {"success": True, "job_id": job_id}
+
+
 @router.get("/chat/jobs/{job_id}/stream")
 async def stream_chat_job(job_id: str):
     """Stream a chat job's events as SSE. Polls Redis every 300ms."""

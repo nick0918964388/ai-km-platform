@@ -42,7 +42,15 @@ async def run_chat_job(job_id: str, request_data: dict):
         response = await chat_stream(request)
 
         full_answer = ""
+        cancel_check_counter = 0
         async for chunk_bytes in response.body_iterator:
+            # Check for cancellation every 5 chunks
+            cancel_check_counter += 1
+            if cancel_check_counter % 5 == 0 and jm.is_cancelled(job_id):
+                log.info("Job %s cancelled by user", job_id)
+                jm.append_event(job_id, {"type": "done", "data": {"cancelled": True}, "terminal": "completed"})
+                return
+
             chunk = chunk_bytes if isinstance(chunk_bytes, str) else chunk_bytes.decode()
             # Parse SSE lines
             for line in chunk.strip().split('\n'):

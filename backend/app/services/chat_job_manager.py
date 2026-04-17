@@ -74,3 +74,13 @@ def fail_job(job_id: str, error: str):
         "status": "error",
         "error": error[:500],
     })
+
+
+def cancel_job(job_id: str):
+    r = _get_redis()
+    r.hset(f"chat_job:{job_id}", "status", "cancelled")
+
+
+def is_cancelled(job_id: str) -> bool:
+    r = _get_redis()
+    return r.hget(f"chat_job:{job_id}", "status") == "cancelled"
