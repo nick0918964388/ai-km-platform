@@ -63,14 +63,14 @@ async def get_audit_logs(
         SELECT id, 'sql' as type, user_email, question as query,
                sql_generated as detail, tables_accessed,
                row_count, execution_ms as duration_ms, mode,
-               cached, created_at, request_id
+               cached, created_at, request_id, conversation_id
         FROM query_audit_log
     """
     rag_select = """
         SELECT id, 'rag' as type, NULL as user_email, query,
                search_query as detail, NULL as tables_accessed,
                source_count as row_count, duration_ms,
-               quality as mode, rewrite_used as cached, created_at, request_id
+               quality as mode, rewrite_used as cached, created_at, request_id, conversation_id
         FROM rag_search_log
     """
 

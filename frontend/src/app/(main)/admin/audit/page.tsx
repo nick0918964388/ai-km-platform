@@ -10,6 +10,7 @@ import {
   ErrorFilled,
   ChevronLeft,
   ChevronRight,
+  ChatLaunch,
 } from '@carbon/icons-react';
 import { STREAM_API_URL, getApiHeaders } from '@/lib/api';
 
@@ -25,6 +26,7 @@ interface AuditLog {
   mode: string | null;
   cached: boolean | null;
   created_at: string | null;
+  conversation_id: string | null;
 }
 
 interface AuditDetail {
@@ -100,6 +102,7 @@ export default function AuditPage() {
   const [traces, setTraces] = useState<Record<string, CallTrace[]>>({});
   const [traceOpen, setTraceOpen] = useState<Record<string, boolean>>({});
   const toggleTraceView = (id: string) => setTraceOpen(prev => ({ ...prev, [id]: !prev[id] }));
+  const [collapsedConversations, setCollapsedConversations] = useState<Record<string, boolean>>({});
   const pageSize = 20;
 
   const fetchLogs = useCallback(async () => {
@@ -271,182 +274,258 @@ export default function AuditPage() {
                 </tr>
               </thead>
               <tbody>
-                {logs.map((log) => {
-                  const key = `${log.type}-${log.id}`;
-                  const isExpanded = expandedId === key;
-                  const det = details[key];
-                  const isLoadingDet = loadingDetail === key;
+                {(() => {
+                  // Group logs by conversation_id
+                  const groups: { convId: string | null; logs: AuditLog[] }[] = [];
+                  const convMap = new Map<string, AuditLog[]>();
+                  const ungrouped: AuditLog[] = [];
 
-                  return (
-                    <React.Fragment key={key}>
-                      <tr
-                        onClick={() => toggleExpand(log)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                          {relativeTime(log.created_at)}
-                        </td>
-                        <td>
-                          <span style={{
-                            display: 'inline-block',
-                            padding: '2px 8px',
-                            borderRadius: 99,
-                            fontSize: '0.6875rem',
-                            fontWeight: 600,
-                            background: log.type === 'sql' ? 'rgba(255,152,0,0.15)' : 'rgba(33,150,243,0.15)',
-                            color: log.type === 'sql' ? '#e68900' : '#1976d2',
-                          }}>
-                            {log.type === 'sql' ? 'SQL' : 'RAG'}
-                          </span>
-                        </td>
-                        <td style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-                          {log.user_email || '—'}
-                        </td>
-                        <td style={{ fontSize: '0.8125rem', color: 'var(--text-primary)', maxWidth: 300 }}>
-                          <div style={{
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            maxWidth: 300,
-                          }}>
-                            {log.query}
-                          </div>
-                        </td>
-                        <td style={{ textAlign: 'right', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                          {log.row_count != null ? `${log.row_count} 筆` : '—'}
-                        </td>
-                        <td style={{ textAlign: 'right', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                          {formatDuration(log.duration_ms)}
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          {isExpanded
-                            ? <ChevronUp size={16} style={{ color: 'var(--text-muted)' }} />
-                            : <ChevronDown size={16} style={{ color: 'var(--text-muted)' }} />}
-                        </td>
-                      </tr>
+                  for (const log of logs) {
+                    if (log.conversation_id) {
+                      if (!convMap.has(log.conversation_id)) convMap.set(log.conversation_id, []);
+                      convMap.get(log.conversation_id)!.push(log);
+                    } else {
+                      ungrouped.push(log);
+                    }
+                  }
 
-                      {isExpanded && (
-                        <tr>
-                          <td colSpan={7} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
-                            <div style={{ padding: '1rem 1.5rem' }}>
-                              {isLoadingDet ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
-                                  <InProgress size={16} className="spinner" /> 載入詳情...
-                                </div>
-                              ) : det ? (
-                                <>
-                                  {log.type === 'sql' ? (
-                                    <SqlDetail detail={det} />
-                                  ) : (
-                                    <RagDetail detail={det} />
-                                  )}
-                                  {/* Total duration from traces */}
-                                  {traces[key]?.length > 0 && !det.execution_ms && (
-                                    <div style={{ marginBottom: '0.5rem' }}>
-                                      <strong>總耗時：</strong>
-                                      {(traces[key].reduce((sum, t) => sum + (t.duration_ms || 0), 0) / 1000).toFixed(1)}s
-                                      （{traces[key].length} 步驟）
-                                    </div>
-                                  )}
-                                  {/* System Call Chain */}
-                                  {traces[key]?.length > 0 && (
-                                    <div style={{ marginTop: '0.75rem' }}>
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); toggleTraceView(key); }}
-                                        style={{
-                                          background: 'none',
-                                          border: 'none',
-                                          cursor: 'pointer',
-                                          color: 'var(--text-secondary)',
-                                          fontSize: '0.8125rem',
-                                          fontWeight: 600,
-                                          padding: '0.25rem 0',
-                                        }}
-                                      >
-                                        {traceOpen[key] ? '▼' : '▶'} 系統呼叫鏈 ({traces[key].length} calls)
-                                      </button>
-                                      {traceOpen[key] && (
-                                        <div style={{
-                                          marginTop: '0.5rem',
-                                          background: '#1e1e1e',
-                                          borderRadius: 8,
-                                          padding: '1rem',
-                                          fontFamily: 'monospace',
-                                          fontSize: '0.75rem',
-                                          color: '#d4d4d4',
-                                          maxHeight: 400,
-                                          overflow: 'auto',
-                                        }}>
-                                          {traces[key].map((trace, idx) => (
-                                            <div key={idx} style={{ marginBottom: '1rem', borderBottom: '1px solid #333', paddingBottom: '0.75rem' }}>
-                                              <div style={{ color: '#569cd6', fontWeight: 'bold' }}>
-                                                [{idx + 1}] {trace.step}
-                                                <span style={{ color: trace.status === 'ok' ? '#4ec9b0' : '#f44747', marginLeft: 8 }}>
-                                                  {trace.status === 'ok' ? '✓' : '✗'} {trace.duration_ms}ms
-                                                </span>
-                                              </div>
-                                              <div style={{ color: '#9cdcfe', marginTop: 4 }}>
-                                                URL: {trace.url}
-                                              </div>
-                                              <div style={{ color: '#9cdcfe' }}>
-                                                Model: {trace.model}
-                                              </div>
-                                              {trace.request_body && (
-                                                <details style={{ marginTop: 4 }}>
-                                                  <summary style={{ cursor: 'pointer', color: '#dcdcaa' }}>Request Body</summary>
-                                                  <pre style={{
-                                                    whiteSpace: 'pre-wrap',
-                                                    wordBreak: 'break-all',
-                                                    color: '#ce9178',
-                                                    margin: '4px 0',
-                                                    padding: '0.5rem',
-                                                    background: '#2d2d2d',
-                                                    borderRadius: 4,
-                                                    maxHeight: 200,
-                                                    overflow: 'auto',
-                                                  }}>{trace.request_body}</pre>
-                                                </details>
-                                              )}
-                                              {trace.response_body && (
-                                                <details style={{ marginTop: 4 }}>
-                                                  <summary style={{ cursor: 'pointer', color: '#dcdcaa' }}>Response</summary>
-                                                  <pre style={{
-                                                    whiteSpace: 'pre-wrap',
-                                                    wordBreak: 'break-all',
-                                                    color: '#b5cea8',
-                                                    margin: '4px 0',
-                                                    padding: '0.5rem',
-                                                    background: '#2d2d2d',
-                                                    borderRadius: 4,
-                                                    maxHeight: 200,
-                                                    overflow: 'auto',
-                                                  }}>{trace.response_body}</pre>
-                                                </details>
-                                              )}
-                                              {trace.error && (
-                                                <div style={{ color: '#f44747', marginTop: 4 }}>
-                                                  Error: {trace.error}
+                  // Build ordered groups preserving original order
+                  const seen = new Set<string>();
+                  for (const log of logs) {
+                    if (log.conversation_id && !seen.has(log.conversation_id)) {
+                      seen.add(log.conversation_id);
+                      groups.push({ convId: log.conversation_id, logs: convMap.get(log.conversation_id)! });
+                    } else if (!log.conversation_id) {
+                      groups.push({ convId: null, logs: [log] });
+                    }
+                  }
+
+                  const renderLogRow = (log: AuditLog) => {
+                    const key = `${log.type}-${log.id}`;
+                    const isExpanded = expandedId === key;
+                    const det = details[key];
+                    const isLoadingDet = loadingDetail === key;
+
+                    return (
+                      <React.Fragment key={key}>
+                        <tr
+                          onClick={() => toggleExpand(log)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                            {relativeTime(log.created_at)}
+                          </td>
+                          <td>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: 99,
+                              fontSize: '0.6875rem',
+                              fontWeight: 600,
+                              background: log.type === 'sql' ? 'rgba(255,152,0,0.15)' : 'rgba(33,150,243,0.15)',
+                              color: log.type === 'sql' ? '#e68900' : '#1976d2',
+                            }}>
+                              {log.type === 'sql' ? 'SQL' : 'RAG'}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                            {log.user_email || '—'}
+                          </td>
+                          <td style={{ fontSize: '0.8125rem', color: 'var(--text-primary)', maxWidth: 300 }}>
+                            <div style={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              maxWidth: 300,
+                            }}>
+                              {log.query}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'right', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                            {log.row_count != null ? `${log.row_count} 筆` : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                            {formatDuration(log.duration_ms)}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {isExpanded
+                              ? <ChevronUp size={16} style={{ color: 'var(--text-muted)' }} />
+                              : <ChevronDown size={16} style={{ color: 'var(--text-muted)' }} />}
+                          </td>
+                        </tr>
+
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={7} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                              <div style={{ padding: '1rem 1.5rem' }}>
+                                {isLoadingDet ? (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                                    <InProgress size={16} className="spinner" /> 載入詳情...
+                                  </div>
+                                ) : det ? (
+                                  <>
+                                    {log.type === 'sql' ? (
+                                      <SqlDetail detail={det} />
+                                    ) : (
+                                      <RagDetail detail={det} />
+                                    )}
+                                    {traces[key]?.length > 0 && !det.execution_ms && (
+                                      <div style={{ marginBottom: '0.5rem' }}>
+                                        <strong>總耗時：</strong>
+                                        {(traces[key].reduce((sum, t) => sum + (t.duration_ms || 0), 0) / 1000).toFixed(1)}s
+                                        （{traces[key].length} 步驟）
+                                      </div>
+                                    )}
+                                    {traces[key]?.length > 0 && (
+                                      <div style={{ marginTop: '0.75rem' }}>
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); toggleTraceView(key); }}
+                                          style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            color: 'var(--text-secondary)',
+                                            fontSize: '0.8125rem',
+                                            fontWeight: 600,
+                                            padding: '0.25rem 0',
+                                          }}
+                                        >
+                                          {traceOpen[key] ? '▼' : '▶'} 系統呼叫鏈 ({traces[key].length} calls)
+                                        </button>
+                                        {traceOpen[key] && (
+                                          <div style={{
+                                            marginTop: '0.5rem',
+                                            background: '#1e1e1e',
+                                            borderRadius: 8,
+                                            padding: '1rem',
+                                            fontFamily: 'monospace',
+                                            fontSize: '0.75rem',
+                                            color: '#d4d4d4',
+                                            maxHeight: 400,
+                                            overflow: 'auto',
+                                          }}>
+                                            {traces[key].map((trace, idx) => (
+                                              <div key={idx} style={{ marginBottom: '1rem', borderBottom: '1px solid #333', paddingBottom: '0.75rem' }}>
+                                                <div style={{ color: '#569cd6', fontWeight: 'bold' }}>
+                                                  [{idx + 1}] {trace.step}
+                                                  <span style={{ color: trace.status === 'ok' ? '#4ec9b0' : '#f44747', marginLeft: 8 }}>
+                                                    {trace.status === 'ok' ? '✓' : '✗'} {trace.duration_ms}ms
+                                                  </span>
                                                 </div>
-                                              )}
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </>
-                              ) : (
-                                <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                                  無詳細資料
-                                </div>
-                              )}
+                                                <div style={{ color: '#9cdcfe', marginTop: 4 }}>
+                                                  URL: {trace.url}
+                                                </div>
+                                                <div style={{ color: '#9cdcfe' }}>
+                                                  Model: {trace.model}
+                                                </div>
+                                                {trace.request_body && (
+                                                  <details style={{ marginTop: 4 }}>
+                                                    <summary style={{ cursor: 'pointer', color: '#dcdcaa' }}>Request Body</summary>
+                                                    <pre style={{
+                                                      whiteSpace: 'pre-wrap',
+                                                      wordBreak: 'break-all',
+                                                      color: '#ce9178',
+                                                      margin: '4px 0',
+                                                      padding: '0.5rem',
+                                                      background: '#2d2d2d',
+                                                      borderRadius: 4,
+                                                      maxHeight: 200,
+                                                      overflow: 'auto',
+                                                    }}>{trace.request_body}</pre>
+                                                  </details>
+                                                )}
+                                                {trace.response_body && (
+                                                  <details style={{ marginTop: 4 }}>
+                                                    <summary style={{ cursor: 'pointer', color: '#dcdcaa' }}>Response</summary>
+                                                    <pre style={{
+                                                      whiteSpace: 'pre-wrap',
+                                                      wordBreak: 'break-all',
+                                                      color: '#b5cea8',
+                                                      margin: '4px 0',
+                                                      padding: '0.5rem',
+                                                      background: '#2d2d2d',
+                                                      borderRadius: 4,
+                                                      maxHeight: 200,
+                                                      overflow: 'auto',
+                                                    }}>{trace.response_body}</pre>
+                                                  </details>
+                                                )}
+                                                {trace.error && (
+                                                  <div style={{ color: '#f44747', marginTop: 4 }}>
+                                                    Error: {trace.error}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
+                                  <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                                    無詳細資料
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  };
+
+                  return groups.map((group, gi) => {
+                    if (!group.convId || group.logs.length === 1) {
+                      return renderLogRow(group.logs[0]);
+                    }
+
+                    const isCollapsed = collapsedConversations[group.convId] !== false;
+                    const shortId = group.convId.slice(0, 8);
+                    const toggleCollapse = () =>
+                      setCollapsedConversations(prev => ({ ...prev, [group.convId!]: !isCollapsed }));
+
+                    return (
+                      <React.Fragment key={`conv-${group.convId}`}>
+                        <tr
+                          onClick={toggleCollapse}
+                          style={{
+                            cursor: 'pointer',
+                            background: 'var(--bg-tertiary, #f4f4f4)',
+                          }}
+                        >
+                          <td colSpan={7} style={{ padding: '0.5rem 1rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem' }}>
+                              <ChatLaunch size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                對話 #{shortId}
+                              </span>
+                              <span style={{
+                                padding: '1px 6px',
+                                borderRadius: 99,
+                                fontSize: '0.6875rem',
+                                fontWeight: 600,
+                                background: 'rgba(33,150,243,0.12)',
+                                color: '#1976d2',
+                              }}>
+                                {group.logs.length} 筆查詢
+                              </span>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                {relativeTime(group.logs[0].created_at)}
+                              </span>
+                              <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>
+                                {isCollapsed
+                                  ? <ChevronDown size={14} />
+                                  : <ChevronUp size={14} />}
+                              </span>
                             </div>
                           </td>
                         </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
+                        {!isCollapsed && group.logs.map(renderLogRow)}
+                      </React.Fragment>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
 

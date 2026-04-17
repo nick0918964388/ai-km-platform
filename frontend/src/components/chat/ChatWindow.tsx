@@ -416,6 +416,7 @@ export default function ChatWindow() {
         query: userQuery,
         top_k: 5,
         context: buildContext(),
+        conversation_id: convId || undefined,
         ...(model ? { model } : {}),
         ...(imageBase64 ? { image_base64: imageBase64 } : {}),
         ...(skipClarification ? { skip_clarification: true } : {}),
@@ -1471,8 +1472,8 @@ export default function ChatWindow() {
                         )}
                       </div>
                     )}
-                    {/* Feedback Buttons — only for complete assistant messages */}
-                    {msg.role === 'assistant' && msg.content && !messageStreamingStatus[msg.id] && (
+                    {/* Feedback Buttons — only for complete assistant messages WITHOUT SQL results (SqlResultCard has its own) */}
+                    {msg.role === 'assistant' && msg.content && !messageStreamingStatus[msg.id] && !messageSqlResults[msg.id]?.length && (
                       <div style={{
                         display: 'flex',
                         alignItems: 'center',

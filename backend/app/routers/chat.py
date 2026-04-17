@@ -258,26 +258,37 @@ async def chat_stream(request: ChatRequest):
 
         try:
             query = request.query
+            conversation_id = request.conversation_id
             total_start = time.time()
             tracer = CallTracer()
             budget = ResultBudget()  # Pattern 8: per-query 50, per-conversation 200
 
-            # Short follow-up merging: if query is very short and previous turn
-            # was a clarification or failed SQL, merge with previous user query
+            # Short follow-up merging: if query is very short, merge with previous
+            # user query to provide context. Triggers when:
+            # - Previous turn was clarification/failure, OR
+            # - Previous turn was a successful SQL query (user refining results)
             if len(query) <= 15 and request.context and len(request.context) >= 2:
                 prev_user = None
                 prev_assistant = None
+                prev_intent = None
                 for m in reversed(request.context):
                     if m.get("role") == "assistant" and prev_assistant is None:
                         prev_assistant = m.get("content", "")
+                        prev_intent = m.get("intent")
                     elif m.get("role") == "user" and prev_user is None:
                         prev_user = m.get("content", "")
                     if prev_user and prev_assistant:
                         break
-                is_clarification_or_fail = prev_assistant and any(
-                    kw in prev_assistant for kw in ["釐清", "澄清", "clarif", "未能成功", "查詢失敗", "需要澄清"]
-                )
-                if prev_user and is_clarification_or_fail:
+                should_merge = False
+                if prev_assistant:
+                    is_clarification_or_fail = any(
+                        kw in prev_assistant for kw in ["釐清", "澄清", "clarif", "未能成功", "查詢失敗", "需要澄清"]
+                    )
+                    is_sql_followup = prev_intent == "sql" or any(
+                        m.get("intent") == "sql" for m in request.context[-4:]
+                    )
+                    should_merge = is_clarification_or_fail or is_sql_followup
+                if prev_user and should_merge:
                     merged = f"{prev_user}，{query}"
                     log.info("Short follow-up merged: '%s' + '%s' → '%s'", prev_user[:30], query, merged)
                     query = merged
@@ -361,6 +372,7 @@ async def chat_stream(request: ChatRequest):
                 asyncio.create_task(rag.log_search_metrics(
                     query=query, search_query=None, sources=[], quality="clarification",
                     duration_ms=intent_ms, intent="clarification", request_id=tracer.request_id,
+                    conversation_id=conversation_id,
                 ))
                 yield sse_event('done', {}, terminal=TerminalState.CLARIFICATION)
                 return
@@ -379,7 +391,7 @@ async def chat_stream(request: ChatRequest):
                     asyncio.create_task(rag.log_search_metrics(
                         query=query, search_query=None, sources=[], quality="clarification",
                         duration_ms=int((time.time() - total_start) * 1000), intent="clarification",
-                        request_id=tracer.request_id,
+                        request_id=tracer.request_id, conversation_id=conversation_id,
                     ))
                     yield sse_event('done', {}, terminal=TerminalState.CLARIFICATION)
                     return
@@ -526,6 +538,7 @@ async def chat_stream(request: ChatRequest):
                     async with get_db_context() as db:
                         service = MaximoNL2SQL(db)
                         service._request_id = tracer.request_id
+                        service._conversation_id = conversation_id
                         schema_ms = int((time.time() - t0) * 1000)
 
                         yield sse_event('step', {'id': 'schema', 'label': f'搜尋相關資料（{schema_ms}ms）', 'status': 'done'})
@@ -822,6 +835,7 @@ async def chat_stream(request: ChatRequest):
                 duration_ms=int((time.time() - total_start) * 1000),
                 intent=intent,
                 request_id=tracer.request_id,
+                conversation_id=conversation_id,
             ))
 
             sources_data = [s.model_dump() for s in sources]

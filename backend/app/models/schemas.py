@@ -62,6 +62,7 @@ class ChatRequest(BaseModel):
     model: Optional[str] = None
     context: List[Dict[str, str]] = []  # conversation history [{role, content, intent?, sql?}]
     skip_clarification: bool = False  # Skip intent clarification, go straight to search
+    conversation_id: Optional[str] = None
 
 
 class SearchRequest(BaseModel):

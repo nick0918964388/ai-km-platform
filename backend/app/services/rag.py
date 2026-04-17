@@ -82,6 +82,7 @@ async def log_search_metrics(
     duration_ms: int = 0,
     intent: Optional[str] = None,
     request_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
 ):
     """Insert RAG search metrics into rag_search_log."""
     try:
@@ -94,10 +95,10 @@ async def log_search_metrics(
                 text("""
                     INSERT INTO rag_search_log
                         (query, search_query, top_score, avg_score, source_count,
-                         rewrite_used, rewrite_query, quality, duration_ms, intent, request_id)
+                         rewrite_used, rewrite_query, quality, duration_ms, intent, request_id, conversation_id)
                     VALUES
                         (:query, :search_query, :top_score, :avg_score, :source_count,
-                         :rewrite_used, :rewrite_query, :quality, :duration_ms, :intent, :request_id)
+                         :rewrite_used, :rewrite_query, :quality, :duration_ms, :intent, :request_id, :conversation_id)
                 """),
                 {
                     "query": query,
@@ -111,6 +112,7 @@ async def log_search_metrics(
                     "duration_ms": duration_ms,
                     "intent": intent,
                     "request_id": request_id,
+                    "conversation_id": conversation_id,
                 },
             )
     except Exception as e:

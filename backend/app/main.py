@@ -187,6 +187,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ System settings migration skipped: {e}")
 
+    # Audit conversation_id migration
+    try:
+        from app.db.session import get_db_context
+        from sqlalchemy import text as _text
+        import pathlib
+        audit_sql = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "audit_conversation_id_migration.sql"
+        if audit_sql.exists():
+            sql_content = audit_sql.read_text()
+            async with get_db_context() as db:
+                for stmt in sql_content.split(";"):
+                    stmt = stmt.strip()
+                    if stmt and not stmt.startswith("--"):
+                        await db.execute(_text(stmt))
+            print("✅ Audit conversation_id columns ensured")
+    except Exception as e:
+        print(f"⚠️ Audit conversation_id migration skipped: {e}")
+
     # Load DB settings and override config singleton
     try:
         from app.services import settings_service
