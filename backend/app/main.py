@@ -204,6 +204,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Audit conversation_id migration skipped: {e}")
 
+    # Load domain code→Chinese mappings
+    try:
+        from app.services.domain_mapper import load_domain_cache
+        await load_domain_cache()
+        print("✅ Domain mapper cache loaded")
+    except Exception as e:
+        print(f"⚠️ Domain mapper cache skipped: {e}")
+
     # Load DB settings and override config singleton
     try:
         from app.services import settings_service

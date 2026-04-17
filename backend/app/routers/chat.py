@@ -24,6 +24,7 @@ from app.services.intent_router import detect_intent, detect_ambiguity
 from app.services.context_manager import build_optimized_context, compress_context
 from app.services.call_tracer import CallTracer, trace_llm_call
 from app.services.result_budget import ResultBudget
+from app.services.domain_mapper import translate_rows
 from app.config import get_settings, get_active_llm_info
 from app.db.session import get_db_context
 
@@ -628,11 +629,12 @@ async def chat_stream(request: ChatRequest):
                         total_count=sql_result.get("row_count", 0),
                     )
 
+                    budgeted_data = translate_rows(budgeted["data"])
                     sql_event_data = {
                         "success": True,
                         "explanation": _sanitize_explanation(sql_result.get("explanation")),
                         "columns": sql_result.get("columns", []),
-                        "data": budgeted["data"],
+                        "data": budgeted_data,
                         "row_count": sql_result.get("row_count", 0),
                         "chart_suggestion": sql_result.get("chart_suggestion"),
                         "cached": sql_result.get("cached", False),
@@ -731,11 +733,12 @@ async def chat_stream(request: ChatRequest):
                                 sql_result.get("data", []),
                                 total_count=sql_result.get("row_count", 0),
                             )
+                            budgeted_data = translate_rows(budgeted["data"])
                             sql_event_data = {
                                 "success": True,
                                 "explanation": _sanitize_explanation(sql_result.get("explanation")),
                                 "columns": sql_result.get("columns", []),
-                                "data": budgeted["data"],
+                                "data": budgeted_data,
                                 "row_count": sql_result.get("row_count", 0),
                                 "chart_suggestion": sql_result.get("chart_suggestion"),
                                 "cached": sql_result.get("cached", False),
