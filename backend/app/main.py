@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile, maximo, admin
+from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile, maximo, admin, conversations
 from app.routers.auth import router as auth_router
 from app.config import get_settings
 
@@ -111,6 +111,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Permission migration skipped: {e}")
 
+    # Conversations tables migration
+    try:
+        from app.db.session import get_db_context
+        from sqlalchemy import text as _text
+        import pathlib
+        conv_sql = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "conversations_migration.sql"
+        if conv_sql.exists():
+            sql_content = conv_sql.read_text()
+            async with get_db_context() as db:
+                for stmt in sql_content.split(";"):
+                    stmt = stmt.strip()
+                    if stmt and not stmt.startswith("--"):
+                        await db.execute(_text(stmt))
+            print("✅ Conversations tables ensured")
+    except Exception as e:
+        print(f"⚠️ Conversations migration skipped: {e}")
+
     # System settings table migration
     try:
         from app.db.session import get_db_context
@@ -191,6 +208,7 @@ app.include_router(profile.avatar_router)  # Avatar static files at /api/avatars
 app.include_router(maximo.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
+app.include_router(conversations.router)
 
 
 @app.get("/")
