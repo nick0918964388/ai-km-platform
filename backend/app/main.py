@@ -204,6 +204,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Audit conversation_id migration skipped: {e}")
 
+    # Fix date columns stored as TEXT → TIMESTAMPTZ
+    try:
+        date_sql = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "fix_date_columns_migration.sql"
+        if date_sql.exists():
+            sql_content = date_sql.read_text()
+            async with get_db_context() as db:
+                for stmt in sql_content.split(";"):
+                    stmt = stmt.strip()
+                    if stmt and not stmt.startswith("--"):
+                        await db.execute(_text(stmt))
+            print("✅ Date columns converted to TIMESTAMPTZ")
+    except Exception as e:
+        print(f"⚠️ Date column migration skipped: {e}")
+
     # Load domain code→Chinese mappings
     try:
         from app.services.domain_mapper import load_domain_cache
