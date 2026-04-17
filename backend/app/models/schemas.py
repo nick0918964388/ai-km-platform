@@ -119,6 +119,7 @@ class SearchResult(BaseModel):
     # Reranker fields (optional, added when reranking is applied)
     relevance_score: Optional[float] = Field(None, description="Reranker relevance score (0-1)")
     reranker_metadata: Optional[RerankerMetadata] = Field(None, description="Reranking process metadata")
+    injection_warning: bool = Field(False, description="True if prompt injection patterns detected")
 
 
 class ChatResponse(BaseModel):

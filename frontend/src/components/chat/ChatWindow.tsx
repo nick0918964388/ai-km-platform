@@ -112,6 +112,7 @@ export default function ChatWindow() {
   const [expandedSources, setExpandedSources] = useState<{ [key: string]: boolean }>({});
   const [sourceVoted, setSourceVoted] = useState<{ [key: string]: boolean }>({});
   const [taskSteps, setTaskSteps] = useState<Step[]>([]);
+  const [reasoningSteps, setReasoningSteps] = useState<{phase: string; text: string}[]>([]);
   const [messageSqlResults, setMessageSqlResults] = useState<Record<string, any[]>>({});
   const [pendingClarification, setPendingClarification] = useState<{message: string; options: {label: string; query: string}[]} | null>(null);
   const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
@@ -357,6 +358,7 @@ export default function ChatWindow() {
     const userQuery = queryToSend;
     setIsLoading(true);
     setTaskSteps([]);
+    setReasoningSteps([]);
 
     const messageId = (Date.now() + 1).toString();
 
@@ -475,6 +477,8 @@ export default function ChatWindow() {
                     ...prev,
                     [messageId]: data.data,
                   }));
+                } else if (data.type === 'reasoning' && data.data) {
+                  setReasoningSteps(prev => [...prev, data.data]);
                 } else if (data.type === 'step' && data.data) {
                   const step: Step = data.data;
                   setTaskSteps(prev => {
@@ -964,7 +968,25 @@ export default function ChatWindow() {
                         </div>
                       );
                     })()}
-                    {/* Step details merged into 詳細資訊 below */}
+                    {/* Reasoning steps — show during/after streaming */}
+                    {msg.role === 'assistant' && msgIdx === messages.length - 1 && reasoningSteps.length > 0 && (
+                      <div style={{
+                        fontSize: '0.8125rem',
+                        color: 'var(--text-muted)',
+                        borderLeft: '2px solid var(--border-subtle)',
+                        paddingLeft: '0.75rem',
+                        marginBottom: '0.75rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.25rem',
+                      }}>
+                        {reasoningSteps.map((r, i) => (
+                          <div key={i} style={{ lineHeight: 1.5 }}>
+                            <span style={{ fontStyle: 'italic' }}>{r.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {msg.role === 'assistant' ? (
                       <div className="markdown-content" style={{ display: msg.content ? 'block' : 'none' }}>
                         <ReactMarkdown

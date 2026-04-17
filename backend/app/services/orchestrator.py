@@ -6,6 +6,7 @@ import asyncio
 import json
 import re
 import time
+import uuid
 import logging
 from dataclasses import dataclass, field
 from typing import Optional, AsyncGenerator
@@ -15,6 +16,16 @@ from openai import AsyncOpenAI
 from app.config import get_settings
 
 log = logging.getLogger(__name__)
+
+MAX_DELEGATION_DEPTH = 2
+WORKER_TIMEOUT_SECONDS = 60
+WORKER_HEARTBEAT_SECONDS = 30
+
+BLOCKED_OPERATIONS = frozenset({
+    "delegate",
+    "clarification",
+    "maximo_write",
+})
 
 
 @dataclass
@@ -294,30 +305,69 @@ async def run_parallel_agents(
     request_top_k: int = 5,
     sql_history: list = None,
     conversation_context: list = None,
+    depth: int = 0,
 ) -> AsyncGenerator[dict, None]:
     """Run sub-tasks in parallel.
     Pattern 4: Withholding — suppress individual task failures silently.
     Pattern 7: Context Stripping — SQL 只拿 sql_history，RAG 只拿最近對話。
     """
+    if depth >= MAX_DELEGATION_DEPTH:
+        raise ValueError(f"Maximum delegation depth ({MAX_DELEGATION_DEPTH}) exceeded")
+
     queue: asyncio.Queue[dict] = asyncio.Queue()
 
-    # Pattern 7: 為 RAG worker 準備精簡 context（只保留 role + content，去除 SQL/schema 資訊）
     rag_context = None
     if conversation_context:
         rag_context = [
             {"role": m.get("role", "user"), "content": m.get("content", "")[:150]}
             for m in conversation_context[-2:]
-            if m.get("intent") != "sql"  # 排除 SQL 查詢的歷史
+            if m.get("intent") != "sql"
         ]
 
-    async def _worker(task: SubTask):
-        if task.type == "sql":
-            result = await _run_sql_task(task, sql_history)
-        else:
-            result = await _run_rag_task(task, request_top_k, rag_context=rag_context)
-        await queue.put(result)
+    async def _worker(task: SubTask, trace_id: str):
+        t0 = time.time()
+        try:
+            if task.type == "sql":
+                result = await asyncio.wait_for(
+                    _run_sql_task(task, sql_history),
+                    timeout=WORKER_TIMEOUT_SECONDS,
+                )
+            else:
+                result = await asyncio.wait_for(
+                    _run_rag_task(task, request_top_k, rag_context=rag_context),
+                    timeout=WORKER_TIMEOUT_SECONDS,
+                )
+            result["task_trace_id"] = trace_id
+            log.info("Worker %s (%s) completed in %dms", trace_id, task.id, int((time.time() - t0) * 1000))
+            await queue.put(result)
+        except asyncio.TimeoutError:
+            log.error("Worker %s (%s) timed out after %ds", trace_id, task.id, WORKER_TIMEOUT_SECONDS)
+            await queue.put({
+                "task_id": task.id,
+                "type": task.type,
+                "task_trace_id": trace_id,
+                "status": "timeout",
+                "result": None,
+                "sources": None,
+                "error": f"Worker timed out after {WORKER_TIMEOUT_SECONDS}s",
+                "duration_ms": int((time.time() - t0) * 1000),
+            })
+        except Exception as e:
+            log.error("Worker %s (%s) failed: %s", trace_id, task.id, e)
+            await queue.put({
+                "task_id": task.id,
+                "type": task.type,
+                "task_trace_id": trace_id,
+                "result": None,
+                "sources": None,
+                "error": str(e),
+                "duration_ms": int((time.time() - t0) * 1000),
+            })
 
-    tasks = [asyncio.create_task(_worker(t)) for t in sub_tasks]
+    tasks = []
+    for t in sub_tasks:
+        trace_id = uuid.uuid4().hex[:12]
+        tasks.append(asyncio.create_task(_worker(t, trace_id)))
 
     all_results = []
     for _ in range(len(tasks)):
@@ -326,13 +376,22 @@ async def run_parallel_agents(
 
     await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Check if ALL tasks failed
     all_failed = all(r.get("error") for r in all_results)
+    all_timeout = all(r.get("status") == "timeout" for r in all_results)
+
+    if all_timeout:
+        yield {
+            "task_id": "_orchestrator",
+            "type": "error",
+            "result": None,
+            "sources": None,
+            "error": f"All {len(all_results)} workers timed out after {WORKER_TIMEOUT_SECONDS}s",
+        }
+        return
 
     for result in all_results:
         if result.get("error") and not all_failed:
-            # Suppress individual failure — log but don't expose to user
-            log.warning("Sub-task %s failed (suppressed): %s", result["task_id"], result["error"])
+            log.warning("Sub-task %s [%s] failed (suppressed): %s", result["task_id"], result.get("task_trace_id", "?"), result["error"])
             result["_suppressed"] = True
         yield result
 

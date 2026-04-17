@@ -58,3 +58,8 @@ storage/avatars/*
 .secrets/
 *.key
 *.crt
+
+# Dev screenshots / playwright
+screenshots/
+.playwright-mcp/
+*.png

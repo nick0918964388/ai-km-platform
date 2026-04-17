@@ -263,6 +263,12 @@ async def chat_stream(request: ChatRequest):
 
             yield sse_event('step', {'id': 'intent', 'label': f'理解您的問題（{intent_ms}ms）', 'status': 'done'})
 
+            INTENT_LABEL = {"sql": "結構化資料查詢", "rag": "知識庫搜尋", "hybrid": "多面向查詢", "clarification": "需要釐清"}
+            yield sse_event('reasoning', {
+                'phase': 'intent',
+                'text': f"判斷為「{INTENT_LABEL.get(intent, intent)}」（信心度 {cls_result.confidence:.0%}）。{cls_result.reasoning}",
+            })
+
             sql_result = None
 
             # Clarification check: LLM-based first, then rule-based fallback for SQL
@@ -303,13 +309,15 @@ async def chat_stream(request: ChatRequest):
                 # If only 1 sub-task, fall through to sequential path
                 if len(decomposition.sub_tasks) <= 1:
                     yield sse_event('step', {'id': 'decompose', 'label': f'直接查詢（{dec_ms}ms）', 'status': 'done'})
-                    # Reclassify: single sql task → sql intent, single rag task → rag intent
+                    yield sse_event('reasoning', {'phase': 'decompose', 'text': '問題較單純，不需要拆解，直接查詢。'})
                     if decomposition.sub_tasks and decomposition.sub_tasks[0].type == "sql":
                         intent = "sql"
                     else:
                         intent = "rag"
                 else:
+                    task_labels = "、".join(t.label for t in decomposition.sub_tasks)
                     yield sse_event('step', {'id': 'decompose', 'label': f'分為 {len(decomposition.sub_tasks)} 個面向查詢（{dec_ms}ms）', 'status': 'done'})
+                    yield sse_event('reasoning', {'phase': 'decompose', 'text': f'拆解為 {len(decomposition.sub_tasks)} 個子任務同時執行：{task_labels}'})
 
                     # Show running state for each sub-task
                     for st in decomposition.sub_tasks:
@@ -456,7 +464,11 @@ async def chat_stream(request: ChatRequest):
                         yield sse_event('step', {'id': 'sql_generate', 'label': f'查詢完成（{sql_ms}ms）', 'status': 'done'})
 
                         if sql_result.get("success"):
+                            row_count = len(sql_result.get("data", []))
+                            yield sse_event('reasoning', {'phase': 'sql', 'text': f'查詢成功，取得 {row_count} 筆結果（{timing_str}）'})
                             yield sse_event('step', {'id': 'execute', 'label': '整理查詢結果...', 'status': 'done'})
+                        else:
+                            yield sse_event('reasoning', {'phase': 'sql', 'text': f'查詢失敗：{sql_result.get("error", "未知錯誤")[:80]}'})
                 except Exception as sql_err:
                     log.exception("NL→SQL error")
                     sql_result = {"success": False, "error": str(sql_err)}
@@ -560,6 +572,7 @@ async def chat_stream(request: ChatRequest):
 
             # Self-reflection: if quality is low, rewrite query and retry
             if quality["quality"] in ("low", "none"):
+                yield sse_event('reasoning', {'phase': 'reflection', 'text': f'初次搜尋品質 {quality["quality"]}（最高分 {quality["top_score"]:.2f}），嘗試改寫查詢提升檢索效果。'})
                 for attempt in range(1, MAX_REWRITE_ATTEMPTS + 1):
                     yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': '優化搜尋條件...', 'status': 'running'})
                     t0 = time.time()
@@ -569,6 +582,7 @@ async def chat_stream(request: ChatRequest):
                         yield sse_event('step', {'id': f'rewrite_{attempt}', 'label': f'調整搜尋（{rw_ms}ms）', 'status': 'done'})
                         break
 
+                    yield sse_event('reasoning', {'phase': 'rewrite', 'text': f'第 {attempt} 次改寫：「{rewritten[:60]}」'})
                     log.info("Query rewrite attempt %d: '%s' → '%s'", attempt, query[:50], rewritten[:50])
                     new_sources = rag.search(query=rewritten, image_base64=request.image_base64, top_k=request.top_k)
                     new_quality = rag.evaluate_retrieval_quality(new_sources)
@@ -635,7 +649,7 @@ async def chat_stream(request: ChatRequest):
                 model=request.model,
             ):
                 if result.get("type") == "content":
-                    content_chunk = result['data']
+                    content_chunk = rag.strip_context_fences(result['data'])
                     full_answer += content_chunk
                     yield sse_event('content', content_chunk)
                 elif result.get("type") == "usage":
