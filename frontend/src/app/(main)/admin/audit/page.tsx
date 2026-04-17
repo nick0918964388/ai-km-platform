@@ -300,7 +300,7 @@ export default function AuditPage() {
                     }
                   }
 
-                  const renderLogRow = (log: AuditLog) => {
+                  const renderLogRow = (log: AuditLog, indented = false) => {
                     const key = `${log.type}-${log.id}`;
                     const isExpanded = expandedId === key;
                     const det = details[key];
@@ -310,9 +310,16 @@ export default function AuditPage() {
                       <React.Fragment key={key}>
                         <tr
                           onClick={() => toggleExpand(log)}
-                          style={{ cursor: 'pointer' }}
+                          style={{
+                            cursor: 'pointer',
+                            ...(indented ? {
+                              borderLeft: '3px solid var(--accent)',
+                              background: 'rgba(80,144,211,0.04)',
+                            } : {}),
+                          }}
                         >
-                          <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                          <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', paddingLeft: indented ? '2rem' : undefined }}>
+                            {indented && <span style={{ color: 'var(--accent)', marginRight: '0.25rem' }}>┗</span>}
                             {relativeTime(log.created_at)}
                           </td>
                           <td>
@@ -521,7 +528,7 @@ export default function AuditPage() {
                             </div>
                           </td>
                         </tr>
-                        {!isCollapsed && group.logs.map(renderLogRow)}
+                        {!isCollapsed && group.logs.map(log => renderLogRow(log, true))}
                       </React.Fragment>
                     );
                   });
