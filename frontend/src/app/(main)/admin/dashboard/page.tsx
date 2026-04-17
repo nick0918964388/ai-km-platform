@@ -1,396 +1,302 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import {
-  Chat,
-  Search,
-  Upload,
-  Document,
-  Notification,
-  Bot,
-  DataBase,
-  WarningFilled,
-  TaskComplete,
-  Van,
-} from '@carbon/icons-react';
+import { useEffect, useState, useCallback } from 'react';
+import { Button } from '@carbon/react';
+import { Renew, WarningFilled, Activity, Asset, TaskComplete } from '@carbon/icons-react';
 import { useStore } from '@/store/useStore';
 import { apiGet, getErrorMessage } from '@/lib/api';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, LineChart, Line,
+  PieChart, Pie,
+} from 'recharts';
 
-interface DashboardSummary {
-  total_documents: number;
-  total_queries_today: number;
-  total_vehicles: number;
-  open_faults: number;
-  pending_workorders: number;
+const COLORS = ['#E07850', '#D4A574', '#8B9DC3', '#6B8F71', '#C9B99A', '#B07D62'];
+
+interface DashboardStats {
+  summary: {
+    total_workorders: number;
+    active_workorders: number;
+    total_faults: number;
+    total_assets: number;
+    open_faults: number;
+  };
+  workorder_by_status: { status: string; count: number }[];
+  fault_trend: { date: string; count: number }[];
+  fault_by_status: { status: string; count: number }[];
+  workorder_by_depot: { depot: string; count: number }[];
+  recent_faults: { id: string; description: string; status: string; date: string }[];
 }
 
-interface RecentQuery {
-  id: string;
-  user_id: string | null;
-  question: string | null;
-  created_at: string | null;
-}
-
-interface StatCardProps {
-  title: string;
-  value: string | number;
-  change?: string;
-  changeType?: 'positive' | 'negative' | 'neutral';
-  icon: React.ReactNode;
-  iconBg: string;
-  loading?: boolean;
-}
-
-function StatCard({ title, value, change, changeType = 'neutral', icon, iconBg, loading }: StatCardProps) {
+function SummaryCard({ title, value, sub, icon, color }: {
+  title: string; value: number | string; sub?: string;
+  icon: React.ReactNode; color: string;
+}) {
   return (
-    <div className="stat-card">
-      <div className="stat-card-header">
-        <span className="stat-card-title">{title}</span>
-        <div className="stat-card-icon" style={{ background: iconBg }}>
+    <div style={{
+      background: 'var(--bg-secondary)', border: '1px solid var(--border-light)',
+      borderRadius: '16px', padding: '1.5rem',
+      display: 'flex', flexDirection: 'column', gap: '0.75rem',
+    }}>
+      <div className="flex items-center justify-between">
+        <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>{title}</span>
+        <div style={{
+          width: '3rem', height: '3rem', borderRadius: '10px',
+          background: color + '18', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
           {icon}
         </div>
       </div>
-      <div className="stat-card-value">
-        {loading ? '...' : value}
-      </div>
-      {change && (
-        <div className={`stat-card-change ${changeType}`}>
-          {change}
-        </div>
-      )}
+      <p style={{ fontSize: '2.25rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+        {typeof value === 'number' ? value.toLocaleString() : value}
+      </p>
+      {sub && <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{sub}</span>}
     </div>
   );
 }
 
-interface QueryItemProps {
-  icon: React.ReactNode;
-  title: string;
-  subtitle: string;
-  time: string;
-}
-
-function QueryItem({ icon, title, subtitle, time }: QueryItemProps) {
+function ChartCard({ title, badge, children }: {
+  title: string; badge?: string; children: React.ReactNode;
+}) {
   return (
     <div style={{
-      display: 'flex',
-      alignItems: 'flex-start',
-      gap: '0.75rem',
-      padding: '0.75rem',
-      background: 'var(--bg-primary)',
-      borderRadius: 'var(--radius-md)',
+      background: 'var(--bg-secondary)', border: '1px solid var(--border-light)',
+      borderRadius: '16px', padding: '1.5rem', minWidth: 0,
     }}>
-      <div style={{
-        width: 40,
-        height: 40,
-        borderRadius: 'var(--radius-md)',
-        background: 'var(--primary-light)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: 'var(--accent)',
-        flexShrink: 0,
-      }}>
-        {icon}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontWeight: 500,
-          color: 'var(--text-primary)',
-          fontSize: '0.875rem',
-          marginBottom: '0.125rem',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}>
+      <div className="flex items-center justify-between mb-6">
+        <h3 style={{ fontSize: '1.125rem', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif' }}>
           {title}
-        </div>
-        <div style={{
-          fontSize: '0.75rem',
-          color: 'var(--text-muted)',
-        }}>
-          {subtitle}
-        </div>
+        </h3>
+        {badge && (
+          <span style={{
+            padding: '0.2rem 0.75rem', background: 'var(--bg-tertiary)',
+            color: 'var(--text-muted)', fontSize: '0.8125rem', borderRadius: '6px',
+          }}>{badge}</span>
+        )}
       </div>
-      <div style={{
-        fontSize: '0.75rem',
-        color: 'var(--text-muted)',
-        flexShrink: 0,
-      }}>
-        {time}
-      </div>
+      {children}
     </div>
   );
 }
 
-interface QuickActionProps {
-  icon: React.ReactNode;
-  label: string;
-  href: string;
-  primary?: boolean;
-}
+const tooltipStyle = {
+  backgroundColor: '#141413', border: 'none', borderRadius: '8px',
+  color: '#b0aea5', padding: '8px 12px',
+};
 
-function QuickAction({ icon, label, href, primary }: QuickActionProps) {
-  return (
-    <Link
-      href={href}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '0.75rem',
-        padding: '0.75rem 1rem',
-        background: primary ? 'var(--primary)' : 'var(--bg-primary)',
-        border: primary ? 'none' : '1px solid var(--border)',
-        borderRadius: primary ? '10px' : 'var(--radius-md)',
-        color: primary ? 'white' : 'var(--text-primary)',
-        textDecoration: 'none',
-        fontSize: '0.875rem',
-        fontWeight: 500,
-        height: primary ? 52 : 48,
-        transition: 'all var(--transition-fast)',
-      }}
-    >
-      {icon}
-      {label}
-    </Link>
-  );
-}
-
-function formatTimeAgo(isoString: string): string {
-  const now = new Date();
-  const date = new Date(isoString);
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return '剛剛';
-  if (diffMin < 60) return `${diffMin} 分鐘前`;
-  const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour} 小時前`;
-  const diffDay = Math.floor(diffHour / 24);
-  return `${diffDay} 天前`;
-}
-
-export default function DashboardPage() {
+export default function AdminDashboardPage() {
   const user = useStore((s) => s.user);
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [recentQueries, setRecentQueries] = useState<RecentQuery[]>([]);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchData() {
-      setLoading(true);
-      setError(null);
-      try {
-        const [summaryData, queriesData] = await Promise.all([
-          apiGet<DashboardSummary>('/api/dashboard/summary'),
-          apiGet<RecentQuery[]>('/api/dashboard/recent-queries?limit=5'),
-        ]);
-        if (!cancelled) {
-          setSummary(summaryData);
-          setRecentQueries(queriesData);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(getErrorMessage(e));
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiGet<DashboardStats>('/api/dashboard/stats');
+      setStats(data);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setLoading(false);
     }
-
-    fetchData();
-    return () => { cancelled = true; };
   }, []);
 
-  const userName = user?.name || '使用者';
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const s = stats?.summary;
 
   return (
-    <div style={{
-      padding: '2rem',
-      height: '100%',
-      overflow: 'auto',
-      background: 'var(--bg-primary)'
-    }}>
-      {/* Header */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: '1.5rem'
-      }}>
-        <div>
-          <h1 style={{
-            fontSize: '1.75rem',
-            fontWeight: 700,
-            color: 'var(--text-primary)',
-            marginBottom: '0.25rem'
-          }}>
-            儀表板
-          </h1>
-          <p style={{
-            fontSize: '0.875rem',
-            color: 'var(--accent)'
-          }}>
-            歡迎回來，{userName}
-          </p>
-        </div>
-        <button className="btn-icon">
-          <Notification size={20} />
-        </button>
-      </div>
-
-      {error && (
-        <div style={{
-          padding: '0.75rem 1rem',
-          marginBottom: '1rem',
-          background: 'var(--danger-light, #fff1f0)',
-          border: '1px solid var(--danger, #da1e28)',
-          borderRadius: 'var(--radius-md)',
-          color: 'var(--danger, #da1e28)',
-          fontSize: '0.875rem',
-        }}>
-          載入失敗：{error}
-        </div>
-      )}
-
-      {/* Stats Grid */}
-      <div className="dashboard-grid" style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-        gap: '1.25rem',
-        marginBottom: '1.5rem'
-      }}>
-        <StatCard
-          title="知識庫文件"
-          value={summary?.total_documents ?? 0}
-          icon={<DataBase size={20} style={{ color: 'var(--accent)' }} />}
-          iconBg="var(--primary-light)"
-          loading={loading}
-        />
-        <StatCard
-          title="今日查詢"
-          value={summary?.total_queries_today ?? 0}
-          icon={<Chat size={20} style={{ color: 'var(--accent)' }} />}
-          iconBg="var(--primary-light)"
-          loading={loading}
-        />
-        <StatCard
-          title="車輛資產"
-          value={summary?.total_vehicles ?? 0}
-          icon={<Van size={20} style={{ color: 'var(--accent)' }} />}
-          iconBg="var(--primary-light)"
-          loading={loading}
-        />
-        <StatCard
-          title="故障通報"
-          value={summary?.open_faults ?? 0}
-          change={summary ? '未關閉' : undefined}
-          changeType="neutral"
-          icon={<WarningFilled size={20} style={{ color: 'var(--warning, #f1c21b)' }} />}
-          iconBg="var(--warning-light, #fff8e1)"
-          loading={loading}
-        />
-      </div>
-
-      {/* Content Row */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-        gap: '1.25rem',
-        minHeight: '400px'
-      }}>
-        {/* Recent Queries */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '1rem'
-          }}>
-            <h2 style={{
-              fontSize: '1.125rem',
-              fontWeight: 600,
-              color: 'var(--text-primary)'
-            }}>
-              最近查詢
-            </h2>
-            <Link href="/history" style={{
-              fontSize: '0.875rem',
-              color: 'var(--accent)',
-              textDecoration: 'none'
-            }}>
-              查看全部
-            </Link>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)' }}>
+      <div style={{ padding: '1.5rem 2rem' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 style={{ fontSize: 'clamp(1.25rem, 4vw, 1.75rem)', fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Georgia, serif', marginBottom: '0.25rem' }}>
+              營運儀表板
+            </h1>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9375rem' }}>
+              {`歡迎回來，${user?.name ?? 'User'}`}
+            </p>
           </div>
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.75rem',
-            flex: 1,
-          }}>
-            {loading ? (
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', padding: '1rem 0' }}>
-                載入中...
+          <Button kind="ghost" size="sm" renderIcon={Renew} onClick={fetchData}
+            disabled={loading} hasIconOnly iconDescription="重新整理" className="!rounded-full" />
+        </div>
+
+        {error && (
+          <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--error-light)', border: '1px solid var(--error)', borderRadius: '12px' }}>
+            <p style={{ color: 'var(--error)', fontWeight: 500 }}>{error}</p>
+          </div>
+        )}
+
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <SummaryCard title="工單總數" value={s?.total_workorders ?? '...'} sub="全部工單"
+            icon={<TaskComplete size={24} style={{ color: '#E07850' }} />} color="#E07850" />
+          <SummaryCard title="執行中工單" value={s?.active_workorders ?? '...'} sub="未完成"
+            icon={<Activity size={24} style={{ color: '#8B9DC3' }} />} color="#8B9DC3" />
+          <SummaryCard title="故障通報" value={s?.total_faults ?? '...'} sub={`未結案 ${s?.open_faults ?? '...'}`}
+            icon={<WarningFilled size={24} style={{ color: '#D4A574' }} />} color="#D4A574" />
+          <SummaryCard title="車輛資產" value={s?.total_assets ?? '...'} sub="列管數"
+            icon={<Asset size={24} style={{ color: '#6B8F71' }} />} color="#6B8F71" />
+        </div>
+
+        {/* Charts Row 1 */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+          <div className="lg:col-span-2">
+            <ChartCard title="工單狀態分布">
+              <div style={{ height: 280 }}>
+                {loading ? (
+                  <div className="h-full flex items-center justify-center" style={{ color: 'var(--text-muted)' }}>載入中...</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={stats?.workorder_by_status?.slice(0, 8)} layout="vertical" margin={{ left: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e8e6dc" horizontal={false} />
+                      <XAxis type="number" tick={{ fontSize: 12, fill: '#87867f' }} axisLine={false} tickLine={false} />
+                      <YAxis type="category" dataKey="status" width={100}
+                        tick={{ fontSize: 11, fill: '#87867f' }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={tooltipStyle}
+                        formatter={(v: number) => [`${v.toLocaleString()} 筆`, '工單']} />
+                      <Bar dataKey="count" radius={[0, 6, 6, 0]} maxBarSize={28}>
+                        {stats?.workorder_by_status?.slice(0, 8).map((_, i) => (
+                          <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
-            ) : recentQueries.length === 0 ? (
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', padding: '1rem 0' }}>
-                尚無查詢紀錄
-              </div>
-            ) : (
-              recentQueries.map((q) => (
-                <QueryItem
-                  key={q.id}
-                  icon={<Chat size={18} />}
-                  title={q.question || '(無問題內容)'}
-                  subtitle={q.user_id || ''}
-                  time={q.created_at ? formatTimeAgo(q.created_at) : ''}
-                />
-              ))
-            )}
+            </ChartCard>
           </div>
+
+          <ChartCard title="故障狀態">
+            <div className="flex flex-col items-center gap-4">
+              <div style={{ width: 180, height: 180 }}>
+                {loading ? (
+                  <div className="h-full flex items-center justify-center" style={{ color: 'var(--text-muted)' }}>載入中...</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={stats?.fault_by_status} cx="50%" cy="50%"
+                        innerRadius={50} outerRadius={80} paddingAngle={2}
+                        dataKey="count" nameKey="status" strokeWidth={0}>
+                        {stats?.fault_by_status?.map((_, i) => (
+                          <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={tooltipStyle}
+                        formatter={(v: number) => [`${v} 筆`, '通報']} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-2 justify-center">
+                {stats?.fault_by_status?.map((item, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: COLORS[i % COLORS.length] }} />
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                      {item.status} ({item.count})
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </ChartCard>
         </div>
 
-        {/* Quick Actions */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={{
-            fontSize: '1.125rem',
-            fontWeight: 600,
-            color: 'var(--text-primary)',
-            marginBottom: '1rem'
-          }}>
-            快速操作
-          </h2>
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.75rem'
-          }}>
-            <QuickAction
-              icon={<Bot size={20} />}
-              label="開始 AI 問答"
-              href="/chat"
-              primary
-            />
-            <QuickAction
-              icon={<Search size={18} />}
-              label="搜尋知識庫"
-              href="/admin/knowledge-base"
-            />
-            <QuickAction
-              icon={<Upload size={18} />}
-              label="上傳技術文件"
-              href="/admin/knowledge-base"
-            />
-            <QuickAction
-              icon={<Document size={18} />}
-              label="匯出報表"
-              href="/history"
-            />
-          </div>
+        {/* Charts Row 2 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+          <ChartCard title="故障趨勢" badge="近 30 天">
+            <div style={{ height: 250 }}>
+              {loading ? (
+                <div className="h-full flex items-center justify-center" style={{ color: 'var(--text-muted)' }}>載入中...</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={stats?.fault_trend}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e8e6dc" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#87867f' }} axisLine={false} tickLine={false}
+                      tickFormatter={(v) => v ? v.slice(5) : ''} />
+                    <YAxis tick={{ fontSize: 12, fill: '#87867f' }} axisLine={false} tickLine={false} width={35} />
+                    <Tooltip contentStyle={tooltipStyle}
+                      formatter={(v: number) => [`${v} 件`, '故障']}
+                      labelFormatter={(l) => `日期: ${l}`} />
+                    <Line type="monotone" dataKey="count" stroke="#E07850" strokeWidth={2.5}
+                      dot={{ r: 3, fill: '#E07850' }} activeDot={{ r: 5 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </ChartCard>
+
+          <ChartCard title="工單配屬段分布">
+            <div style={{ height: 250 }}>
+              {loading ? (
+                <div className="h-full flex items-center justify-center" style={{ color: 'var(--text-muted)' }}>載入中...</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={stats?.workorder_by_depot?.slice(0, 10)}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e8e6dc" vertical={false} />
+                    <XAxis dataKey="depot" tick={{ fontSize: 11, fill: '#87867f' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 12, fill: '#87867f' }} axisLine={false} tickLine={false} width={45} />
+                    <Tooltip contentStyle={tooltipStyle}
+                      formatter={(v: number) => [`${v.toLocaleString()} 筆`, '工單']} />
+                    <Bar dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={40}>
+                      {stats?.workorder_by_depot?.slice(0, 10).map((_, i) => (
+                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </ChartCard>
         </div>
+
+        {/* Recent Faults Table */}
+        <ChartCard title="最新故障通報" badge="最近 5 筆">
+          {loading ? (
+            <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>載入中...</div>
+          ) : !stats?.recent_faults?.length ? (
+            <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>無資料</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-light)' }}>
+                    {['單號', '描述', '狀態', '日期'].map((h) => (
+                      <th key={h} style={{
+                        textAlign: 'left', padding: '0.75rem', fontWeight: 600,
+                        color: 'var(--text-secondary)', fontSize: '0.8125rem',
+                      }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.recent_faults.map((f) => (
+                    <tr key={f.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
+                      <td style={{ padding: '0.75rem', fontWeight: 500, color: 'var(--text-primary)' }}>{f.id}</td>
+                      <td style={{ padding: '0.75rem', color: 'var(--text-secondary)', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {f.description || '-'}
+                      </td>
+                      <td style={{ padding: '0.75rem' }}>
+                        <span style={{
+                          display: 'inline-block', padding: '0.15rem 0.6rem', borderRadius: '6px',
+                          fontSize: '0.75rem', fontWeight: 600,
+                          background: f.status === '結案' ? '#6B8F7120' : f.status === '取消' ? '#87867f20' : '#E0785020',
+                          color: f.status === '結案' ? '#6B8F71' : f.status === '取消' ? '#87867f' : '#E07850',
+                        }}>{f.status}</span>
+                      </td>
+                      <td style={{ padding: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        {f.date ? f.date.slice(0, 10) : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ChartCard>
       </div>
     </div>
   );

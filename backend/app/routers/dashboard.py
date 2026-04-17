@@ -30,6 +30,13 @@ class RecentQueryResponse(BaseModel):
     created_at: Optional[str] = None
 
 
+@router.get("/stats")
+async def get_dashboard_stats():
+    """Real-time dashboard statistics from Maximo data."""
+    service = get_dashboard_service()
+    return await service.get_maximo_stats()
+
+
 @router.get("/summary", response_model=SummaryResponse)
 async def get_summary():
     """Get dashboard summary statistics."""
