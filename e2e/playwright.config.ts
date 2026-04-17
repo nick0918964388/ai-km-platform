@@ -28,16 +28,16 @@ export default defineConfig({
   
   /* 全域設定 */
   use: {
-    /* Base URL */
-    baseURL: process.env.BASE_URL || 'http://localhost:3000',
-    
+    /* Base URL — default to production deploy server */
+    baseURL: process.env.BASE_URL || 'http://192.168.1.11:3000',
+
     /* 截圖設定 */
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     trace: 'on-first-retry',
-    
+
     /* 超時設定 */
-    actionTimeout: 10000,
+    actionTimeout: 15000,
     navigationTimeout: 30000,
   },
 
@@ -66,24 +66,24 @@ export default defineConfig({
     },
   ],
 
-  /* 本地開發時自動啟動服務 */
-  webServer: [
-    {
-      command: 'cd ../backend && source venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000',
-      url: 'http://localhost:8000/health',
-      reuseExistingServer: !process.env.CI,
-      timeout: 120000,
-    },
-    {
-      command: 'cd ../frontend && npm run dev',
-      url: 'http://localhost:3000',
-      reuseExistingServer: !process.env.CI,
-      timeout: 120000,
-    },
-  ],
+  /* 本地開發時自動啟動服務 — 已停用，測試直接跑在部署伺服器 192.168.1.11 */
+  // webServer: [
+  //   {
+  //     command: 'cd ../backend && source venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000',
+  //     url: 'http://localhost:8000/health',
+  //     reuseExistingServer: !process.env.CI,
+  //     timeout: 120000,
+  //   },
+  //   {
+  //     command: 'cd ../frontend && npm run dev',
+  //     url: 'http://localhost:3000',
+  //     reuseExistingServer: !process.env.CI,
+  //     timeout: 120000,
+  //   },
+  // ],
 
-  /* 超時設定 */
-  timeout: 60000,
+  /* 超時設定 — LLM 呼叫可能 10-30 秒，放寬到 120 秒 */
+  timeout: 120000,
   expect: {
     timeout: 10000,
   },
