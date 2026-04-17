@@ -191,6 +191,7 @@ class IntentClassifierService:
                     ],
                     temperature=0,
                     max_tokens=500,
+                    extra_body={"keep_alive": -1},
                 )
                 content = response.choices[0].message.content
 
