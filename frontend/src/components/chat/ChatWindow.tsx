@@ -406,7 +406,7 @@ export default function ChatWindow() {
         intent: messageSqlResults[m.id]?.length
           ? 'sql'
           : messageMetadata[m.id]?.intent?.intent || undefined,
-        sql: messageSqlResults[m.id]?.[0]?.sql || undefined,
+        sql: messageSqlResults[m.id]?.[0]?.debug?.sql || messageSqlResults[m.id]?.[0]?.sql || undefined,
       }));
     };
 
