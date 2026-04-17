@@ -255,14 +255,15 @@ export const useStore = create<AppState>((set, get) => ({
   activeConversationId: null,
   
   // Load user data from localStorage (called after hydration)
-  // Always start with a fresh new conversation (activeConversationId = null)
-  // Users can switch to old conversations from the sidebar
+  // Restore last active conversation so user returns to where they left off
   loadUserData: () => {
     const { user } = get();
     if (user) {
       // Load from localStorage immediately, then sync from server
       const conversations = loadUserConversations(user.id);
-      set({ conversations, activeConversationId: null });
+      const storedActiveId = loadActiveConversationId(user.id);
+      const validActiveId = storedActiveId && conversations.some(c => c.id === storedActiveId) ? storedActiveId : null;
+      set({ conversations, activeConversationId: validActiveId });
       import('@/lib/api').then(({ apiListConversations, apiGetConversation }) => {
         apiListConversations().then(async (serverConvs) => {
           if (!serverConvs?.length) return;
