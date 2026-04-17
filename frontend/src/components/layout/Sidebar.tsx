@@ -11,28 +11,35 @@ import {
   DataBase,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Bot,
   User,
   Query,
   Activity,
   DataTable,
+  SettingsAdjust,
 } from '@carbon/icons-react';
+import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import AccountInitials from '@/components/profile/AccountInitials';
 
-const navItems = [
+const userNavItems = [
   { href: '/chat', label: 'AI 問答', icon: Chat },
-  { href: '/maximo-query', label: 'Maximo 查詢', icon: Query, adminOnly: true },
   { href: '/history', label: '查詢紀錄', icon: RecentlyViewed },
-  { href: '/admin/dashboard', label: '管理儀表板', icon: Dashboard, adminOnly: true },
-  { href: '/admin/knowledge-base', label: '知識庫管理', icon: DataBase, adminOnly: true },
-  { href: '/admin/maximo-knowledge', label: 'Maximo 知識庫', icon: DataBase, adminOnly: true },
-  { href: '/admin/audit', label: '稽核日誌', icon: Activity, adminOnly: true },
-  { href: '/admin/pending-examples', label: 'SQL 範例審核', icon: DataTable, adminOnly: true },
+];
+
+const adminNavItems = [
+  { href: '/admin/dashboard', label: '管理儀表板', icon: Dashboard },
+  { href: '/maximo-query', label: 'Maximo 查詢', icon: Query },
+  { href: '/admin/knowledge-base', label: '知識庫管理', icon: DataBase },
+  { href: '/admin/maximo-knowledge', label: 'Maximo 知識庫', icon: DataBase },
+  { href: '/admin/audit', label: '稽核日誌', icon: Activity },
+  { href: '/admin/pending-examples', label: 'SQL 範例審核', icon: DataTable },
+  { href: '/admin/permissions', label: '權限設定', icon: Locked },
 ];
 
 const settingsItems = [
-  { href: '/admin/permissions', label: '權限設定', icon: Locked },
   { href: '/settings', label: '系統設定', icon: Settings },
   { href: '/profile', label: '個人資料', icon: User },
 ];
@@ -56,6 +63,10 @@ export default function Sidebar() {
     }
   };
 
+  const [adminExpanded, setAdminExpanded] = useState(() => {
+    return pathname.startsWith('/admin') || pathname === '/maximo-query';
+  });
+
   return (
     <aside className={`sidebar ${sidebarOpen ? 'open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}>
       {/* Header */}
@@ -78,39 +89,69 @@ export default function Sidebar() {
       {/* Navigation */}
       <nav className="sidebar-nav">
         {!sidebarCollapsed && <div className="nav-section">主選單</div>}
-        {navItems
-          .filter((item) => !item.adminOnly || user?.role === 'admin')
-          .map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + '/') ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
-              onClick={handleNavClick}
-              title={sidebarCollapsed ? item.label : undefined}
-            >
-              <item.icon size={20} />
-              {!sidebarCollapsed && item.label}
-            </a>
-          ))}
+        {userNavItems.map((item) => (
+          <a
+            key={item.href}
+            href={item.href}
+            className={`nav-item ${pathname === item.href ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
+            onClick={handleNavClick}
+            title={sidebarCollapsed ? item.label : undefined}
+          >
+            <item.icon size={20} />
+            {!sidebarCollapsed && item.label}
+          </a>
+        ))}
 
-        {/* Settings Section */}
+        {/* Admin Section (collapsible) */}
         {user?.role === 'admin' && (
           <>
-            {!sidebarCollapsed && <div className="nav-section">設定</div>}
-            {settingsItems.map((item) => (
+            {!sidebarCollapsed ? (
+              <div
+                className="nav-section"
+                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' }}
+                onClick={() => setAdminExpanded(v => !v)}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <SettingsAdjust size={14} />
+                  管理員
+                </span>
+                {adminExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </div>
+            ) : (
+              <div className="nav-section" style={{ cursor: 'pointer' }} onClick={() => setAdminExpanded(v => !v)} title="管理員區">
+                <SettingsAdjust size={16} />
+              </div>
+            )}
+            {(adminExpanded || sidebarCollapsed) && adminNavItems.map((item) => (
               <a
                 key={item.href}
                 href={item.href}
-                className={`nav-item ${pathname === item.href ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
+                className={`nav-item ${pathname === item.href || pathname.startsWith(item.href + '/') ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
                 onClick={handleNavClick}
                 title={sidebarCollapsed ? item.label : undefined}
+                style={!sidebarCollapsed ? { paddingLeft: '2rem', fontSize: '0.8125rem' } : undefined}
               >
-                <item.icon size={20} />
+                <item.icon size={18} />
                 {!sidebarCollapsed && item.label}
               </a>
             ))}
           </>
         )}
+
+        {/* Settings */}
+        {!sidebarCollapsed && <div className="nav-section">設定</div>}
+        {settingsItems.map((item) => (
+          <a
+            key={item.href}
+            href={item.href}
+            className={`nav-item ${pathname === item.href ? 'active' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
+            onClick={handleNavClick}
+            title={sidebarCollapsed ? item.label : undefined}
+          >
+            <item.icon size={20} />
+            {!sidebarCollapsed && item.label}
+          </a>
+        ))}
 
       </nav>
 
