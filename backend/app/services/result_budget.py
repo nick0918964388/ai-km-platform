@@ -8,8 +8,8 @@ import logging
 log = logging.getLogger(__name__)
 
 # 預設限制
-DEFAULT_PER_QUERY = 50
-DEFAULT_PER_CONVERSATION = 200
+DEFAULT_PER_QUERY = 500
+DEFAULT_PER_CONVERSATION = 2000
 OVERFLOW_NOTICE = "（結果已截斷，共 {total} 筆，顯示前 {shown} 筆）"
 
 

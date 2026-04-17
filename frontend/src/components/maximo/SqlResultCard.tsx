@@ -109,7 +109,9 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
           padding: '0.1rem 0.4rem', borderRadius: 99, fontSize: '0.65rem', fontWeight: 600,
           background: 'rgba(66,190,101,0.12)', color: '#42be65',
         }}>
-          {result.row_count} 筆
+          {result.data?.length !== result.row_count
+            ? `${result.data?.length ?? 0} / ${result.row_count} 筆`
+            : `${result.row_count} 筆`}
         </span>
         {isAdmin && confidence != null && (
           <span style={{
@@ -194,6 +196,15 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
               onDocSearch={(row, i) => { setSelectedRow(i); setDocSearchRow(row); }}
               columnLabels={result.column_labels}
             />
+          </div>
+        )}
+
+        {result.budget && (
+          <div style={{
+            padding: '0.5rem 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)',
+            background: 'rgba(241,194,50,0.08)', borderTop: '1px solid var(--border-subtle)',
+          }}>
+            {result.budget}
           </div>
         )}
 
