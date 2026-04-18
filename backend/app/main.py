@@ -196,7 +196,11 @@ async def lifespan(app: FastAPI):
                     ]
                     cleaned = "\n".join(lines).strip()
                     if cleaned:
-                        await db.execute(_text(cleaned))
+                        try:
+                            await db.execute(_text(cleaned))
+                        except Exception as stmt_err:
+                            print(f"⚠️ FTS stmt failed: {stmt_err!r}\n  SQL was: {cleaned!r}")
+                            raise
             print("✅ Conversations FTS index ensured (GENERATED column)")
     except Exception as e:
         print(f"⚠️ Conversations FTS migration skipped: {e}")
