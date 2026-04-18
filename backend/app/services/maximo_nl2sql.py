@@ -1117,6 +1117,33 @@ SQL：{sql}
         except Exception:
             pass
 
+        # C: 語意 cache fallback — Redis MD5 miss 時嘗試 Qdrant semantic lookup
+        # 相似度 > 0.95 即命中（保守閾值避免錯誤命中）
+        semantic_hit_info = None
+        if not (cached_sql and cached_sql.get("sql")):
+            try:
+                from app.services.sql_semantic_cache import get_semantic_sql_cache
+                sem_cache = get_semantic_sql_cache()
+                if sem_cache is not None:
+                    hit = sem_cache.lookup(question)
+                    if hit and hit.sql:
+                        cached_sql = {
+                            "sql": hit.sql,
+                            "explanation": hit.explanation,
+                            "model": hit.model,
+                            "confidence": hit.confidence,
+                        }
+                        semantic_hit_info = {
+                            "matched_query": hit.query,
+                            "similarity": hit.similarity,
+                        }
+                        log.info(
+                            "semantic cache hit: similarity=%.3f matched='%s'",
+                            hit.similarity, (hit.query or "")[:60],
+                        )
+            except Exception as e:
+                log.warning("semantic cache fallback failed: %s", e)
+
         # If cached SQL exists, skip LLM generation and execute directly
         # (SQL was already validated when first cached, skip re-validation)
         if cached_sql and cached_sql.get("sql"):
@@ -1139,6 +1166,8 @@ SQL：{sql}
                         "verification_history": [],
                         "mode": mode,
                         "cached": True,
+                        "cache_type": "semantic" if semantic_hit_info else "exact",
+                        "semantic_match": semantic_hit_info,
                         "query_plan": None,
                         "summary": self._generate_summary(result["columns"], result["rows"], result["row_count"]),
                         "suggestions": [],
@@ -1336,6 +1365,21 @@ SQL：{sql}
                 await redis_conn.set(cache_key, json.dumps(cache_data, ensure_ascii=False))
             except Exception:
                 pass
+
+            # C: 同步寫入語意 cache（fire-and-forget，失敗不影響主流程）
+            try:
+                from app.services.sql_semantic_cache import get_semantic_sql_cache
+                sem_cache = get_semantic_sql_cache()
+                if sem_cache is not None:
+                    sem_cache.insert(
+                        query=question,
+                        sql=last_result["sql"],
+                        explanation=last_result.get("explanation"),
+                        model=last_result.get("model"),
+                        confidence=last_result.get("confidence"),
+                    )
+            except Exception as e:
+                log.warning("semantic cache insert failed (non-fatal): %s", e)
 
         if redis_conn:
             try:
