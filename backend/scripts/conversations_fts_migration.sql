@@ -2,7 +2,7 @@
 -- Uses GENERATED column (PostgreSQL 12+) to avoid PL/pgSQL trigger,
 -- because asyncpg cannot execute PL/pgSQL function bodies split naively by ";".
 --
--- This file only contains simple, single-statement SQL terminated by ";".
+-- This file only contains simple, single-statement SQL separated by semicolons.
 -- The legacy trigger/function and legacy plain tsvector column (if any) are
 -- dropped by the python migration runner in app/main.py BEFORE this script runs.
 
