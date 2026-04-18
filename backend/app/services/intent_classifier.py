@@ -32,88 +32,41 @@ class IntentResult:
     clarification_options: List[Dict[str, str]] = None
 
 
-FEW_SHOT_EXAMPLES = """
-範例 1:
-使用者: 查詢 EMU801 故障歷程
-分析: 使用者要查詢特定車輛的故障記錄，這是結構化資料查詢
-結果: {"intent": "structured", "confidence": 0.95, "entities": {"vehicle_code": "EMU801", "query_type": "faults"}, "reasoning": "明確指定車輛編號和查詢類型"}
+# Compact few-shots: 1 per intent class, picked for edge-case coverage.
+# - structured: 明確車號+查詢類型
+# - knowledge: 操作程序問法
+# - hybrid: 多面向列舉（括號/冒號/頓號）→ 必須 hybrid
+# - clarification: 極短查詢，需反問
+FEW_SHOT_EXAMPLES = """範例:
+Q: 查詢 EMU801 故障歷程
+A: {"intent":"structured","confidence":0.95,"entities":{"vehicle_code":"EMU801","query_type":"faults"},"reasoning":"指定車號與查詢類型"}
 
-範例 2:
-使用者: 轉向架維修標準流程是什麼？
-分析: 使用者要查詢維修流程文件，這是知識庫查詢
-結果: {"intent": "knowledge", "confidence": 0.9, "entities": {"topic": "轉向架維修", "doc_type": "標準流程"}, "reasoning": "查詢維修流程屬於文件知識"}
+Q: 如何更換集電弓碳條？
+A: {"intent":"knowledge","confidence":0.95,"entities":{"topic":"集電弓碳條更換"},"reasoning":"操作程序文件"}
 
-範例 3:
-使用者: EMU801 煞車系統為什麼常故障？有什麼維修建議？
-分析: 使用者既要查詢故障數據，也需要維修建議文件
-結果: {"intent": "hybrid", "confidence": 0.85, "entities": {"vehicle_code": "EMU801", "system": "煞車系統"}, "reasoning": "需要結合故障數據和維修文件"}
+Q: EMU900 的車輛資訊總覽（故障、檢修、成本）
+A: {"intent":"hybrid","confidence":0.92,"entities":{"vehicle_code":"EMU900","aspects":["fault","maintenance","cost"]},"reasoning":"括號列舉多面向，須分解平行查詢"}
 
-範例 4:
-使用者: 最近的故障情況
-分析: 使用者沒有指定車輛或時間範圍，需要澄清
-結果: {"intent": "clarification", "confidence": 0.7, "entities": {}, "reasoning": "缺少具體查詢條件，需要知道車輛和時間範圍", "clarification_options": [{"label": "最近一週全車隊故障", "query": "最近一週全部車輛的故障通報"}, {"label": "指定車輛故障歷程", "query": "EMU801 的故障歷程"}]}
+Q: 工單
+A: {"intent":"clarification","confidence":0.6,"entities":{},"reasoning":"查詢過於簡短","clarification_options":[{"label":"所有工單列表","query":"列出所有工單"},{"label":"核簽中的工單","query":"核簽中的工單有哪些"}]}"""
 
-範例 5:
-使用者: 新竹機務段所有車輛的維修成本統計
-分析: 使用者要查詢特定機務段的成本數據，這是結構化資料查詢
-結果: {"intent": "structured", "confidence": 0.9, "entities": {"depot": "新竹機務段", "query_type": "costs", "aggregation": "sum"}, "reasoning": "明確指定機務段和統計類型"}
+SYSTEM_PROMPT = f"""你是車輛維修系統的意圖分類器。請輸出純 JSON。
 
-範例 6:
-使用者: 如何更換集電弓碳條？
-分析: 使用者要查詢操作程序文件
-結果: {"intent": "knowledge", "confidence": 0.95, "entities": {"topic": "集電弓碳條更換", "doc_type": "操作程序"}, "reasoning": "查詢操作步驟屬於文件知識"}
+意圖類別：
+- structured: 結構化資料（車輛/故障/檢修/成本/庫存）
+- knowledge: 文件知識（手冊/程序/規範）
+- hybrid: 同時需要兩者，或多面向列舉（括號、冒號、頓號列 2 個以上面向必為 hybrid）
+- clarification: 不明確，需反問
 
-範例 7:
-使用者: 工單
-分析: 使用者只說了「工單」，不確定要查哪種工單或什麼操作
-結果: {"intent": "clarification", "confidence": 0.6, "entities": {}, "reasoning": "查詢過於簡短，需要更多資訊", "clarification_options": [{"label": "所有工單列表", "query": "列出所有工單"}, {"label": "核簽中的工單", "query": "核簽中的工單有哪些"}, {"label": "最近的臨修工單", "query": "最近一週的臨修工單"}]}
+規則：
+- 若對話脈絡已足夠，即使當前查詢短，也分類為 structured/knowledge/hybrid，而非 clarification。
+- clarification_options 格式：[{{"label": "顯示文字", "query": "完整查詢"}}]。
 
-範例 8:
-使用者: 車輛狀況
-分析: 使用者想了解車輛狀況但沒有指定車號或查詢類型
-結果: {"intent": "clarification", "confidence": 0.65, "entities": {}, "reasoning": "未指定車輛編號或具體要查詢的面向", "clarification_options": [{"label": "全車隊資產總覽", "query": "全部車輛資產統計"}, {"label": "特定車號故障紀錄", "query": "EMU900 的故障紀錄"}, {"label": "車輛維修成本排名", "query": "各車輛維修成本排名"}]}
-
-範例 9 (多面向總覽 — 必須為 hybrid):
-使用者: EMU900 的車輛資訊總覽（故障、檢修、成本）
-分析: 括號內列出多個面向（故障、檢修、成本），單一 SQL 無法涵蓋，需分解為平行子任務
-結果: {"intent": "hybrid", "confidence": 0.92, "entities": {"vehicle_code": "EMU900", "aspects": ["fault", "maintenance", "cost"]}, "reasoning": "括號內多面向查詢，需分解為故障/檢修/成本三個子查詢平行執行"}
-
-範例 10 (多面向列舉 — 必須為 hybrid):
-使用者: TEMU2000 車型資料：工單、故障、維修成本
-分析: 冒號後列出多個面向，需分解查詢
-結果: {"intent": "hybrid", "confidence": 0.9, "entities": {"vehicle_type": "TEMU2000"}, "reasoning": "查詢涉及多個結構化面向（工單+故障+成本），應分解平行查詢"}
-"""
-
-SYSTEM_PROMPT = f"""你是一個車輛維修知識管理系統的意圖分類器。
-
-你的任務是分析使用者的查詢，判斷其意圖類型：
-1. **structured**: 查詢結構化資料（車輛資訊、故障記錄、檢修歷程、成本、零件庫存）
-2. **knowledge**: 查詢知識庫文件（維修手冊、操作程序、技術規範）
-3. **hybrid**: 同時需要結構化資料和知識文件
-4. **clarification**: 查詢不明確，需要使用者提供更多資訊
-
-重要規則：
-- 如果對話脈絡已提供足夠資訊（例如使用者在追問上一個問題的細節），即使當前查詢較短或模糊，也應該判斷為 structured/knowledge/hybrid，而非 clarification。
-- **多面向查詢必須是 hybrid**：如果查詢中用括號、冒號、頓號（、）列舉 2 個以上資料面向（如「故障、檢修、成本」），必須分類為 hybrid，因為單一 SQL 無法涵蓋。
-- clarification_options 必須是 {{"label": "顯示文字", "query": "完整查詢"}} 格式的陣列。
-
-可識別的實體：
-- vehicle_code: 車輛編號 (如 EMU801, TEMU2001)
-- vehicle_type: 車型 (如 EMU800系列)
-- depot: 機務段 (如 新竹機務段、台中機務段)
-- fault_type: 故障類型 (轉向架、煞車系統、電氣系統、空調系統、門機系統、推進系統、集電弓)
-- date_range: 時間範圍
-- query_type: 查詢類型 (faults, maintenance, costs, usage, inventory)
+實體：vehicle_code, vehicle_type, depot, fault_type, date_range, query_type。
 
 {FEW_SHOT_EXAMPLES}
 
-請以 JSON 格式回覆，包含：
-- intent: 意圖類型
-- confidence: 信心度 (0-1)
-- entities: 識別的實體
-- reasoning: 判斷理由
-- clarification_options: (僅 clarification 時) 建議選項，格式為 [{{"label": "顯示文字", "query": "完整查詢"}}]
-"""
+輸出 JSON 欄位：intent, confidence, entities, reasoning, clarification_options(僅 clarification 時)。"""
 
 
 class IntentClassifierService:

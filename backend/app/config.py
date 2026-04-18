@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     ollama_embedding_model: str = "qwen3-embedding:latest"
     ollama_embedding_dimension: int = 4096
 
+    # OpenAI Embedding (used only when embedding_provider=openai)
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_dimension: int = 1536
+    openai_embedding_base_url: str = ""  # optional override (e.g. Azure / proxy). empty → default OpenAI endpoint
+
     # Qdrant
     qdrant_collection_name: str = "knowledge_base"
     qdrant_url: str = "http://localhost:6333"
