@@ -199,11 +199,11 @@ async def lifespan(app: FastAPI):
                         try:
                             await db.execute(_text(cleaned))
                         except Exception as stmt_err:
-                            print(f"⚠️ FTS stmt failed: {stmt_err!r}\n  SQL was: {cleaned!r}")
+                            print(f"⚠️ FTS stmt failed: {stmt_err!r}\n  SQL was: {cleaned!r}", flush=True)
                             raise
-            print("✅ Conversations FTS index ensured (GENERATED column)")
+            print("✅ Conversations FTS index ensured (GENERATED column)", flush=True)
     except Exception as e:
-        print(f"⚠️ Conversations FTS migration skipped: {e}")
+        print(f"⚠️ Conversations FTS migration skipped: {e}", flush=True)
 
     # System settings table migration
     try:
