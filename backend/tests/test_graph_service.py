@@ -356,3 +356,49 @@ def test_get_graph_service_singleton():
     s1 = get_graph_service()
     s2 = get_graph_service()
     assert s1 is s2
+
+
+# ---------- 11. count helpers (W3-T3) ----------
+
+def test_count_nodes_by_label_returns_dict(svc):
+    session = MagicMock()
+    rec1 = MagicMock()
+    rec1.__getitem__ = lambda self, k: {"label": "WorkOrder", "c": 7995}[k]
+    rec2 = MagicMock()
+    rec2.__getitem__ = lambda self, k: {"label": "Asset", "c": 10662}[k]
+    result_mock = MagicMock()
+    result_mock.__iter__ = lambda self: iter([rec1, rec2])
+    session.run.return_value = result_mock
+
+    with patch("app.services.graph_service.GraphDatabase.driver",
+               return_value=_make_driver_with_session(session)):
+        counts = svc.count_nodes_by_label()
+
+    assert counts == {"WorkOrder": 7995, "Asset": 10662}
+
+
+def test_count_nodes_by_label_returns_empty_on_error(svc):
+    with patch("app.services.graph_service.GraphDatabase.driver") as m:
+        m.side_effect = RuntimeError("neo4j down")
+        assert svc.count_nodes_by_label() == {}
+
+
+def test_count_edges_by_type_returns_dict(svc):
+    session = MagicMock()
+    rec = MagicMock()
+    rec.__getitem__ = lambda self, k: {"rt": "PERFORMED_ON", "c": 7995}[k]
+    result_mock = MagicMock()
+    result_mock.__iter__ = lambda self: iter([rec])
+    session.run.return_value = result_mock
+
+    with patch("app.services.graph_service.GraphDatabase.driver",
+               return_value=_make_driver_with_session(session)):
+        counts = svc.count_edges_by_type()
+
+    assert counts == {"PERFORMED_ON": 7995}
+
+
+def test_count_edges_by_type_returns_empty_on_error(svc):
+    with patch("app.services.graph_service.GraphDatabase.driver") as m:
+        m.side_effect = RuntimeError("neo4j down")
+        assert svc.count_edges_by_type() == {}

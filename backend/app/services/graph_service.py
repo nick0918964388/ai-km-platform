@@ -235,6 +235,40 @@ class GraphService:
         """實體的社群 ID；需 GDS 預計算，Phase 3.1 補。"""
         return None
 
+    def count_nodes_by_label(self) -> dict[str, int]:
+        """統計各 label 的節點數。Neo4j 空或錯誤時回空 dict。"""
+        cypher = (
+            "CALL db.labels() YIELD label "
+            "CALL { WITH label MATCH (n) WHERE label IN labels(n) RETURN count(n) AS c } "
+            "RETURN label, c"
+        )
+        try:
+            def _run():
+                with self._session() as s:
+                    result = s.run(cypher)
+                    return {r["label"]: r["c"] for r in result}
+            return self._guarded(_run)
+        except Exception as e:
+            logger.warning("count_nodes_by_label failed: %s", e)
+            return {}
+
+    def count_edges_by_type(self) -> dict[str, int]:
+        """統計各 relationship type 的邊數。Neo4j 空或錯誤時回空 dict。"""
+        cypher = (
+            "CALL db.relationshipTypes() YIELD relationshipType AS rt "
+            "CALL { WITH rt MATCH ()-[r]->() WHERE type(r) = rt RETURN count(r) AS c } "
+            "RETURN rt, c"
+        )
+        try:
+            def _run():
+                with self._session() as s:
+                    result = s.run(cypher)
+                    return {r["rt"]: r["c"] for r in result}
+            return self._guarded(_run)
+        except Exception as e:
+            logger.warning("count_edges_by_type failed: %s", e)
+            return {}
+
     # ----- 內部工具 -----
 
     def _run_and_parse_nodes(self, cypher: str, params: dict) -> list[GraphEntity]:
