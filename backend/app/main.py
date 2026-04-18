@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile, maximo, admin, conversations
+from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile, maximo, admin, admin_kg, conversations
 from app.routers.auth import router as auth_router
 from app.config import get_settings
 
@@ -186,11 +186,17 @@ async def lifespan(app: FastAPI):
                         "ALTER TABLE conversation_messages DROP COLUMN content_tsv"
                     ))
                 # 3) Apply the new schema (simple statements, split by ';')
+                #    Strip full-line comments before checking emptiness, so a
+                #    chunk containing only '--' header lines is treated as empty.
                 sql_content = fts_sql.read_text()
                 for stmt in sql_content.split(";"):
-                    stmt = stmt.strip()
-                    if stmt and not stmt.startswith("--"):
-                        await db.execute(_text(stmt))
+                    lines = [
+                        ln for ln in stmt.splitlines()
+                        if ln.strip() and not ln.strip().startswith("--")
+                    ]
+                    cleaned = "\n".join(lines).strip()
+                    if cleaned:
+                        await db.execute(_text(cleaned))
             print("✅ Conversations FTS index ensured (GENERATED column)")
     except Exception as e:
         print(f"⚠️ Conversations FTS migration skipped: {e}")
@@ -313,6 +319,7 @@ app.include_router(profile.router)  # Already includes /api/profile prefix
 app.include_router(profile.avatar_router)  # Avatar static files at /api/avatars
 app.include_router(maximo.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(admin_kg.router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(conversations.router)
 
