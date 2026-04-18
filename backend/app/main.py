@@ -279,6 +279,12 @@ async def lifespan(app: FastAPI):
             'ollama_light_model', 'intent_llm_url', 'intent_llm_model',
             'intent_provider', 'anthropic_api_key', 'anthropic_model', 'intent_anthropic_model',
             'openai_api_key',
+            # Batch 2-C: SQL generation feature flag
+            'sql_generation_provider', 'sql_generation_model',
+            'nvidia_api_key', 'nvidia_base_url', 'nvidia_sql_model',
+            # Batch 2-B: reflection thresholds
+            'nl2sql_max_retries', 'nl2sql_skip_reflection_on_rule_pass',
+            'nl2sql_reflection_confidence_threshold',
         ]
         for key in override_keys:
             if db_settings.get(key):

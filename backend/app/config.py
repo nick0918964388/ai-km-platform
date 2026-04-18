@@ -25,6 +25,25 @@ class Settings(BaseSettings):
     ollama_chat_model: str = "qwen3.5:397b-cloud"
     ollama_light_model: str = "gemma4:31b-cloud"
 
+    # NVIDIA API (Batch 2-C: SQL generation alternative provider)
+    nvidia_api_key: str = ""
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nvidia_sql_model: str = "minimaxai/minimax-m2.7"
+
+    # SQL Generation feature flag (Batch 2-C)
+    # "anthropic" (default, no behavior change) | "nvidia" | "ollama"
+    sql_generation_provider: str = "anthropic"
+    # Override SQL generation model; empty = use provider's default
+    sql_generation_model: str = ""
+
+    # Self-Reflection thresholds (Batch 2-B)
+    # max retries for non-hybrid path (was 3, now 1 to cap latency)
+    nl2sql_max_retries: int = 1
+    # skip reflection when rule validator passes and row_count > 0
+    nl2sql_skip_reflection_on_rule_pass: bool = True
+    # only trigger reflection retry when confidence below this (very low)
+    nl2sql_reflection_confidence_threshold: float = 0.3
+
     # Intent classification
     intent_provider: str = "ollama"  # "ollama", "anthropic", or "openai"
     intent_llm_url: str = "http://ollama.webtw.xyz:11434/v1"
