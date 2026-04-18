@@ -116,10 +116,36 @@ class MaximoNL2SQL:
         self.db = db
         from app.config import get_settings
         settings = get_settings()
+        self._settings = settings
         self.provider = "ollama"
         self.anthropic_key = None
+        self.nvidia_key = None
+        self.nvidia_base_url = None
 
-        if settings.llm_provider == "anthropic" and settings.anthropic_api_key:
+        # Batch 2-C: SQL generation provider feature flag
+        # Default = "anthropic" preserves existing behavior. Set to "nvidia" to
+        # switch SQL generation to NVIDIA minimax (faster, ~0.5s/call).
+        sql_gen_provider = (getattr(settings, "sql_generation_provider", "") or "").lower().strip()
+        sql_gen_model_override = getattr(settings, "sql_generation_model", "") or ""
+
+        if sql_gen_provider == "nvidia" and getattr(settings, "nvidia_api_key", ""):
+            self.provider = "nvidia"
+            self.nvidia_key = settings.nvidia_api_key
+            self.nvidia_base_url = settings.nvidia_base_url or "https://integrate.api.nvidia.com/v1"
+            self.model = sql_gen_model_override or settings.nvidia_sql_model or "minimaxai/minimax-m2.7"
+            self.client = AsyncOpenAI(api_key=self.nvidia_key, base_url=self.nvidia_base_url)
+        elif sql_gen_provider == "ollama":
+            self.provider = "ollama"
+            self.client = AsyncOpenAI(api_key=settings.ollama_chat_api_key, base_url=settings.ollama_chat_url)
+            self.model = sql_gen_model_override or settings.ollama_light_model or settings.ollama_chat_model
+        elif sql_gen_provider == "anthropic" and settings.anthropic_api_key:
+            # Explicit anthropic override — forces SQL gen to Anthropic even when
+            # the global llm_provider is set to something else.
+            self.provider = "anthropic"
+            self.anthropic_key = settings.anthropic_api_key
+            self.model = sql_gen_model_override or settings.anthropic_model or "claude-sonnet-4-6"
+            self.client = None
+        elif settings.llm_provider == "anthropic" and settings.anthropic_api_key:
             # Anthropic 原生呼叫（透過 httpx）
             self.provider = "anthropic"
             self.anthropic_key = settings.anthropic_api_key
@@ -673,6 +699,61 @@ class MaximoNL2SQL:
                 pass
             return {"error": str(e), "rows": [], "columns": [], "row_count": 0}
 
+    # ── Batch 2-B: Self-Reflection retry decision ─────────────────────────
+    # Separate "hard" rule issues (SQL 一定有問題) from "soft" hints
+    # (e.g. 0 rows — might just be no data). Only hard issues should trigger retry.
+    _HARD_RULE_ISSUE_MARKERS = (
+        "SQL 驗證失敗",     # syntax / forbidden keyword / unknown table
+        "SQL 執行錯誤",     # DB execution failed
+        "未使用 COUNT",     # asked for count but no COUNT()
+        "未使用 ORDER BY",  # asked for ranking but no ORDER BY
+        "未包含日期條件",   # asked for time but no date filter
+    )
+
+    @classmethod
+    def should_retry_reflection(
+        cls,
+        *,
+        confidence: Optional[float],
+        sql_valid: bool,
+        from_cache: bool,
+        is_hybrid: bool,
+        rule_issues: Optional[list],
+        attempt: int,
+        max_iter: int,
+        threshold: float = 0.3,
+        skip_on_rule_pass: bool = True,
+    ) -> bool:
+        """Decide whether self-reflection retry should fire (Batch 2-B).
+
+        Policy:
+        - Hybrid path: never retry (Alpha handles it separately via max_iter=1).
+        - Cache hit: never retry (already validated when first cached).
+        - Last attempt: never retry (loop will exit anyway).
+        - SQL validator failed OR execution error → always retry (hard error).
+        - SQL valid + no hard rule issues + confidence >= threshold → skip.
+        - Confidence < threshold (very low, default 0.3) → retry.
+        - Otherwise (mid-range confidence, soft issues only) → skip.
+        """
+        if is_hybrid or from_cache:
+            return False
+        if attempt >= max_iter - 1:
+            return False
+        if not sql_valid:
+            return True  # hard error — retry regardless
+        hard_issues = [
+            i for i in (rule_issues or [])
+            if any(m in i for m in cls._HARD_RULE_ISSUE_MARKERS)
+        ]
+        if hard_issues:
+            return True
+        if skip_on_rule_pass and not (rule_issues or []):
+            return False
+        # Mid path: only retry when confidence is clearly low
+        if confidence is not None and confidence < threshold:
+            return True
+        return False
+
     def _rule_validate(self, question: str, sql: str, result: Dict) -> list[str]:
         """Rule-based validation. Returns list of issues (empty = pass)."""
         issues = []
@@ -1088,10 +1169,14 @@ SQL：{sql}
         return suggestions[:5]  # Cap at 5 suggestions
 
     async def query(self, question: str, mode: str = "accurate", user_context: dict = None,
-                    conversation_history: list = None, prebuilt_schema: tuple = None) -> Dict[str, Any]:
+                    conversation_history: list = None, prebuilt_schema: tuple = None,
+                    is_hybrid: bool = False) -> Dict[str, Any]:
         """Full pipeline with optional verification loop.
         mode: 'fast' (no verification) or 'accurate' (with verification loop)
         prebuilt_schema: optional (schema_text, allowed_tables) from speculative execution.
+        is_hybrid: when True, disable self-reflection retry (max_iter=1) — hybrid
+            decompose already has LLM synthesis to recover failed sub-tasks, so
+            extra per-sub-SQL retries compound latency (Batch 2-A: 90s → 15-20s).
         """
         # Permission check
         perm = await self._load_user_permissions(user_context)
@@ -1178,7 +1263,16 @@ SQL：{sql}
                         except Exception: pass
                     return final
 
-        max_iter = 3 if mode == "accurate" else 2  # fast mode: 1 generation + 1 auto-retry on error
+        # Batch 2-B: tighter retry budget. accurate = 1 gen + 1 retry, fast = 1 gen only.
+        # Was: accurate=3, fast=2. Each retry costs 2-3s; old default retried too eagerly.
+        cfg_max_retries = int(getattr(self._settings, "nl2sql_max_retries", 1) or 1)
+        max_iter = (1 + cfg_max_retries) if mode == "accurate" else 1
+        if is_hybrid:
+            # Batch 2-A: Hybrid path single attempt — synthesis layer recovers
+            # failed sub-tasks; per-sub-SQL retries compound latency (90s → 15-20s).
+            max_iter = 1
+        skip_on_rule_pass = bool(getattr(self._settings, "nl2sql_skip_reflection_on_rule_pass", True))
+        reflection_threshold = float(getattr(self._settings, "nl2sql_reflection_confidence_threshold", 0.3) or 0.3)
         history: List[Dict[str, Any]] = []
         last_result: Optional[Dict[str, Any]] = None
         final_confidence = None
@@ -1249,7 +1343,21 @@ SQL：{sql}
 
             # 4. Rule-based validation
             rule_issues = self._rule_validate(question, sql, result)
-            if rule_issues and attempt < max_iter - 1:
+            # Batch 2-B: only retry on HARD rule issues (syntax-level / missing
+            # aggregation). Soft signals (0 rows) alone no longer trigger retry —
+            # they rarely get fixed by regenerating SQL.
+            should_retry_rule = self.should_retry_reflection(
+                confidence=None,  # no confidence yet at rule stage
+                sql_valid=True,
+                from_cache=False,
+                is_hybrid=is_hybrid,
+                rule_issues=rule_issues,
+                attempt=attempt,
+                max_iter=max_iter,
+                threshold=reflection_threshold,
+                skip_on_rule_pass=skip_on_rule_pass,
+            )
+            if should_retry_rule:
                 feedback_text = "；".join(rule_issues)
                 history.append({
                     "attempt": attempt + 1,
@@ -1268,9 +1376,28 @@ SQL：{sql}
                 and not rule_issues
                 and result.get("row_count", 0) > 0
             )
-            if mode == "accurate" and attempt < max_iter - 1 and not skip_verify:
+            if mode == "accurate" and attempt < max_iter - 1 and not skip_verify and not is_hybrid:
                 verify_result = await self._llm_verify(question, sql, result)
-                if not verify_result.get("passed", True) and verify_result.get("feedback"):
+                # Batch 2-B: only retry when LLM verify fails AND confidence very low.
+                # Old behavior retried on any verify failure (including mid-conf 0.5) — wasteful.
+                verify_conf = verify_result.get("confidence", 0.5) if verify_result else 0.5
+                should_retry_verify = (
+                    verify_result is not None
+                    and not verify_result.get("passed", True)
+                    and verify_conf < reflection_threshold
+                    and self.should_retry_reflection(
+                        confidence=verify_conf,
+                        sql_valid=True,
+                        from_cache=False,
+                        is_hybrid=is_hybrid,
+                        rule_issues=rule_issues,
+                        attempt=attempt,
+                        max_iter=max_iter,
+                        threshold=reflection_threshold,
+                        skip_on_rule_pass=skip_on_rule_pass,
+                    )
+                )
+                if should_retry_verify and verify_result.get("feedback"):
                     all_issues = rule_issues + verify_result.get("issues", [])
                     feedback_text = verify_result["feedback"]
                     if rule_issues:
