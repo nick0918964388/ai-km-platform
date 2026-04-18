@@ -18,6 +18,8 @@ import { getApiHeaders, API_URL, STREAM_API_URL, TIMEOUTS, fetchWithTimeout, Tim
 import TaskProgress, { Step } from './TaskProgress';
 import ChatInput from './ChatInput';
 import RagFeedbackButtons from './RagFeedbackButtons';
+import GraphExpansionPanel from './GraphExpansionPanel';
+import { MOCK_GRAPH_EXPANSION } from '@/lib/mockGraphData';
 
 interface MessageSources {
   [messageId: string]: SearchResult[];
@@ -1630,6 +1632,15 @@ export default function ChatWindow() {
                           </div>
                         )}
                       </div>
+                    )}
+                    {/* Graph Expansion Panel — Phase 3 W3-T1 skeleton (feature-flagged, mock data) */}
+                    {msg.role === 'assistant' && msg.content && !messageStreamingStatus[msg.id] &&
+                     (process.env.NEXT_PUBLIC_ENABLE_GRAPH_EXPANSION === 'true' ||
+                      (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('enableGraph') === '1')) && (
+                      <GraphExpansionPanel
+                        messageId={msg.id}
+                        data={MOCK_GRAPH_EXPANSION}
+                      />
                     )}
                     {/* Feedback Buttons — only for complete assistant messages WITHOUT SQL results (SqlResultCard has its own) */}
                     {msg.role === 'assistant' && msg.content && !messageStreamingStatus[msg.id] && !messageSqlResults[msg.id]?.length && (
