@@ -76,6 +76,31 @@ test.describe('W3-T1: Graph Expansion Panel', () => {
   });
 });
 
+test.describe('W3-T2: Mini Graph View', () => {
+  test.skip(!process.env.RUN_GRAPH_E2E, 'W3-T2 skeleton — set RUN_GRAPH_E2E=1 to run against live deploy');
+
+  test.beforeEach(async ({ page }) => {
+    await loginAndOpenChat(page);
+  });
+
+  test('點擊「圖路徑」區塊應展開並 render react-flow 畫布', async ({ page }) => {
+    await sendMessage(page, '煞車異響有哪些相關故障？');
+
+    const panel = page.locator('[data-testid="graph-expansion-panel"]').first();
+    const section = panel.locator('[data-testid="section-graph"]');
+    const header = section.locator('button').first();
+
+    await expect(header).toHaveAttribute('aria-expanded', 'false');
+    await header.click();
+    await expect(header).toHaveAttribute('aria-expanded', 'true');
+
+    // react-flow 會 render 一個 SVG + container
+    const mini = panel.locator('[data-testid="mini-graph-view"]');
+    await expect(mini).toBeVisible();
+    await expect(mini.locator('svg').first()).toBeVisible();
+  });
+});
+
 test.describe('W3-T1: RWD — Graph Expansion Panel', () => {
   test.skip(!process.env.RUN_GRAPH_E2E, 'W3-T1 skeleton — set RUN_GRAPH_E2E=1 to run against live deploy');
 

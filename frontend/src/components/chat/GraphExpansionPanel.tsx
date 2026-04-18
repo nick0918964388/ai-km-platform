@@ -1,7 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import type { GraphExpansionData, WorkOrderItem, SopItem, PartItem } from '@/lib/mockGraphData';
+import { MOCK_MINI_GRAPH } from '@/lib/mockGraphData';
+
+const MiniGraphView = dynamic(() => import('./MiniGraphView'), { ssr: false });
 
 interface GraphExpansionPanelProps {
   messageId: string;
@@ -9,7 +13,7 @@ interface GraphExpansionPanelProps {
   onItemClick?: (type: 'workorder' | 'sop' | 'part', id: string) => void;
 }
 
-type SectionKey = 'workorders' | 'sops' | 'parts';
+type SectionKey = 'workorders' | 'sops' | 'parts' | 'graph';
 
 function SectionHeader({
   icon,
@@ -161,6 +165,7 @@ export default function GraphExpansionPanel({ messageId, data, onItemClick }: Gr
     workorders: false,
     sops: false,
     parts: false,
+    graph: false,
   });
 
   if (!data) return null;
@@ -353,6 +358,26 @@ export default function GraphExpansionPanel({ messageId, data, onItemClick }: Gr
           </section>
         )}
       </div>
+
+      {/* Mini Graph 路徑視圖 */}
+      <section data-testid="section-graph" style={{ marginTop: '0.5rem' }}>
+        <SectionHeader
+          icon="🕸️"
+          title="圖路徑"
+          count={MOCK_MINI_GRAPH.nodes.length}
+          expanded={expanded.graph}
+          onToggle={() => toggle('graph')}
+        />
+        {expanded.graph && (
+          <div style={{ marginTop: '0.375rem' }}>
+            <MiniGraphView
+              nodes={MOCK_MINI_GRAPH.nodes}
+              links={MOCK_MINI_GRAPH.links}
+              onNodeClick={(n) => console.log('mini-graph node clicked:', n)}
+            />
+          </div>
+        )}
+      </section>
 
       <style jsx>{`
         @media (min-width: 1024px) {
