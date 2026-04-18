@@ -154,19 +154,44 @@ async def lifespan(app: FastAPI):
         print(f"⚠️ Conversations migration skipped: {e}")
 
     # Conversations FTS migration
+    # Uses GENERATED column (not trigger) so asyncpg doesn't choke on PL/pgSQL body.
+    # Legacy trigger/function + legacy non-generated content_tsv column are dropped here
+    # (via individual simple statements) before applying the new schema.
     try:
         from app.db.session import get_db_context
         from sqlalchemy import text as _text
         import pathlib
         fts_sql = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "conversations_fts_migration.sql"
         if fts_sql.exists():
-            sql_content = fts_sql.read_text()
             async with get_db_context() as db:
+                # 1) Drop legacy trigger + function if present (older migration versions)
+                await db.execute(_text(
+                    "DROP TRIGGER IF EXISTS trg_conv_msg_tsv ON conversation_messages"
+                ))
+                await db.execute(_text(
+                    "DROP FUNCTION IF EXISTS conversation_messages_tsv_trigger()"
+                ))
+                # 2) If legacy content_tsv exists and is NOT a generated column, drop it
+                #    so the new GENERATED definition can be installed cleanly.
+                row = (await db.execute(_text(
+                    "SELECT is_generated FROM information_schema.columns "
+                    "WHERE table_name = 'conversation_messages' AND column_name = 'content_tsv'"
+                ))).first()
+                if row is not None and (row[0] or "") != "ALWAYS":
+                    # Drop dependent index first (safe: CREATE INDEX IF NOT EXISTS will re-create)
+                    await db.execute(_text(
+                        "DROP INDEX IF EXISTS idx_conv_messages_fts"
+                    ))
+                    await db.execute(_text(
+                        "ALTER TABLE conversation_messages DROP COLUMN content_tsv"
+                    ))
+                # 3) Apply the new schema (simple statements, split by ';')
+                sql_content = fts_sql.read_text()
                 for stmt in sql_content.split(";"):
                     stmt = stmt.strip()
                     if stmt and not stmt.startswith("--"):
                         await db.execute(_text(stmt))
-            print("✅ Conversations FTS index ensured")
+            print("✅ Conversations FTS index ensured (GENERATED column)")
     except Exception as e:
         print(f"⚠️ Conversations FTS migration skipped: {e}")
 
