@@ -22,6 +22,8 @@ from app.services import rag
 from app.services.intent_classifier import get_intent_classifier, QueryIntent
 from app.services.intent_router import detect_intent, detect_ambiguity
 from app.services.input_guardrail import get_input_guardrail, GuardrailAction
+from app.services.output_scanner import get_output_scanner, ScanAction
+from app.middleware.rate_limit import check_rate_limit, record_guardrail_block
 from app.services.context_manager import build_optimized_context, compress_context
 from app.services.call_tracer import CallTracer, trace_llm_call
 from app.services.result_budget import ResultBudget
@@ -244,7 +246,7 @@ async def stream_chat_job(job_id: str):
 
 
 @router.post("/chat/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(request: ChatRequest, http_request: Request):
     """
     Streaming chat with the knowledge base using RAG.
 
@@ -259,6 +261,17 @@ async def chat_stream(request: ChatRequest):
     """
     settings = get_settings()
     llm_url, llm_model = get_active_llm_info()
+
+    # === Security #5: Rate Limiting ===
+    # conversation_id 是最可靠的使用者識別（同一 user 的多 conversation 仍應分限），
+    # 無 conv_id 時退回 IP。Cache 斷線 fail-open。
+    _rate_key = request.conversation_id or (http_request.client.host if http_request.client else "anonymous")
+    try:
+        check_rate_limit(_rate_key, endpoint="chat")
+    except HTTPException:
+        raise
+    except Exception as _e:
+        log.debug("rate_limit check error (fail-open): %s", _e)
 
     async def generate():
         def sse_event(event_type, data=None, terminal: TerminalState = None):
@@ -286,6 +299,16 @@ async def chat_stream(request: ChatRequest):
                     "[chat_stream] guardrail blocked: action=%s reason=%s matches=%s",
                     gr_result.action.value, gr_result.reason, gr_result.matched_patterns,
                 )
+                # Security #5: 累計 guardrail block 次數，超過閾值觸發 alert
+                # 僅針對「被拒絕」的情況記帳（greeting 不算異常）
+                if gr_result.action in (
+                    GuardrailAction.REFUSE_OFF_TOPIC,
+                    GuardrailAction.REFUSE_JAILBREAK,
+                ):
+                    try:
+                        record_guardrail_block(_rate_key)
+                    except Exception:
+                        pass
                 # Audit via rag.log_search_metrics（既有機制）
                 try:
                     asyncio.create_task(rag.log_search_metrics(
@@ -580,6 +603,16 @@ async def chat_stream(request: ChatRequest):
                     trace_llm_call(tracer, "synthesis", llm_url, llm_model,
                         [{"query": query, "sub_results": len(all_results)}], full_answer[:500], syn_ms)
                     yield sse_event('step', {'id': 'synthesize', 'label': f'綜合分析完成（{syn_ms}ms）', 'status': 'done'})
+
+                    # Security #3: Output Scanner — 掃描 final answer
+                    try:
+                        _scan = get_output_scanner().scan(full_answer)
+                        if _scan.action == ScanAction.BLOCK:
+                            yield sse_event('content', '\n\n[系統安全機制] ' + _scan.cleaned_text)
+                        elif _scan.action == ScanAction.REDACT and _scan.cleaned_text != full_answer:
+                            yield sse_event('content', '\n\n[系統已將部分敏感資訊遮蔽]')
+                    except Exception as _se:
+                        log.debug("output scanner error (ignored): %s", _se)
 
                     total_ms = int((time.time() - total_start) * 1000)
                     metadata = {'duration_ms': total_ms, 'intent': {"intent": intent}, 'request_id': tracer.request_id}
@@ -943,6 +976,16 @@ async def chat_stream(request: ChatRequest):
             trace_llm_call(tracer, "rag_answer", llm_url, request.model or llm_model,
                 [{"query": llm_query, "sources_count": len(sources)}], full_answer[:500], gen_ms)
             yield sse_event('step', {'id': 'generate', 'label': f'回答完成（{gen_ms}ms）', 'status': 'done'})
+
+            # Security #3: Output Scanner — 掃描 final answer
+            try:
+                _scan = get_output_scanner().scan(full_answer)
+                if _scan.action == ScanAction.BLOCK:
+                    yield sse_event('content', '\n\n[系統安全機制] ' + _scan.cleaned_text)
+                elif _scan.action == ScanAction.REDACT and _scan.cleaned_text != full_answer:
+                    yield sse_event('content', '\n\n[系統已將部分敏感資訊遮蔽]')
+            except Exception as _se:
+                log.debug("output scanner error (ignored): %s", _se)
 
             duration_ms = gen_ms
             total_ms = int((time.time() - total_start) * 1000)

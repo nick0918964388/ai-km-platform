@@ -1308,6 +1308,27 @@ SQL：{sql}
                 })
                 continue
 
+            # 2a. Security #4: Row-level Policy 深度防禦檢查
+            # 即使 validate_sql 通過也要再過 policy（禁系統表、禁敏感欄位、跨權限）。
+            try:
+                from app.services.sql_policy import get_sql_policy
+                _policy_allowed = (
+                    perm["allowed_tables"] if perm.get("allowed_tables")
+                    else getattr(self, "_allowed_tables", None)
+                )
+                _policy_res = get_sql_policy().check(sql, _policy_allowed)
+                if not _policy_res.allowed:
+                    log.warning("[sql_policy] blocked: %s sql=%s", _policy_res.reason, sql[:200])
+                    history.append({
+                        "attempt": attempt + 1,
+                        "sql": sql,
+                        "error": f"安全政策阻擋：{_policy_res.reason}",
+                        "feedback": f"安全政策阻擋：{_policy_res.reason}",
+                    })
+                    continue
+            except Exception as _pe:
+                log.debug("sql_policy check error (fail-closed by skip): %s", _pe)
+
             # 2b. Permission-based table access check
             if perm.get("allowed_tables"):
                 tables_in_sql = re.findall(r'\b(?:from|join)\s+(\w+)', sql.lower())
