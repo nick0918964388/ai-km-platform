@@ -1027,11 +1027,20 @@ async def chat_stream(request: ChatRequest, http_request: Request):
 
 
 @router.get("/models")
-async def get_models():
+async def get_models(provider: Optional[str] = None, ollama_url: Optional[str] = None):
+    """
+    List available models for a provider.
+
+    Query params let Settings UI preview an Ollama URL before saving it
+    (avoids browser CORS to external Ollama hosts).
+    - ?provider=anthropic|openai|ollama  (defaults to saved settings.llm_provider)
+    - ?ollama_url=<override>             (only for ollama provider)
+    """
     settings = get_settings()
+    effective = (provider or settings.llm_provider or "ollama").lower()
 
     # Anthropic provider — return Claude models
-    if settings.llm_provider == "anthropic":
+    if effective == "anthropic":
         return {
             "models": [
                 {"name": "claude-haiku-4-5-20251001", "size": "快速"},
@@ -1042,7 +1051,7 @@ async def get_models():
         }
 
     # OpenAI provider
-    if settings.llm_provider == "openai":
+    if effective == "openai":
         return {
             "models": [
                 {"name": "gpt-4o-mini", "size": "快速"},
@@ -1052,8 +1061,9 @@ async def get_models():
             "current": settings.openai_model or "gpt-4o",
         }
 
-    # Ollama provider — fetch from API
-    ollama_base = settings.ollama_chat_url.replace("/v1", "").rstrip("/")
+    # Ollama provider — fetch live from the host (UI-supplied or saved)
+    base_src = ollama_url or settings.ollama_chat_url
+    ollama_base = base_src.replace("/v1", "").rstrip("/")
     try:
         req = urllib.request.Request(f"{ollama_base}/api/tags")
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -1065,15 +1075,18 @@ async def get_models():
             return {
                 "models": models,
                 "current": settings.ollama_chat_model,
+                "source": ollama_base,
             }
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("[models] ollama fetch failed from %s: %s", ollama_base, e)
     return {
         "models": [
             {"name": settings.ollama_chat_model, "size": ""},
             {"name": settings.ollama_light_model, "size": ""},
         ],
         "current": settings.ollama_chat_model,
+        "source": ollama_base,
+        "error": "ollama host unreachable",
     }
 
 
