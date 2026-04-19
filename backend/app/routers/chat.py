@@ -156,7 +156,14 @@ async def _generate_sql_recovery_options(query: str, error: str, context: list =
     try:
         import re as _re
         from openai import AsyncOpenAI
-        client = AsyncOpenAI(base_url=llm_url, api_key=settings.llm_api_key or "sk-unused")
+        # llm_api_key 不存在於 Settings；依 provider 取對應 key，或用 dummy（Ollama 不需真 key）
+        _provider = getattr(settings, "llm_provider", "ollama")
+        _api_key = (
+            settings.anthropic_api_key if _provider == "anthropic" else
+            settings.openai_api_key if _provider == "openai" else
+            getattr(settings, "ollama_chat_api_key", None)
+        ) or "sk-unused"
+        client = AsyncOpenAI(base_url=llm_url, api_key=_api_key)
 
         response = await asyncio.wait_for(
             client.chat.completions.create(
@@ -752,7 +759,8 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                     iters = sql_result.get("iterations", 1)
                     friendly = f"查詢未能成功完成（已嘗試 {iters} 次）。"
                     if intent == "hybrid":
-                        yield sse_event('content', f'*（{friendly}改用知識庫搜尋）*\n\n')
+                        # 明確標示「處理中」避免使用者以為訊息結束
+                        yield sse_event('content', f'⏳ _{friendly}改用知識庫搜尋中..._\n\n')
                         intent = "rag"
                     else:
                         # === SQL-first recovery: rewrite → retry SQL → clarify → RAG (last resort) ===
@@ -846,9 +854,9 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                             yield sse_event('done', {}, terminal=TerminalState.CLARIFICATION)
                             return
 
-                        # Layer 3: RAG as last resort
-                        yield sse_event('reasoning', {'phase': 'recovery', 'text': 'SQL 改寫和釐清均未成功，最後嘗試知識庫搜尋。'})
-                        yield sse_event('content', f'*（{friendly}最後改用知識庫搜尋相關資料）*\n\n')
+                        # Layer 3: RAG as last resort — 明確標示處理中
+                        yield sse_event('reasoning', {'phase': 'recovery', 'text': 'SQL 改寫和釐清均未成功，改用知識庫搜尋中。'})
+                        yield sse_event('content', f'⏳ _{friendly}改用知識庫搜尋相關資料中..._\n\n')
                         intent = "rag"
 
             # === RAG Path (intent == "rag" or hybrid fallthrough) ===
