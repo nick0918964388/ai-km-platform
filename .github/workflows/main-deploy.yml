@@ -1,0 +1,106 @@
+name: Main Auto Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: main-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    env:
+      REPO_PATH: /root/ai-km-platform
+    steps:
+      - name: Snapshot current HEAD (for rollback)
+        id: snap
+        run: |
+          set -e
+          cd "$REPO_PATH"
+          PREV=$(git rev-parse HEAD)
+          echo "PREV_COMMIT=$PREV" >> "$GITHUB_OUTPUT"
+          echo "Snapshot: $PREV"
+
+      - name: Git pull main
+        id: pull
+        run: |
+          set -e
+          cd "$REPO_PATH"
+          git fetch origin main
+          git checkout main
+          git pull origin main
+          NEW=$(git rev-parse HEAD)
+          echo "NEW_COMMIT=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Deploying: $NEW"
+
+      - name: Build backend + frontend
+        run: |
+          set -e
+          cd "$REPO_PATH"
+          docker compose build backend frontend 2>&1 | tail -40
+
+      - name: Rolling update backend
+        run: |
+          set -e
+          cd "$REPO_PATH"
+          docker compose up -d backend
+          sleep 25
+
+      - name: Backend healthcheck
+        run: |
+          for i in 1 2 3 4 5; do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" -m 5 http://localhost:8000/health || echo "000")
+            if [ "$code" = "200" ]; then
+              echo "Backend OK (200)"
+              exit 0
+            fi
+            echo "Backend not ready ($code), retry $i/5"
+            sleep 5
+          done
+          echo "::error::Backend health check failed after 5 retries"
+          exit 1
+
+      - name: Rolling update frontend
+        run: |
+          set -e
+          cd "$REPO_PATH"
+          docker compose up -d frontend
+          sleep 15
+
+      - name: Frontend healthcheck
+        run: |
+          code=$(curl -sS -o /dev/null -w "%{http_code}" -m 5 http://localhost:3000/ || echo "000")
+          echo "Frontend HTTP: $code"
+          if [ "$code" = "200" ] || [ "$code" = "307" ] || [ "$code" = "302" ]; then
+            echo "Frontend OK"
+            exit 0
+          fi
+          echo "::error::Frontend bad status $code"
+          exit 1
+
+      - name: Rollback on failure
+        if: failure() && steps.snap.outputs.PREV_COMMIT != ''
+        run: |
+          cd "$REPO_PATH"
+          echo "::warning::Rolling back to ${{ steps.snap.outputs.PREV_COMMIT }}"
+          git reset --hard ${{ steps.snap.outputs.PREV_COMMIT }}
+          docker compose up -d --build backend frontend 2>&1 | tail -30
+          sleep 25
+          curl -sS -o /dev/null -w "Rollback backend health: %{http_code}\n" -m 5 http://localhost:8000/health || true
+          echo "Rollback done"
+
+      - name: Deploy summary
+        if: always()
+        run: |
+          cd "$REPO_PATH"
+          CURRENT=$(git rev-parse HEAD)
+          {
+            echo "### Deploy Result"
+            echo "- Previous: ${{ steps.snap.outputs.PREV_COMMIT }}"
+            echo "- Target: ${{ steps.pull.outputs.NEW_COMMIT }}"
+            echo "- Current (after job): $CURRENT"
+            echo "- Status: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

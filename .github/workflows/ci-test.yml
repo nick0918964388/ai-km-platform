@@ -1,0 +1,82 @@
+name: CI Test
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+
+concurrency:
+  group: ci-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    runs-on: self-hosted
+    env:
+      REPO_PATH: /root/ai-km-platform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync code to deploy machine
+        run: |
+          set -e
+          cd "$REPO_PATH"
+          git fetch origin "${{ github.ref_name }}" || git fetch origin
+          git checkout "${{ github.sha }}"
+          echo "HEAD: $(git rev-parse HEAD)"
+
+      - name: Install test deps (idempotent)
+        run: |
+          docker exec aikm-backend pip install --quiet pytest pytest-asyncio fakeredis 2>&1 | tail -10 || true
+
+      - name: Run pytest
+        run: |
+          set -e
+          if docker exec aikm-backend test -d /app/tests; then
+            docker exec aikm-backend pytest /app/tests/ -v --tb=short 2>&1 | tail -120
+          else
+            echo "::warning::No /app/tests directory inside aikm-backend — skipping pytest"
+          fi
+
+  e2e-chromium:
+    runs-on: self-hosted
+    needs: backend-tests
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install e2e deps
+        working-directory: e2e
+        run: |
+          set -e
+          if [ -f package-lock.json ]; then
+            npm ci --prefer-offline --no-audit --no-fund 2>&1 | tail -20
+          else
+            npm install --no-audit --no-fund 2>&1 | tail -20
+          fi
+
+      - name: Install Playwright chromium (idempotent)
+        working-directory: e2e
+        run: |
+          npx playwright install chromium --with-deps 2>&1 | tail -10 || \
+            npx playwright install chromium 2>&1 | tail -10
+
+      - name: Run Playwright chromium
+        working-directory: e2e
+        env:
+          BASE_URL: http://192.168.1.11:3000
+        run: |
+          npx playwright test --project=chromium --timeout=60000 --reporter=line 2>&1 | tail -80
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7
+          if-no-files-found: ignore

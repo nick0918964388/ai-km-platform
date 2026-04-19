@@ -211,6 +211,31 @@ services:
     networks:
       - aikm-network
 
+  # ============================================
+  # GitHub Actions Self-hosted Runner
+  # ============================================
+  # 用於執行 .github/workflows 下的 pipeline（docs-deploy / ci-test / main-deploy）
+  # Token 需使用者從 GitHub Repo → Settings → Actions → Runners → New 拿短效 token 放入 .env
+  # 詳見 docs/GITHUB_ACTIONS_SETUP.md
+  github-runner:
+    image: myoung34/github-runner:latest
+    container_name: aikm-github-runner
+    restart: unless-stopped
+    environment:
+      REPO_URL: https://github.com/nick0918964388/ai-km-platform
+      RUNNER_NAME: aikm-runner-01
+      RUNNER_TOKEN: ${GITHUB_RUNNER_TOKEN:?GITHUB_RUNNER_TOKEN required — 見 docs/GITHUB_ACTIONS_SETUP.md}
+      RUNNER_WORKDIR: /tmp/runner/work
+      LABELS: self-hosted,linux,aikm
+      DISABLE_AUTO_UPDATE: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/ai-km-platform:/root/ai-km-platform
+      - /mnt/disk3/shared:/mnt/disk3/shared
+      - aikm-runner-work:/tmp/runner/work
+    networks:
+      - aikm-network
+
 # ============================================
 # Networks & Volumes
 # ============================================
@@ -228,3 +253,4 @@ volumes:
   aikm-neo4j-logs:
   aikm-neo4j-plugins:
   aikm-neo4j-import:
+  aikm-runner-work:
