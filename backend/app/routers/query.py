@@ -3,7 +3,7 @@ Unified Query API - Handles natural language queries.
 Routes to appropriate backend (RAG or Structured Data) based on intent.
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,7 +22,9 @@ router = APIRouter(prefix="/query", tags=["Query"])
 class QueryRequest(BaseModel):
     """Unified query request"""
     query: str
-    context: Optional[str] = None
+    # Accepts either a string (legacy) or list[{role, content}] (multi-turn).
+    # classifier.classify & nl2sql.convert_to_sql expect list; string is auto-wrapped.
+    context: Optional[Union[str, list]] = None
     include_sources: bool = True
 
 
