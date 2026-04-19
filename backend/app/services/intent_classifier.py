@@ -35,11 +35,7 @@ class IntentResult:
     clarification_options: List[Dict[str, str]] = None
 
 
-# Compact few-shots: 1 per intent class, picked for edge-case coverage.
-# - structured: 明確車號+查詢類型
-# - knowledge: 操作程序問法
-# - hybrid: 多面向列舉（括號/冒號/頓號）→ 必須 hybrid
-# - clarification: 極短查詢，需反問
+# Compact few-shots: cover each intent + follow-up edge case
 FEW_SHOT_EXAMPLES = """範例:
 Q: 查詢 EMU801 故障歷程
 A: {"intent":"structured","confidence":0.95,"entities":{"vehicle_code":"EMU801","query_type":"faults"},"reasoning":"指定車號與查詢類型"}
@@ -47,8 +43,12 @@ A: {"intent":"structured","confidence":0.95,"entities":{"vehicle_code":"EMU801",
 Q: 如何更換集電弓碳條？
 A: {"intent":"knowledge","confidence":0.95,"entities":{"topic":"集電弓碳條更換"},"reasoning":"操作程序文件"}
 
-Q: EMU900 的車輛資訊總覽（故障、檢修、成本）
-A: {"intent":"hybrid","confidence":0.92,"entities":{"vehicle_code":"EMU900","aspects":["fault","maintenance","cost"]},"reasoning":"括號列舉多面向，須分解平行查詢"}
+Q: EMU900 的維修紀錄與對應的 SOP 處理程序
+A: {"intent":"hybrid","confidence":0.92,"entities":{"vehicle_code":"EMU900"},"reasoning":"需結構化工單資料 + 文件庫 SOP 程序，才能完整回答"}
+
+前一輪: structured (EMU3000 工單類型分布)
+Q: 那同樣的 EMU900 呢？
+A: {"intent":"structured","confidence":0.93,"entities":{"vehicle_code":"EMU900","query_type":"worktype_distribution"},"reasoning":"追問延續前題 structured 模式，僅換車號"}
 
 Q: 工單
 A: {"intent":"clarification","confidence":0.6,"entities":{},"reasoning":"查詢過於簡短","clarification_options":[{"label":"所有工單列表","query":"列出所有工單"},{"label":"核簽中的工單","query":"核簽中的工單有哪些"}]}"""
@@ -56,12 +56,15 @@ A: {"intent":"clarification","confidence":0.6,"entities":{},"reasoning":"查詢�
 SYSTEM_PROMPT = f"""你是車輛維修系統的意圖分類器。請輸出純 JSON。
 
 意圖類別：
-- structured: 結構化資料（車輛/故障/檢修/成本/庫存）
-- knowledge: 文件知識（手冊/程序/規範）
-- hybrid: 同時需要兩者，或多面向列舉（括號、冒號、頓號列 2 個以上面向必為 hybrid）
+- structured: 結構化資料（車輛/故障/檢修/成本/庫存/工單統計）
+- knowledge: 文件知識（手冊/程序/規範/SOP）
+- hybrid: **同時**需要結構化資料 + 文件知識（例：工單紀錄 + 對應 SOP 處理）。僅「多車號比較」或「多車型對比」仍屬 structured，不是 hybrid。
 - clarification: 不明確，需反問
 
 規則：
+- **追問繼承**：使用者用「那/同樣地/再/也」等接續詞，intent 應繼承前一輪，除非明確轉向其他類別。
+- **結構化比較**：「EMU3000 vs EMU900」「A 和 B 哪個多」這類比較屬 structured（同一 SQL 加 GROUP BY 或兩次查詢合併），不是 hybrid。
+- hybrid 的判準是「**資料來源**不同」（SQL + 文件），不是「面向多」。
 - 若對話脈絡已足夠，即使當前查詢短，也分類為 structured/knowledge/hybrid，而非 clarification。
 - clarification_options 格式：[{{"label": "顯示文字", "query": "完整查詢"}}]。
 
