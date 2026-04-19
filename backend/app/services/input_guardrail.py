@@ -22,6 +22,7 @@ class GuardrailAction(Enum):
     ALLOW = "allow"
     REFUSE_OFF_TOPIC = "refuse_off_topic"
     REFUSE_JAILBREAK = "refuse_jailbreak"
+    GREETING = "greeting"  # 短問候直接回應，不走 LLM
 
 
 @dataclass
@@ -93,6 +94,35 @@ class InputGuardrail:
         re.compile(r"翻譯\s*(?:這|此|一|以下|成|到|為)|translate\s+(?:to|into|this)", re.IGNORECASE),
     ]
 
+    # 短問候 / 寒暄 — 直接禮貌回應，不浪費 LLM
+    # Rule: 必須「整句僅為問候」才觸發（有 domain keyword 就放行讓 intent classifier 處理）
+    GREETING_PATTERNS = [
+        re.compile(r"^(?:hi|hello|hey|yo|hola|howdy)[\s!?.,]*$", re.IGNORECASE),
+        re.compile(r"^(?:你好|您好|嗨|哈囉|哈喽)[\s!?。，.,]*$"),
+        re.compile(r"^(?:good\s+(?:morning|afternoon|evening|night))[\s!?.,]*$", re.IGNORECASE),
+        re.compile(r"^(?:早|早安|午安|晚安|晚上好|早上好|中午好)[\s!?。，.,]*$"),
+        re.compile(r"^(?:thanks?|thank\s+you|thx|ty)[\s!?.,]*$", re.IGNORECASE),
+        re.compile(r"^(?:謝謝|感謝|感恩|多謝|thanks啦)(?:你|您|妳|大家|啦|囉|喔)?[\s!?。，.,]*$"),
+        re.compile(r"^(?:bye|goodbye|see\s+ya|cya)[\s!?.,]*$", re.IGNORECASE),
+        re.compile(r"^(?:再見|掰|掰掰|拜拜|下次見)[\s!?。，.,]*$"),
+        re.compile(r"^(?:how\s+are\s+you|what'?s\s+up|how'?s\s+it\s+going)[\s!?.,]*$", re.IGNORECASE),
+        re.compile(r"^(?:在嗎|在\s*?嗎|有人嗎|hello\?+)[\s!?。，.,]*$", re.IGNORECASE),
+    ]
+
+    GREETING_RESPONSE = (
+        "你好！我是車輛維修知識助理 🚆\n"
+        "可以協助您查詢：\n"
+        "- 工單與維修紀錄\n"
+        "- 故障代碼與排除\n"
+        "- 資產與車輛資訊（如 EMU800、DR3100）\n"
+        "- 維修程序（SOP）與手冊\n\n"
+        "請問有什麼需要協助的？"
+    )
+
+    THANKS_RESPONSE = "不客氣！如果還有其他維修相關問題，隨時告訴我。"
+
+    FAREWELL_RESPONSE = "再見！有維修相關問題歡迎隨時回來問我。"
+
     OFF_TOPIC_REFUSAL_MSG = (
         "抱歉，我是車輛維修知識助理，目前只能協助回答**工單、故障、資產、維修程序（SOP）、零件、人員**相關的問題。"
         "您的提問似乎不在我的專業領域內，建議您改問例如：\n"
@@ -140,16 +170,35 @@ class InputGuardrail:
 
         # 2. Topic 判斷
         q_lower = query_stripped.lower()
+        domain_hits = [kw for kw in self.DOMAIN_KEYWORDS if kw in q_lower]
 
-        # 2a. 明顯 off-topic hints
+        # 2a. 短問候偵測（整句僅為 greeting / thanks / farewell，且無 domain kw）
+        # 優先於 off-topic 偵測，讓使用者打招呼時有禮貌回應不走 LLM。
+        if not domain_hits:
+            for pat in self.GREETING_PATTERNS:
+                if pat.match(query_stripped):
+                    matched = pat.pattern
+                    # 依 pattern 類型選回應
+                    if any(kw in matched.lower() for kw in ("thank", "謝", "感恩", "多謝")):
+                        msg = self.THANKS_RESPONSE
+                    elif any(kw in matched.lower() for kw in ("bye", "再見", "掰", "拜拜", "see ya", "cya")):
+                        msg = self.FAREWELL_RESPONSE
+                    else:
+                        msg = self.GREETING_RESPONSE
+                    logger.info("[guardrail] greeting handled: query=%r", query_stripped[:50])
+                    return GuardrailResult(
+                        action=GuardrailAction.GREETING,
+                        reason="greeting_pattern_matched",
+                        matched_patterns=[query_stripped[:30]],
+                        refusal_message=msg,
+                    )
+
+        # 2b. 明顯 off-topic hints
         off_hints = []
         for pat in self.OFF_TOPIC_STRONG_HINTS:
             m = pat.search(query_stripped)
             if m:
                 off_hints.append(m.group(0)[:30])
-
-        # 2b. 領域關鍵字匹配
-        domain_hits = [kw for kw in self.DOMAIN_KEYWORDS if kw in q_lower]
 
         # 決策邏輯：
         # - 有 off-topic strong hint 且沒有 domain keyword → refuse
