@@ -21,6 +21,7 @@ from app.models.schemas import (
 from app.services import rag
 from app.services.intent_classifier import get_intent_classifier, QueryIntent
 from app.services.intent_router import detect_intent, detect_ambiguity
+from app.services.input_guardrail import get_input_guardrail, GuardrailAction
 from app.services.context_manager import build_optimized_context, compress_context
 from app.services.call_tracer import CallTracer, trace_llm_call
 from app.services.result_budget import ResultBudget
@@ -274,6 +275,42 @@ async def chat_stream(request: ChatRequest):
             total_start = time.time()
             tracer = CallTracer()
             budget = ResultBudget()  # Pattern 8: per-query 50, per-conversation 200
+
+            # === Security #1: Input Guardrail ===
+            # Topic classifier + Jailbreak detector. Off-topic / jailbreak 直接返回婉拒，
+            # 不進入任何 LLM pipeline（省成本 + 防濫用）。
+            guardrail = get_input_guardrail()
+            gr_result = guardrail.check(query)
+            if gr_result.action != GuardrailAction.ALLOW:
+                log.warning(
+                    "[chat_stream] guardrail blocked: action=%s reason=%s matches=%s",
+                    gr_result.action.value, gr_result.reason, gr_result.matched_patterns,
+                )
+                # Audit via rag.log_search_metrics（既有機制）
+                try:
+                    asyncio.create_task(rag.log_search_metrics(
+                        query=query,
+                        search_query=None,
+                        sources=[],
+                        quality=f"guardrail_{gr_result.action.value}",
+                        duration_ms=0,
+                        intent="guardrail_block",
+                        request_id=tracer.request_id,
+                        conversation_id=conversation_id,
+                    ))
+                except Exception:
+                    pass
+                # 以正常 SSE 格式返回婉拒訊息（前端不需特殊處理）
+                yield sse_event('content', gr_result.refusal_message)
+                total_ms = int((time.time() - total_start) * 1000)
+                yield sse_event('metadata', {
+                    'duration_ms': total_ms,
+                    'intent': {"intent": "guardrail_block", "reason": gr_result.reason},
+                    'request_id': tracer.request_id,
+                })
+                yield sse_event('done', {'total_ms': total_ms, 'reason': 'guardrail_block'},
+                                terminal=TerminalState.COMPLETED)
+                return
 
             # Short follow-up merging: if query is very short, merge with previous
             # user query to provide context. Triggers when:

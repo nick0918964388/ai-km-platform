@@ -12,6 +12,9 @@ from openai import AsyncOpenAI
 
 from app.config import get_settings
 from app.services.circuit_breaker import LLM_BREAKER
+# Note: DOMAIN_CONSTRAINT_PREFIX intentionally NOT applied here. Intent classifier
+# outputs structured JSON only (no freeform text leak risk). Input-layer guardrail
+# already catches off-topic before this runs. Keeping system prompt lean (~600 tokens).
 
 log = logging.getLogger(__name__)
 

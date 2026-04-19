@@ -14,6 +14,7 @@ from app.services.reranker_factory import get_reranker_factory
 from app.services import cache as cache_service
 from app.services import file_storage
 from app.services.terminology import expand_query, RAIL_TERMINOLOGY
+from app.services.domain_constraint import DOMAIN_CONSTRAINT_PREFIX
 from app.models.schemas import SearchResult, RerankerMetadata, ChunkType
 from app.db.session import get_db_context
 from sqlalchemy import text
@@ -276,7 +277,7 @@ def _call_anthropic_stream(messages: list, model: str, system: str = "", max_tok
 
 
 # 優化後的 System Prompt
-SYSTEM_PROMPT = """你是台鐵 EMU800 電聯車維修知識助手。你的任務是根據知識庫內容準確回答維修相關問題。
+SYSTEM_PROMPT = DOMAIN_CONSTRAINT_PREFIX + """你是台鐵 EMU800 電聯車維修知識助手。你的任務是根據知識庫內容準確回答維修相關問題。
 
 ## 回答規則
 
