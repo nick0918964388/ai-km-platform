@@ -942,6 +942,8 @@ export default function ChatWindow() {
                       {conversations.map((conv) => (
                         <div
                           key={conv.id}
+                          data-testid="conversation-item"
+                          data-conversation-id={conv.id}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -960,9 +962,33 @@ export default function ChatWindow() {
                             if (conv.id !== activeConversationId)
                               e.currentTarget.style.background = 'transparent';
                           }}
-                          onClick={() => {
+                          onClick={async () => {
                             setActiveConversation(conv.id);
                             setHistoryOpen(false);
+                            // 確保切換到的對話訊息為最新（避免 localStorage 舊資料覆蓋 DB 最新訊息）
+                            try {
+                              const { apiGetConversation } = await import('@/lib/api');
+                              const full = await apiGetConversation(conv.id);
+                              if (full && Array.isArray(full.messages)) {
+                                const state = useStore.getState();
+                                const updated = state.conversations.map(c =>
+                                  c.id === conv.id
+                                    ? {
+                                        ...c,
+                                        title: full.title || c.title,
+                                        updatedAt: new Date(full.updatedAt || Date.now()),
+                                        messages: full.messages.map((m: any) => ({
+                                          ...m,
+                                          timestamp: new Date(m.timestamp || m.created_at),
+                                        })),
+                                      }
+                                    : c
+                                );
+                                useStore.setState({ conversations: updated });
+                              }
+                            } catch (e) {
+                              console.error('Failed to refresh conversation:', e);
+                            }
                           }}
                         >
                           <Chat size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
@@ -1057,17 +1083,27 @@ export default function ChatWindow() {
               marginBottom: 'auto',
               padding: '0 1rem',
             }}>
-              {/* Greeting */}
-              <h2 style={{
-                marginBottom: '1.5rem',
-                color: 'var(--text-primary)',
-                fontWeight: 500,
-                fontSize: '2rem',
-                letterSpacing: '-0.03em',
-                fontFamily: 'Georgia, "Times New Roman", serif',
-              }}>
-                🌸 有什麼可以幫您的？
+              {/* Greeting — 如在既有（但無訊息）對話內，顯示提示區分於全新對話 */}
+              <h2
+                data-testid={activeConversationId ? 'empty-conversation-hint' : 'welcome-greeting'}
+                style={{
+                  marginBottom: '1.5rem',
+                  color: 'var(--text-primary)',
+                  fontWeight: 500,
+                  fontSize: '2rem',
+                  letterSpacing: '-0.03em',
+                  fontFamily: 'Georgia, "Times New Roman", serif',
+                }}
+              >
+                {activeConversation
+                  ? `「${activeConversation.title}」尚無訊息`
+                  : '🌸 有什麼可以幫您的？'}
               </h2>
+              {activeConversation && (
+                <p style={{ marginTop: '-0.75rem', marginBottom: '1.25rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                  此對話歷史訊息為空，您可以直接在下方輸入繼續對話
+                </p>
+              )}
 
               {/* Input centered (Claude style — greeting → input → chips) */}
               <div className="chat-empty-input" style={{ width: '100%', marginBottom: '1rem' }}>
@@ -1123,7 +1159,7 @@ export default function ChatWindow() {
                 // Skip empty assistant messages (no content, no sqlResult, not streaming)
                 if (msg.role === 'assistant' && !msg.content && !messageSqlResults[msg.id]?.length && !msg.sqlResult && !messageStreamingStatus[msg.id]) return null;
                 return (
-                <div key={msg.id} style={{
+                <div key={msg.id} data-testid="message" data-message-role={msg.role} style={{
                   display: 'flex',
                   gap: '0.75rem',
                   flexDirection: 'column',
