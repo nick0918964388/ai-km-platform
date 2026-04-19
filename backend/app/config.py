@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     rerank_top_n: int = 10
 
     # Multi-Provider Reranker Configuration
-    reranker_provider: str = "auto"  # "cohere" | "bge" | "auto"
+    reranker_provider: str = "auto"  # "cohere" | "bge" | "ollama" | "auto"
     reranker_timeout: float = 5.0  # seconds
     reranker_fallback_enabled: bool = True
 
@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     bge_model_name: str = "BAAI/bge-reranker-v2-m3"
     bge_max_length: int = 512
     bge_batch_size: int = 32
+
+    # Ollama Reranker (BGE reranker v2-m3 via Ollama /api/embed, GPU-backed)
+    ollama_reranker_url: str = ""  # empty → fall back to ollama_base_url / ollama_chat_url (strip /v1)
+    ollama_reranker_model: str = "linux6200/bge-reranker-v2-m3:latest"
 
     # Backup
     backup_dir: str = "./backups"
