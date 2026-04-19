@@ -148,7 +148,8 @@ def test_top_n_respected():
 def test_long_document_truncated_before_embed():
     """Docs longer than _MAX_DOC_CHARS must be cut before sending."""
     long_text = "x" * (_MAX_DOC_CHARS + 500)
-    payload = {"embeddings": [[1.0], [1.0]]}
+    # Need 3 embeddings: query + 2 docs
+    payload = {"embeddings": [[1.0], [1.0], [1.0]]}
     captured = {}
 
     r = OllamaReranker(base_url="http://fake", model="m", timeout=1.0)
