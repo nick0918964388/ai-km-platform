@@ -20,8 +20,17 @@
 - **修法**：
   - Sub SQL 平行跑（`asyncio.gather`）
   - Hybrid 路徑 disable self-reflection 重試（cap retries = 0）
-  - BGE reranker：GPU 加速 / 改 Cohere API
+  - ✅ **BGE reranker：改 Ollama GPU（已完成 2026-04-19）**
 - **預估**：90s → 15-20s（-80%）
+
+#### Reranker 升級：BGE CPU → Ollama GPU（✅ 2026-04-19）
+- **實作**：`backend/app/services/reranker_ollama.py` — 透過 Ollama `/api/embed`
+  批次取 query+docs embedding，cosine similarity 當 score，單次 HTTP call。
+- **模型**：`linux6200/bge-reranker-v2-m3:latest`（keep_alive=-1 熱載入 GPU）
+- **實測（20 docs top_n=5）**：BGE CPU 17500ms → Ollama GPU **1603ms（~10.9x 加速）**
+- **Factory 策略**：`RERANKER_PROVIDER=ollama`；auto 模式順序改 Cohere → Ollama → BGE
+- **fallback chain**：主 provider 失敗 → 依序嘗試其他可用 provider
+- **測試**：14 unit tests + 1 integration test（真實 Ollama endpoint，< 3s 通過）
 
 ### 🔥 Batch 2-B：Self-Reflection 閾值調優
 - **現況**：品質低才 retry 但閾值偏低常觸發，每次 +2-3s
@@ -99,3 +108,33 @@
 - 若 Batch 2 結束後延遲仍 > 3s，考慮 Backlog #1（Speculative 真平行）
 - 若 intent 仍是瓶頸，考慮 Backlog #3（local small model）
 - Frontend backlog 視使用者反映延後處理
+
+---
+
+## 🛡️ 安全性 Backlog（非效能，但需排程）
+
+### Security #1：輸入層 Guardrail（Topic Classifier + Jailbreak Detector）
+- **問題**：使用者可問「天氣」「股價」等 off-topic 問題浪費 LLM 成本；也可能嘗試 prompt injection（「忽略之前指令…」）
+- **方案**：
+  - Topic Classifier 判斷是否屬於 work_order/fault/asset/sop/maintenance 領域，否則婉拒
+  - Jailbreak 偵測器（regex + 小模型）擋經典 injection patterns
+- **預估**：半天 ~ 1 天
+
+### Security #2：System Prompt 強化
+- 每個 LLM call 的 system prompt 開頭加領域限制 + refusal template
+- **預估**：半天
+
+### Security #3：Output Scanner
+- LLM 結果掃 regex：密碼 / token / 信用卡號 / 內部 IP
+- **預估**：半天
+
+### Security #4：SQL Row-level Policy 強化
+- Validator 目前擋 DDL/DML 沒問題，但跨 tenant 越權查詢（SELECT * FROM users）需補 row-level policy
+- **預估**：1 天
+
+### Security #5：Rate Limiting + 告警
+- 同使用者 5 分鐘 3 次被拒絕 → notify admin
+- 每使用者 RPS 上限
+- **預估**：1 天
+
+**決策**：使用者選 (C) — Batch 2 驗證完再規劃安全性工作。
