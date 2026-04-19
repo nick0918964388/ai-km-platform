@@ -96,7 +96,7 @@ test.describe('US: Intent Classifier — Follow-up & Comparison', () => {
     await loginUI(page);
 
     // 第一題
-    const input = page.getByPlaceholder(/請輸入您的問題|輸入訊息/).first();
+    const input = page.getByPlaceholder(/輸入您的問題/).first();
     await input.fill('EMU3000 的工單類型分布');
     await input.press('Enter');
     // 等第一題回覆（看到「247」工單數或任何 assistant content 即可）
