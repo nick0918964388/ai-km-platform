@@ -20,10 +20,14 @@ import {
   Warning,
   Table,
   DataTable,
+  Terminal,
 } from '@carbon/icons-react';
 import { useStore } from '@/store/useStore';
 import { useTables } from '@/hooks/useTables';
 import { TableList } from '@/components/admin/pg-viewer/TableList';
+import { DataTab } from '@/components/admin/pg-viewer/DataTab';
+import { SchemaTab } from '@/components/admin/pg-viewer/SchemaTab';
+import { AuditTab } from '@/components/admin/pg-viewer/AuditTab';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -147,22 +151,65 @@ const TAB_LABELS: { key: DetailTab; label: string }[] = [
 function DetailPane({ selectedTable }: { selectedTable: string | null }) {
   const [activeTab, setActiveTab] = useState<DetailTab>('data');
 
-  if (!selectedTable) {
+  // Audit tab is not table-scoped; allow access even without a table selection.
+  // For data/schema tabs, require a table to be selected.
+  if (!selectedTable && activeTab !== 'audit') {
     return (
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '0.75rem',
-          color: 'var(--text-muted)',
-          padding: '3rem',
-        }}
-      >
-        <DataBase size={40} style={{ opacity: 0.2 }} aria-hidden="true" />
-        <p style={{ fontSize: '0.9375rem' }}>從左側選擇一個資料表以開始瀏覽</p>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Tab bar */}
+        <div
+          role="tablist"
+          aria-label="Detail tabs"
+          style={{
+            display: 'flex',
+            gap: 0,
+            borderBottom: '1px solid var(--border-light)',
+            padding: '0 1.5rem',
+            background: 'var(--bg-secondary)',
+            flexShrink: 0,
+          }}
+        >
+          {TAB_LABELS.map(({ key, label }) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={activeTab === key}
+              aria-controls={`tabpanel-${key}`}
+              id={`tab-${key}`}
+              onClick={() => setActiveTab(key)}
+              style={{
+                padding: '0.75rem 1.25rem',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: activeTab === key ? '2px solid var(--accent)' : '2px solid transparent',
+                color: activeTab === key ? 'var(--accent)' : 'var(--text-muted)',
+                fontWeight: activeTab === key ? 600 : 400,
+                fontSize: '0.875rem',
+                cursor: 'pointer',
+                fontFamily: 'monospace',
+                letterSpacing: '0.02em',
+                transition: 'color 0.12s ease',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.75rem',
+            color: 'var(--text-muted)',
+            padding: '3rem',
+          }}
+        >
+          <DataBase size={40} style={{ opacity: 0.2 }} aria-hidden="true" />
+          <p style={{ fontSize: '0.9375rem' }}>從左側選擇一個資料表以開始瀏覽</p>
+        </div>
       </div>
     );
   }
@@ -209,26 +256,28 @@ function DetailPane({ selectedTable }: { selectedTable: string | null }) {
         ))}
       </div>
 
-      {/* Panel: table name badge */}
-      <div style={{
-        padding: '0.75rem 1.5rem',
-        borderBottom: '1px solid var(--border-light)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-        flexShrink: 0,
-        background: 'var(--bg-primary)',
-      }}>
-        <Table size={14} style={{ color: 'var(--accent)' }} aria-hidden="true" />
-        <code style={{
-          fontSize: '0.875rem',
-          fontFamily: 'monospace',
-          fontWeight: 600,
-          color: 'var(--text-primary)',
+      {/* Panel: table name badge — hidden on Audit tab (not table-scoped) */}
+      {activeTab !== 'audit' && (
+        <div style={{
+          padding: '0.75rem 1.5rem',
+          borderBottom: '1px solid var(--border-light)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          flexShrink: 0,
+          background: 'var(--bg-primary)',
         }}>
-          {selectedTable}
-        </code>
-      </div>
+          <Table size={14} style={{ color: 'var(--accent)' }} aria-hidden="true" />
+          <code style={{
+            fontSize: '0.875rem',
+            fontFamily: 'monospace',
+            fontWeight: 600,
+            color: 'var(--text-primary)',
+          }}>
+            {selectedTable}
+          </code>
+        </div>
+      )}
 
       {/* Tab panels */}
       <div
@@ -236,9 +285,9 @@ function DetailPane({ selectedTable }: { selectedTable: string | null }) {
         role="tabpanel"
         aria-labelledby="tab-data"
         hidden={activeTab !== 'data'}
-        style={{ flex: 1, overflow: 'auto', padding: '1.5rem' }}
+        style={{ flex: 1, overflow: 'hidden', padding: '1rem 1.5rem', display: activeTab === 'data' ? 'flex' : 'none', flexDirection: 'column' }}
       >
-        <ComingSoonCard label="Data browser (T-032)" />
+        {selectedTable && <DataTab tableName={selectedTable} />}
       </div>
 
       <div
@@ -248,7 +297,7 @@ function DetailPane({ selectedTable }: { selectedTable: string | null }) {
         hidden={activeTab !== 'schema'}
         style={{ flex: 1, overflow: 'auto', padding: '1.5rem' }}
       >
-        <ComingSoonCard label="Schema inspector (T-033)" />
+        {selectedTable && <SchemaTab tableName={selectedTable} />}
       </div>
 
       <div
@@ -256,9 +305,9 @@ function DetailPane({ selectedTable }: { selectedTable: string | null }) {
         role="tabpanel"
         aria-labelledby="tab-audit"
         hidden={activeTab !== 'audit'}
-        style={{ flex: 1, overflow: 'auto', padding: '1.5rem' }}
+        style={{ flex: 1, overflow: 'hidden', display: activeTab === 'audit' ? 'flex' : 'none', flexDirection: 'column' }}
       >
-        <ComingSoonCard label="Audit log (T-034)" />
+        <AuditTab />
       </div>
     </div>
   );
@@ -372,6 +421,39 @@ export default function PgViewerClient({ featureEnabled }: PgViewerClientProps) 
               載入中
             </span>
           )}
+          {/* SQL Editor link */}
+          <button
+            type="button"
+            onClick={() => router.push('/admin/pg-viewer/query')}
+            aria-label="Open SQL Editor"
+            data-testid="sql-editor-link"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.375rem',
+              padding: '0.375rem 0.75rem',
+              background: 'transparent',
+              border: '1px solid var(--border-light)',
+              color: 'var(--text-secondary)',
+              fontSize: '0.8125rem',
+              fontWeight: 500,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              letterSpacing: '0.02em',
+              transition: 'border-color 0.1s ease, color 0.1s ease',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)';
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border-light)';
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)';
+            }}
+          >
+            <Terminal size={14} aria-hidden="true" />
+            SQL
+          </button>
           <span style={{
             padding: '0.2rem 0.625rem',
             borderRadius: 12,
