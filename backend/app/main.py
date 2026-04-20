@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile, maximo, admin, conversations
 from app.routers.auth import router as auth_router
 from app.routers.pg_viewer import router as pg_viewer_router
+from app.routers.csp_violations import router as csp_violations_router
 from app.config import get_settings
 
 # API Key for authentication
@@ -30,7 +31,7 @@ ALLOWED_ORIGINS = [
 class APIKeyMiddleware:
     """Pure ASGI middleware for API key verification (avoids BaseHTTPMiddleware SSE blocking)."""
 
-    PUBLIC_PREFIXES = ("/health", "/docs", "/openapi.json", "/redoc", "/api/auth/")
+    PUBLIC_PREFIXES = ("/health", "/docs", "/openapi.json", "/redoc", "/api/auth/", "/api/csp-violations")
 
     def __init__(self, app):
         self.app = app
@@ -287,6 +288,7 @@ app.include_router(admin.router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(conversations.router)
 app.include_router(pg_viewer_router, prefix="/api/pg-viewer")
+app.include_router(csp_violations_router, prefix="/api")
 
 
 @app.get("/")
