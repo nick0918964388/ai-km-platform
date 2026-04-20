@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     pg_viewer_rate_limit_rows: int = 60  # per-minute
     pg_viewer_password: str = ""
     pg_viewer_audit_purger_password: str = ""
+    pg_viewer_trusted_proxy_ips: list[str] = []
 
     class Config:
         env_file = ".env"
