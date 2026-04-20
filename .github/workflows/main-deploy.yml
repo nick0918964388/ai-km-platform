@@ -52,7 +52,7 @@ jobs:
       - name: Backend healthcheck
         run: |
           for i in $(seq 1 12); do
-            code=$(curl -sS -o /dev/null -w "%{http_code}" -m 5 http://localhost:8000/health || echo "000")
+            code=$(curl -sS -o /dev/null -w "%{http_code}" -m 5 http://aikm-backend:8000/health || echo "000")
             if [ "$code" = "200" ]; then
               echo "Backend OK (200) at retry $i"
               exit 0
@@ -72,7 +72,7 @@ jobs:
 
       - name: Frontend healthcheck
         run: |
-          code=$(curl -sS -o /dev/null -w "%{http_code}" -m 5 http://localhost:3000/ || echo "000")
+          code=$(curl -sS -o /dev/null -w "%{http_code}" -m 5 http://aikm-frontend:3000/ || echo "000")
           echo "Frontend HTTP: $code"
           if [ "$code" = "200" ] || [ "$code" = "307" ] || [ "$code" = "302" ]; then
             echo "Frontend OK"
