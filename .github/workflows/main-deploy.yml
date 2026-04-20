@@ -36,6 +36,82 @@ jobs:
           echo "NEW_COMMIT=$NEW" >> "$GITHUB_OUTPUT"
           echo "Deploying: $NEW"
 
+      - name: Apply pg_viewer migrations
+        # Non-breaking: migration errors are logged as warnings; deploy continues.
+        # The rolling update + healthcheck after this step will catch any app-layer
+        # breakage caused by a bad migration and trigger the existing rollback step.
+        continue-on-error: true
+        env:
+          PG_VIEWER_PASSWORD: ${{ secrets.PG_VIEWER_PASSWORD }}
+          PG_AUDIT_PURGER_PASSWORD: ${{ secrets.PG_AUDIT_PURGER_PASSWORD }}
+        run: |
+          cd "$REPO_PATH"
+          PREV="${{ steps.snap.outputs.PREV_COMMIT }}"
+          NEW="${{ steps.pull.outputs.NEW_COMMIT }}"
+
+          # Collect all pg_viewer migration files that changed between commits.
+          # On first deploy (no PREV) or if PREV is empty, apply ALL migrations.
+          if [ -z "$PREV" ] || [ "$PREV" = "$NEW" ]; then
+            CHANGED=$(ls backend/scripts/pg_viewer_migrate_*.sql 2>/dev/null | sort || true)
+          else
+            CHANGED=$(git diff --name-only "$PREV" "$NEW" -- 'backend/scripts/pg_viewer_migrate_*.sql' 2>/dev/null | sort || true)
+          fi
+
+          if [ -z "$CHANGED" ]; then
+            echo "No pg_viewer migration files changed — skipping."
+            exit 0
+          fi
+
+          echo "Migrations to apply:"
+          echo "$CHANGED"
+
+          APPLIED=0
+          FAILED=0
+          for SQL_FILE in $CHANGED; do
+            if [ ! -f "$SQL_FILE" ]; then
+              echo "::warning::Migration file not found (deleted?): $SQL_FILE — skipping"
+              continue
+            fi
+
+            echo "--- Applying $SQL_FILE ---"
+            # Migrations 001 and 002 require psql variable substitution for passwords.
+            # Migration 003 runs as aikm (no special vars needed).
+            BASENAME=$(basename "$SQL_FILE")
+            if echo "$BASENAME" | grep -qE '^pg_viewer_migrate_00[12]_'; then
+              if [ -z "$PG_VIEWER_PASSWORD" ] || [ -z "$PG_AUDIT_PURGER_PASSWORD" ]; then
+                echo "::warning::PG_VIEWER_PASSWORD or PG_AUDIT_PURGER_PASSWORD secret is empty — cannot apply $BASENAME safely. Set secrets and re-deploy."
+                FAILED=$((FAILED + 1))
+                continue
+              fi
+              docker exec -i aikm-postgres \
+                psql -U aikm -d aikm \
+                  -v "pg_viewer_password=${PG_VIEWER_PASSWORD}" \
+                  -v "pg_audit_purger_password=${PG_AUDIT_PURGER_PASSWORD}" \
+                  -v ON_ERROR_STOP=1 \
+                < "$SQL_FILE" \
+                && APPLIED=$((APPLIED + 1)) \
+                || {
+                  echo "::warning::Migration $BASENAME failed — continuing deploy"
+                  FAILED=$((FAILED + 1))
+                }
+            else
+              docker exec -i aikm-postgres \
+                psql -U aikm -d aikm \
+                  -v ON_ERROR_STOP=1 \
+                < "$SQL_FILE" \
+                && APPLIED=$((APPLIED + 1)) \
+                || {
+                  echo "::warning::Migration $BASENAME failed — continuing deploy"
+                  FAILED=$((FAILED + 1))
+                }
+            fi
+          done
+
+          echo "Migration summary: applied=$APPLIED failed=$FAILED"
+          if [ "$FAILED" -gt 0 ]; then
+            echo "::warning::$FAILED migration(s) failed. Check logs above. Deploy will continue."
+          fi
+
       - name: Build backend + frontend
         run: |
           set -e

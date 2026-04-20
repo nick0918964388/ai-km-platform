@@ -39,6 +39,7 @@ const adminNavItems = [
   { href: '/admin/pending-examples', label: 'SQL 範例審核', icon: DataTable },
   { href: '/admin/knowledge-graph', label: '知識圖譜', icon: ChartNetwork },
   { href: '/admin/permissions', label: '權限設定', icon: Locked },
+  { href: '/admin/pg-viewer', label: 'PG Viewer', icon: DataBase },
 ];
 
 const settingsItems = [

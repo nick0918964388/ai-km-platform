@@ -1,0 +1,438 @@
+openapi: 3.0.3
+info:
+  title: PostgreSQL Online Viewer API (admin-only)
+  version: 1.0.0
+  description: |
+    Admin-only, read-only endpoints to browse `aikm-postgres`.
+    All endpoints require a Bearer JWT whose user has `account_level = 'admin'`.
+    Backed by a dedicated `aikm_viewer` Postgres role with only SELECT privileges.
+servers:
+  - url: http://192.168.1.11:8000/api
+    description: Production (deployment host)
+  - url: http://localhost:8000/api
+    description: Local (dev only, no writes exist anyway)
+
+tags:
+  - name: pg-viewer
+    description: PostgreSQL browser (admin)
+
+security:
+  - bearerAuth: []
+
+paths:
+  /pg-viewer/tables:
+    get:
+      tags: [pg-viewer]
+      summary: List all tables in public schema
+      operationId: listTables
+      responses:
+        '200':
+          description: Table list with approximate row counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tables:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TableSummary'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429':
+          description: Rate limit exceeded (60/min/user shared with /rows; R2-H2)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/CircuitOpen' }
+
+  /pg-viewer/tables/{table}/schema:
+    get:
+      tags: [pg-viewer]
+      summary: Describe a single table
+      operationId: getTableSchema
+      parameters:
+        - $ref: '#/components/parameters/TableName'
+      responses:
+        '200':
+          description: Table schema
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableSchema' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429':
+          description: Rate limit exceeded (60/min/user shared with /rows; R2-H2)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /pg-viewer/tables/{table}/rows:
+    get:
+      tags: [pg-viewer]
+      summary: Paginated, filterable row fetch
+      operationId: getTableRows
+      parameters:
+        - $ref: '#/components/parameters/TableName'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 50 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: order_by
+          in: query
+          schema: { type: string }
+          description: Column name. Must be a real column on the table.
+        - name: order_dir
+          in: query
+          schema: { type: string, enum: [ASC, DESC], default: DESC }
+        - name: filters
+          in: query
+          schema: { type: string }
+          description: |
+            JSON-encoded array of filters:
+            `[{"column":"status","op":"=","value":"APPR"},
+              {"column":"changedate","op":">","value":"2026-04-01"}]`
+            Operators: `=, <>, <, <=, >, >=, LIKE, ILIKE, IN, IS NULL, IS NOT NULL`.
+      responses:
+        '200':
+          description: Paginated rows
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RowPage' }
+        '400':
+          description: Invalid column / operator / filter JSON
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '408':
+          description: Statement timeout
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/CircuitOpen' }
+
+  /pg-viewer/tables/{table}/export.csv:
+    get:
+      tags: [pg-viewer]
+      summary: Export current filtered view as CSV (capped at PG_VIEWER_ROW_LIMIT)
+      operationId: exportTableCsv
+      parameters:
+        - $ref: '#/components/parameters/TableName'
+        - name: order_by
+          in: query
+          schema: { type: string }
+        - name: order_dir
+          in: query
+          schema: { type: string, enum: [ASC, DESC], default: DESC }
+        - name: filters
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Streaming CSV (per-cell truncated; text > 1000 chars clipped, bytea base64+clipped; total payload ≤ 10 MB)
+          headers:
+            Content-Disposition:
+              schema: { type: string, example: 'attachment; filename="maximo_mxwo_20260420_154203.csv"' }
+            X-Truncated:
+              schema: { type: boolean }
+              description: true if result was capped at PG_VIEWER_ROW_LIMIT (UI reads this and shows a toast; CSV body contains NO fake comment row — post-critic M5 consistency)
+            X-Row-Count:
+              schema: { type: integer }
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /pg-viewer/sql:
+    post:
+      tags: [pg-viewer]
+      summary: Execute a SELECT-only ad-hoc SQL statement (admin only)
+      description: |
+        Accepts a single `SELECT` (or `WITH … SELECT`) statement.
+        Runs via the dedicated `aikm_viewer` Postgres role with `SET LOCAL statement_timeout = '10s'`.
+
+        Pre-DB Layer-9 static analysis (sqlparse) rejects:
+        - empty input
+        - inputs exceeding `PG_VIEWER_SQL_MAX_LEN` (default 8000 chars)
+        - multi-statement inputs (any `;` that is not trailing whitespace-only)
+        - first-token not in `{SELECT, WITH}`
+        - any occurrence of forbidden keywords:
+          `INSERT, UPDATE, DELETE, DROP, TRUNCATE, GRANT, REVOKE, CREATE, ALTER,
+           COPY, CALL, VACUUM, ANALYZE, REINDEX, CLUSTER, COMMENT, LOCK, SECURITY`
+        - any occurrence of forbidden function-name identifiers:
+          `dblink, dblink_exec, dblink_connect_u, pg_read_file, pg_read_server_files,
+           pg_ls_dir, pg_stat_activity, pg_sleep, pg_terminate_backend, pg_cancel_backend,
+           pg_reload_conf, lo_import, lo_export`
+
+        The validated SQL is ALWAYS server-wrapped as `SELECT * FROM ({user_sql}) _limited LIMIT 1000`
+        (post-critic 2026-04-20 decision: wrap, not detect-and-append — sqlparse cannot reliably
+        distinguish outer LIMIT from subquery LIMIT).
+
+        If the user-supplied outer statement contains a top-level integer LIMIT > 1000,
+        request is REJECTED with 400 `row limit exceeded (server-side cap 1000)`
+        (post-critic 2026-04-20 decision: reject, not clamp).
+      operationId: runSqlEditor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sql]
+              properties:
+                sql:
+                  type: string
+                  minLength: 1
+                  maxLength: 8000
+                  example: "SELECT status, COUNT(*) FROM maximo_mxwo GROUP BY status ORDER BY 2 DESC"
+      responses:
+        '200':
+          description: Query executed successfully
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SqlResult' }
+        '400':
+          description: |
+            Validation or parse error. `detail` indicates the specific cause:
+            - `empty input`
+            - `input exceeds max length (8000 chars)`
+            - `multi-statement input not allowed`
+            - `first statement must be SELECT or WITH`
+            - `forbidden keyword: <WORD>`
+            - `forbidden function: <NAME>`
+            - `parse error: <sqlparse message>`
+            - `row limit exceeded (server-side cap 1000)` — user supplied LIMIT > 1000; rejected (post-critic 2026-04-20 decision: reject, do not clamp)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429':
+          description: Rate limit exceeded (30 req/min/user on POST /sql, 60 req/min on /rows + /export.csv)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '408':
+          description: Statement timeout (query exceeded 10s)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: Execution error from Postgres (unknown table / column / type mismatch); message is sanitized — no stack trace, no connection string.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/CircuitOpen' }
+
+  /pg-viewer/audit:
+    get:
+      tags: [pg-viewer]
+      summary: Read the pg_viewer audit log (admin only)
+      operationId: getAudit
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - name: user_id
+          in: query
+          schema: { type: string }
+        - name: table_name
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [ok, timeout, error, forbidden, rate_limited] }
+      responses:
+        '200':
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuditEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+components:
+  parameters:
+    TableName:
+      name: table
+      in: path
+      required: true
+      schema:
+        type: string
+        # Enforced server-side: must match a real table in public schema.
+        # Whitelist only; any other value yields 404.
+        pattern: '^[a-zA-Z_][a-zA-Z0-9_]{0,127}$'
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    TableSummary:
+      type: object
+      required: [schema, name, kind, approx_row_count]
+      properties:
+        schema:           { type: string, example: public }
+        name:             { type: string, example: maximo_mxwo }
+        kind:             { type: string, enum: [table, view] }
+        approx_row_count: { type: integer, example: 10742 }
+        group:            { type: string, example: 'maximo', description: 'Derived from name prefix for UI grouping' }
+        grant_missing:    { type: boolean, description: 'true if information_schema.tables lists this table but has_table_privilege(aikm_viewer, table, SELECT) is false — surfaced in UI as a badge instead of raw 42501 (post-critic C2 ops)' }
+
+    Column:
+      type: object
+      required: [name, data_type, nullable]
+      properties:
+        name:       { type: string }
+        data_type:  { type: string, example: 'character varying' }
+        nullable:   { type: boolean }
+        default:    { type: string, nullable: true }
+        comment:    { type: string, nullable: true }
+        is_pk:      { type: boolean }
+        is_indexed: { type: boolean }
+
+    Index:
+      type: object
+      properties:
+        name:       { type: string }
+        definition: { type: string }
+        unique:     { type: boolean }
+
+    ForeignKey:
+      type: object
+      properties:
+        column:            { type: string }
+        foreign_table:     { type: string }
+        foreign_column:    { type: string }
+
+    TableSchema:
+      type: object
+      properties:
+        schema:       { type: string }
+        name:         { type: string }
+        columns:      { type: array, items: { $ref: '#/components/schemas/Column' } }
+        primary_key:  { type: array, items: { type: string } }
+        indexes:      { type: array, items: { $ref: '#/components/schemas/Index' } }
+        foreign_keys: { type: array, items: { $ref: '#/components/schemas/ForeignKey' } }
+        approx_row_count: { type: integer }
+
+    RowPage:
+      type: object
+      required: [columns, rows, limit, offset, approx_total, execution_ms, truncated]
+      properties:
+        columns:
+          type: array
+          items:
+            type: object
+            properties:
+              name:      { type: string }
+              data_type: { type: string }
+              redacted:  { type: boolean, description: 'true if any value in this column was masked' }
+        rows:
+          type: array
+          description: Array of row-object (keys = column names). Sensitive columns may be missing or ***.
+          items: { type: object, additionalProperties: true }
+        limit:        { type: integer }
+        offset:       { type: integer }
+        approx_total: { type: integer, description: 'From pg_class.reltuples — approximate' }
+        execution_ms: { type: number }
+        truncated:    { type: boolean, description: 'true if server capped below requested limit' }
+        notice:       { type: string, nullable: true }
+
+    SqlResult:
+      type: object
+      required: [columns, rows, row_count, elapsed_ms, truncated]
+      properties:
+        columns:
+          type: array
+          items:
+            type: object
+            required: [name, data_type]
+            properties:
+              name:      { type: string }
+              data_type: { type: string, example: 'bigint' }
+              redacted:  { type: boolean, description: 'true if this column was masked by redaction policy' }
+        rows:
+          type: array
+          description: |
+            Array of row objects keyed by column name. Sensitive columns (per redaction policy)
+            may be missing or replaced with `***`.
+          items: { type: object, additionalProperties: true }
+        row_count:
+          type: integer
+          description: Number of rows actually returned to the client (post-LIMIT).
+        elapsed_ms:
+          type: number
+          description: Server-side SELECT execution time, in milliseconds.
+        truncated:
+          type: boolean
+          description: true if the server auto-appended `LIMIT 1000` or the user's LIMIT was clamped down.
+        notice:
+          type: string
+          nullable: true
+          description: Optional human-readable note (e.g. "LIMIT 1000 auto-appended").
+
+    AuditEntry:
+      type: object
+      properties:
+        id:           { type: integer }
+        user_id:      { type: string }
+        user_email:   { type: string, nullable: true }
+        action:       { type: string }
+        table_name:   { type: string, nullable: true }
+        filters_json: { type: object, nullable: true }
+        order_by:     { type: string, nullable: true }
+        order_dir:    { type: string, nullable: true }
+        limit_val:    { type: integer, nullable: true }
+        offset_val:   { type: integer, nullable: true }
+        row_count:    { type: integer }
+        execution_ms: { type: number, nullable: true }
+        error_message: { type: string, nullable: true }
+        query_type:   { type: string, enum: [table_browse, schema, sql_editor] }
+        raw_sql:      { type: string, nullable: true, description: 'Populated only when query_type=sql_editor; passed through redact_sql_for_audit() (bearer tokens, ghp_*, sk-*, 20+ hex strings, literals adjacent to sensitive-column refs are replaced with [REDACTED]) THEN truncated to 8000 chars.' }
+        status:       { type: string, enum: [ok, timeout, error, forbidden, rate_limited] }
+        created_at:   { type: string, format: date-time }
+
+    Error:
+      type: object
+      properties:
+        detail: { type: string }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Forbidden:
+      description: Authenticated but not admin, or feature disabled
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Table does not exist
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    CircuitOpen:
+      description: Viewer circuit breaker open (DB flaky); retry after 30s
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }

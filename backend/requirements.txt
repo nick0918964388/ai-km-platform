@@ -59,6 +59,10 @@ bcrypt==4.0.1
 # Token counting
 tiktoken>=0.7.0
 
+# PostgreSQL Viewer (013)
+sqlparse>=0.4.4
+psycopg[binary]>=3.1
+
 # Knowledge Graph (Neo4j + GraphRAG)
 neo4j>=5.20.0
 neo4j-graphrag[openai,cohere,ollama]>=1.14.0

@@ -1,0 +1,1 @@
+0 2 * * * root /usr/local/bin/pg_viewer_partition_ensure.sh >> /var/log/pg-viewer-partition.log 2>&1

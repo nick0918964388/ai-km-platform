@@ -110,6 +110,19 @@ class Settings(BaseSettings):
     # Document Storage (for original file preview)
     storage_dir: str = "./storage/documents"
 
+    # PostgreSQL Viewer (013)
+    pg_viewer_enabled: bool = True
+    pg_viewer_database_url: str = ""
+    pg_viewer_row_limit: int = 1000
+    pg_viewer_stmt_timeout_ms: int = 10000
+    pg_viewer_sql_max_len: int = 8000
+    pg_viewer_audit_retention_days: int = 180
+    pg_viewer_rate_limit_sql: int = 30   # per-minute
+    pg_viewer_rate_limit_rows: int = 60  # per-minute
+    pg_viewer_password: str = ""
+    pg_viewer_audit_purger_password: str = ""
+    pg_viewer_trusted_proxy_ips: list[str] = []
+
     class Config:
         env_file = ".env"
         extra = "ignore"
