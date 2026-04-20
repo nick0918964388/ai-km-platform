@@ -27,7 +27,9 @@ jobs:
           # Push events: github.ref_name=branch name 可直接 fetch
           REF="${{ github.head_ref || github.ref_name }}"
           git fetch origin "$REF"
-          git checkout "origin/$REF"
+          # Deploy dir 可能被 SSH 手動修改過，先強制 reset + 清掉 untracked 才能 checkout
+          git reset --hard "origin/$REF"
+          git clean -fd
           echo "HEAD: $(git rev-parse HEAD)"
 
       - name: Install test deps (idempotent)
