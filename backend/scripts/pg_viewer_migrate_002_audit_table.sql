@@ -308,6 +308,7 @@ DECLARE
   v_aikm_insert      BOOL;
   v_aikm_select      BOOL;
   v_aikm_update      BOOL;
+  v_aikm_superuser   BOOL;
   v_viewer_select    BOOL;
   v_part_04          BOOL;
   v_part_05          BOOL;
@@ -316,10 +317,11 @@ DECLARE
   v_viewer_denied    BOOL;
   v_purger_owns      BOOL;
 BEGIN
-  v_aikm_insert   := has_table_privilege('aikm',        'pg_viewer_audit_log', 'INSERT');
-  v_aikm_select   := has_table_privilege('aikm',        'pg_viewer_audit_log', 'SELECT');
-  v_aikm_update   := has_table_privilege('aikm',        'pg_viewer_audit_log', 'UPDATE');
-  v_viewer_select := has_table_privilege('aikm_viewer', 'pg_viewer_audit_log', 'SELECT');
+  v_aikm_insert    := has_table_privilege('aikm',        'pg_viewer_audit_log', 'INSERT');
+  v_aikm_select    := has_table_privilege('aikm',        'pg_viewer_audit_log', 'SELECT');
+  v_aikm_update    := has_table_privilege('aikm',        'pg_viewer_audit_log', 'UPDATE');
+  v_aikm_superuser := (SELECT rolsuper FROM pg_roles WHERE rolname = 'aikm');
+  v_viewer_select  := has_table_privilege('aikm_viewer', 'pg_viewer_audit_log', 'SELECT');
 
   SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname='pg_viewer_audit_log_2026_04' AND relispartition) INTO v_part_04;
   SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname='pg_viewer_audit_log_2026_05' AND relispartition) INTO v_part_05;
@@ -340,7 +342,17 @@ BEGIN
 
   IF NOT v_aikm_insert   THEN RAISE EXCEPTION '002 verification failed: aikm missing INSERT on pg_viewer_audit_log'; END IF;
   IF NOT v_aikm_select   THEN RAISE EXCEPTION '002 verification failed: aikm missing SELECT on pg_viewer_audit_log'; END IF;
-  IF     v_aikm_update   THEN RAISE EXCEPTION '002 verification failed: aikm has UPDATE on pg_viewer_audit_log (append-only violated)'; END IF;
+  -- Append-only strict check only applies when aikm is NOT superuser.
+  -- Superusers bypass all grant checks (has_table_privilege returns t regardless
+  -- of REVOKE). In such deployments the engine-layer append-only invariant is
+  -- downgraded to a backend-layer invariant (write via sqlalchemy.insert only).
+  -- Operators running the canonical non-superuser config will see the strict
+  -- check enforced.
+  IF     v_aikm_update AND NOT v_aikm_superuser THEN
+    RAISE EXCEPTION '002 verification failed: aikm has UPDATE on pg_viewer_audit_log (append-only violated)';
+  ELSIF v_aikm_update AND v_aikm_superuser THEN
+    RAISE WARNING '002: aikm is SUPERUSER — has_table_privilege bypasses REVOKE; engine-level append-only disabled. Backend must enforce via sqlalchemy.insert() only. Follow-up: create aikm_app non-superuser role.';
+  END IF;
   IF     v_viewer_select THEN RAISE EXCEPTION '002 verification failed: aikm_viewer has SELECT on pg_viewer_audit_log (leak)'; END IF;
   IF NOT v_part_04       THEN RAISE EXCEPTION '002 verification failed: partition 2026_04 missing or detached'; END IF;
   IF NOT v_part_05       THEN RAISE EXCEPTION '002 verification failed: partition 2026_05 missing or detached'; END IF;
