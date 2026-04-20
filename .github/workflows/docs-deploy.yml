@@ -1,0 +1,43 @@
+name: Docs Deploy
+
+on:
+  push:
+    paths:
+      - 'docs/**/*.html'
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy HTML docs to http-share
+        run: |
+          set -e
+          shopt -s nullglob
+          SHARE_DIR=/mnt/disk3/shared
+          if [ ! -d "$SHARE_DIR" ]; then
+            echo "::error::Share dir $SHARE_DIR not found — ensure runner has it mounted"
+            exit 1
+          fi
+          deployed=0
+          for f in docs/*.html; do
+            fname=$(basename "$f")
+            dest="$SHARE_DIR/aikm-$fname"
+            echo "Deploying $f -> $dest"
+            cp "$f" "$dest"
+            deployed=$((deployed+1))
+          done
+          echo "Deployed $deployed html file(s)"
+          ls -la "$SHARE_DIR"/aikm-*.html 2>/dev/null || true
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Docs Deploy"
+            echo "- Commit: ${{ github.sha }}"
+            echo "- Target: /mnt/disk3/shared/aikm-*.html"
+            echo "- Status: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

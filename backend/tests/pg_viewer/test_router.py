@@ -303,6 +303,160 @@ class TestSchemasModule:
 # Integration tests — require live DB + real admin user in users table
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Tests for T-015 export.csv wiring + T-014.6 rate-limiter wiring
+# ---------------------------------------------------------------------------
+
+class TestExportCsvWiring:
+    """Verify export_csv is wired: no 501 stub, proper headers + audit write."""
+
+    def test_export_csv_endpoint_not_stub(self):
+        """Router source must NOT contain the old 501 stub."""
+        import os
+        router_path = os.path.join(_BACKEND_DIR, "app/routers/pg_viewer.py")
+        with open(router_path) as fh:
+            source = fh.read()
+
+        assert "T-015 pending" not in source, "Old 501 stub still present in router."
+        assert "501" not in source or "status_code=501" not in source, (
+            "Router still returns 501 for export.csv."
+        )
+
+    def test_export_csv_calls_export_csv_function(self):
+        """Router source must import and call export_csv from exporter."""
+        import os
+        router_path = os.path.join(_BACKEND_DIR, "app/routers/pg_viewer.py")
+        with open(router_path) as fh:
+            source = fh.read()
+
+        assert "from app.services.pg_viewer.exporter import export_csv" in source, (
+            "Router does not import export_csv from exporter.py (T-015)."
+        )
+        assert "await export_csv(" in source, (
+            "Router does not await export_csv(...) — T-015 not wired."
+        )
+
+    def test_export_csv_reads_x_row_count_header(self):
+        """Router must read X-Row-Count from streaming response for audit."""
+        import os
+        router_path = os.path.join(_BACKEND_DIR, "app/routers/pg_viewer.py")
+        with open(router_path) as fh:
+            source = fh.read()
+
+        assert "x-row-count" in source.lower(), (
+            "Router does not read X-Row-Count header from streaming response."
+        )
+
+    def test_export_csv_audit_reads_streaming_response_headers(self):
+        """Router must read X-Row-Count and X-Truncated from StreamingResponse headers for audit."""
+        import os
+        router_path = os.path.join(_BACKEND_DIR, "app/routers/pg_viewer.py")
+        with open(router_path) as fh:
+            source = fh.read()
+
+        assert "x-row-count" in source.lower(), (
+            "Router does not read X-Row-Count header from streaming response for audit."
+        )
+        assert "x-truncated" in source.lower(), (
+            "Router does not read X-Truncated header from streaming response."
+        )
+
+        # Content-Disposition is set inside exporter.py (not the router) — verify there
+        exporter_path = os.path.join(_BACKEND_DIR, "app/services/pg_viewer/exporter.py")
+        with open(exporter_path) as fh:
+            exporter_source = fh.read()
+
+        assert "Content-Disposition" in exporter_source, (
+            "exporter.py does not set Content-Disposition header — CSV downloads will break."
+        )
+
+
+class TestRateLimitWiring:
+    """Verify T-014.6 rate limiter is wired for all three endpoints."""
+
+    def test_rate_limit_wired_for_sql(self):
+        """Router must call _check_rate for the sql bucket in POST /sql."""
+        import os
+        router_path = os.path.join(_BACKEND_DIR, "app/routers/pg_viewer.py")
+        with open(router_path) as fh:
+            source = fh.read()
+
+        assert '_check_rate("sql"' in source or "_check_rate('sql'" in source, (
+            "_check_rate('sql', ...) not found in router — /sql rate limit not wired."
+        )
+
+    def test_rate_limit_wired_for_rows(self):
+        """Router must call _check_rate for the rows bucket in /rows."""
+        import os
+        router_path = os.path.join(_BACKEND_DIR, "app/routers/pg_viewer.py")
+        with open(router_path) as fh:
+            source = fh.read()
+
+        # Both /rows and /export.csv use "rows" bucket
+        assert source.count('_check_rate("rows"') + source.count("_check_rate('rows'") >= 2, (
+            "_check_rate('rows', ...) should appear at least twice (rows + export.csv)."
+        )
+
+    def test_rate_limit_sql_uses_pg_viewer_rate_limit_sql(self):
+        """POST /sql must use pg_viewer_rate_limit_sql setting."""
+        import os
+        router_path = os.path.join(_BACKEND_DIR, "app/routers/pg_viewer.py")
+        with open(router_path) as fh:
+            source = fh.read()
+
+        assert "pg_viewer_rate_limit_sql" in source, (
+            "pg_viewer_rate_limit_sql setting not referenced in router."
+        )
+
+    def test_rate_limit_rows_uses_pg_viewer_rate_limit_rows(self):
+        """GET /rows and /export.csv must use pg_viewer_rate_limit_rows setting."""
+        import os
+        router_path = os.path.join(_BACKEND_DIR, "app/routers/pg_viewer.py")
+        with open(router_path) as fh:
+            source = fh.read()
+
+        assert "pg_viewer_rate_limit_rows" in source, (
+            "pg_viewer_rate_limit_rows setting not referenced in router."
+        )
+
+    def test_rate_limit_429_audits_as_rate_limited(self):
+        """Router must write audit row with status='rate_limited' on 429."""
+        import os
+        router_path = os.path.join(_BACKEND_DIR, "app/routers/pg_viewer.py")
+        with open(router_path) as fh:
+            source = fh.read()
+
+        assert '"rate_limited"' in source or "'rate_limited'" in source, (
+            "Router does not write audit with status='rate_limited' on 429."
+        )
+
+    def test_rate_limit_503_audits_as_error(self):
+        """Router must write audit row with status='error' on Redis-down 503."""
+        import os
+        router_path = os.path.join(_BACKEND_DIR, "app/routers/pg_viewer.py")
+        with open(router_path) as fh:
+            source = fh.read()
+
+        # The rl_status logic covers both 429→rate_limited and 503→error
+        assert "rl_status" in source, (
+            "Router does not derive rl_status from rl_exc.status_code — 503 audit may be missing."
+        )
+
+    def test_todo_comment_removed(self):
+        """The old TODO: wire T-014.6 comment must be gone."""
+        import os
+        router_path = os.path.join(_BACKEND_DIR, "app/routers/pg_viewer.py")
+        with open(router_path) as fh:
+            source = fh.read()
+
+        assert "TODO: wire T-014.6" not in source, (
+            "Old TODO comment still present — T-014.6 wiring incomplete."
+        )
+        assert "Rate limit stub" not in source, (
+            "Old 'Rate limit stub' comment still present."
+        )
+
+
 @INTEGRATION_SKIP
 @integration
 class TestListTablesIntegration:

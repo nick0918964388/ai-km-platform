@@ -170,6 +170,16 @@ async def export_csv(
         pk_columns=None,
     )
 
+    # H-2 fix: build_table_select emits asyncpg $N placeholders + list.
+    # SQLAlchemy text() requires :name placeholders + dict.
+    import re as _re  # noqa: PLC0415
+
+    def _adapt_params(sql: str, p_list: list) -> tuple[str, dict]:
+        adapted = _re.sub(r"\$(\d+)", lambda m: f":p{m.group(1)}", sql)
+        return adapted, {f"p{i + 1}": v for i, v in enumerate(p_list)}
+
+    adapted_sql, adapted_params = _adapt_params(sql_str, params)
+
     # ------------------------------------------------------------------
     # 2. Execute query — fetch all rows into memory (max row_limit rows)
     # ------------------------------------------------------------------
@@ -177,7 +187,7 @@ async def export_csv(
     gen = get_viewer_db()
     conn = await gen.__anext__()
     try:
-        result = await conn.execute(text(sql_str), params)
+        result = await conn.execute(text(adapted_sql), adapted_params)
         sa_rows = result.fetchall()
         col_names: list[str] = list(result.keys())
         for row in sa_rows:

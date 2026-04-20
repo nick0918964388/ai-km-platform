@@ -27,8 +27,7 @@ import {
   Security,
 } from '@carbon/icons-react';
 import { useTableRows } from '@/hooks/useTableRows';
-import { getTableSchema } from '@/services/pgViewerService';
-import { exportCsvUrl } from '@/services/pgViewerService';
+import { getTableSchema, downloadCsv } from '@/services/pgViewerService';
 import { FilterBar } from './FilterBar';
 import type { FilterClauseExt } from '@/hooks/useTableRows';
 import type { RowPageColumn } from '@/types/pgViewer';
@@ -129,6 +128,9 @@ export function DataTab({ tableName }: DataTabProps) {
   const [schemaColumns, setSchemaColumns] = useState<string[]>([]);
   const prevTableRef = useRef<string>('');
 
+  // CSV download state
+  const [csvDownloading, setCsvDownloading] = useState(false);
+
   // Rate-limit retry timer
   const [retryDisabled, setRetryDisabled] = useState(false);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -225,16 +227,27 @@ export function DataTab({ tableName }: DataTabProps) {
     ...row,
   }));
 
-  // CSV export URL
-  const csvUrl = exportCsvUrl(tableName, {
-    order_by: orderBy,
-    order_dir: orderDir,
-    filters: filters.map((f) => ({
-      column: f.column,
-      op: (f.op === '!=' ? '<>' : f.op) as '<>',
-      value: f.value,
-    })),
-  });
+  // CSV download handler — uses fetch + Authorization header (C-2 fix).
+  const handleCsvDownload = useCallback(async () => {
+    if (csvDownloading) return;
+    setCsvDownloading(true);
+    try {
+      await downloadCsv(tableName, {
+        order_by: orderBy,
+        order_dir: orderDir,
+        filters: filters.map((f) => ({
+          column: f.column,
+          op: (f.op === '!=' ? '<>' : f.op) as '<>',
+          value: f.value,
+        })),
+      });
+    } catch {
+      // Non-fatal: user sees no download; a toast or retry would be better UX
+      // but is out of scope for the security fix.
+    } finally {
+      setCsvDownloading(false);
+    }
+  }, [csvDownloading, tableName, orderBy, orderDir, filters]);
 
   return (
     <div
@@ -294,16 +307,18 @@ export function DataTab({ tableName }: DataTabProps) {
           tooltipPosition="bottom"
         />
 
-        {/* ExportCSV — browser-native download via <a> */}
-        <a
-          href={csvUrl}
-          download={`${tableName}.csv`}
-          aria-label="匯出 CSV"
-          data-testid="export-csv-link"
-          style={{ textDecoration: 'none' }}
-        >
-          <Button kind="ghost" size="sm" renderIcon={Download} hasIconOnly iconDescription="匯出 CSV" tooltipPosition="bottom" as="span" />
-        </a>
+        {/* ExportCSV — fetch + Authorization header (C-2: no JWT in URL) */}
+        <Button
+          kind="ghost"
+          size="sm"
+          renderIcon={Download}
+          hasIconOnly
+          iconDescription={csvDownloading ? '下載中…' : '匯出 CSV'}
+          tooltipPosition="bottom"
+          onClick={handleCsvDownload}
+          disabled={csvDownloading}
+          data-testid="export-csv-btn"
+        />
       </div>
 
       {/* ── FilterBar ───────────────────────────────────────────────────────── */}

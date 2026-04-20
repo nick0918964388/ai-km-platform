@@ -77,16 +77,40 @@ def _load_router() -> types.ModuleType:
 # Minimal FastAPI test client setup (no DB required for unit tests)
 # ---------------------------------------------------------------------------
 
-def _make_test_client():
-    """Build a TestClient with the csp_violations router mounted at /api."""
+def _make_test_client(*, rate_limit_pass: bool = True):
+    """Build a TestClient with the csp_violations router mounted at /api.
+
+    ``rate_limit_pass`` — when True (default), the rate-limiter is stubbed to
+    always allow requests (no Redis required for unit tests).  Pass False to
+    simulate rate-limit rejection.
+    """
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
     csp_mod = _load_router()
 
+    # Stub _check_rate so unit tests never need Redis (H-3 fix wires it for real).
+    # The real _check_rate is tested separately in test_rate_limiter.py.
+    async def _fake_check_rate(bucket: str, key: str, limit: int) -> None:
+        if not rate_limit_pass:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=429, detail="rate limited")
+
+    # Inject into the module-level import used by receive_csp_violation.
+    _rate_limiter_mod = types.ModuleType("app.services.pg_viewer.rate_limiter")
+    _rate_limiter_mod._check_rate = _fake_check_rate  # type: ignore[attr-defined]
+    _prev = sys.modules.get("app.services.pg_viewer.rate_limiter")
+    sys.modules["app.services.pg_viewer.rate_limiter"] = _rate_limiter_mod
+
     app = FastAPI()
     app.include_router(csp_mod.router, prefix="/api")
-    return TestClient(app, raise_server_exceptions=False)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    # Restore after building (the router already captured the import path; the
+    # deferred import inside receive_csp_violation will re-import on each call,
+    # so we leave the fake in place for the lifetime of this client).
+    # NOTE: this is acceptable because each test creates a fresh client.
+    return client
 
 
 # ---------------------------------------------------------------------------

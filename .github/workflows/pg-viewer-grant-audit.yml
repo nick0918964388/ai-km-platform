@@ -1,0 +1,97 @@
+name: pg-viewer grant audit
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # daily 04:00 UTC
+  workflow_dispatch:       # manual trigger
+
+concurrency:
+  group: pg-viewer-grant-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout (for baseline file)
+        uses: actions/checkout@v4
+
+      - name: Check grants
+        env:
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+        run: |
+          set -e
+
+          BASELINE=".github/baselines/pg_viewer_grants.csv"
+
+          if [ ! -f "$BASELINE" ]; then
+            echo "::error::Baseline file $BASELINE not found — cannot diff. Commit the baseline first."
+            exit 1
+          fi
+
+          # Dump current grants for aikm_viewer and aikm_audit_purger.
+          docker exec aikm-postgres psql -U aikm -d aikm -t -A -F',' -c "
+            SELECT grantee, table_name, privilege_type
+              FROM information_schema.role_table_grants
+             WHERE grantee IN ('aikm_viewer', 'aikm_audit_purger')
+             ORDER BY grantee, table_name, privilege_type
+          " > /tmp/pg_viewer_grants_live.csv
+
+          # Hard-fail if aikm_viewer has any grant on sensitive tables.
+          SENSITIVE_LEAKS=$(grep -E '^aikm_viewer,(users|sessions|api_keys|pg_viewer_audit_log),' /tmp/pg_viewer_grants_live.csv || true)
+          if [ -n "$SENSITIVE_LEAKS" ]; then
+            echo "::error::SECURITY DRIFT — aikm_viewer has grants on sensitive table(s):"
+            echo "$SENSITIVE_LEAKS"
+            if [ -n "$ALERT_WEBHOOK_URL" ]; then
+              PAYLOAD=$(printf '{"content":"**[pg-viewer grant audit] CRITICAL SECURITY DRIFT**\\naikm_viewer has SELECT on forbidden table(s):\\n```\\n%s\\n```\\nRepo: %s | Run: %s"}' \
+                "$SENSITIVE_LEAKS" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+              curl -s -X POST "$ALERT_WEBHOOK_URL" \
+                -H "Content-Type: application/json" \
+                -d "$PAYLOAD" || true
+            fi
+            exit 1
+          fi
+
+          # Diff live vs baseline.
+          DIFF_OUTPUT=$(diff "$BASELINE" /tmp/pg_viewer_grants_live.csv || true)
+
+          if [ -z "$DIFF_OUTPUT" ]; then
+            echo "Grant audit passed — no drift detected."
+            exit 0
+          fi
+
+          echo "::warning::Grant drift detected vs baseline:"
+          echo "$DIFF_OUTPUT"
+
+          # Lines added in live (not in baseline) start with ">".
+          # Lines removed from baseline (not in live) start with "<".
+          ADDED=$(echo "$DIFF_OUTPUT" | grep '^>' | sed 's/^> //')
+          REMOVED=$(echo "$DIFF_OUTPUT" | grep '^<' | sed 's/^< //')
+
+          # Check if any added grant touches a forbidden column
+          # (belt-and-suspenders beyond the hard check above).
+          ADDED_SENSITIVE=$(echo "$ADDED" | grep -E '^aikm_viewer,(users|sessions|api_keys|pg_viewer_audit_log),' || true)
+          if [ -n "$ADDED_SENSITIVE" ]; then
+            echo "::error::Drift includes SENSITIVE table grants: $ADDED_SENSITIVE"
+          fi
+
+          if [ -n "$ALERT_WEBHOOK_URL" ]; then
+            PAYLOAD=$(printf '{"content":"**[pg-viewer grant audit] Grant drift detected**\\n**Added (live has, baseline lacks):**\\n```\\n%s\\n```\\n**Removed (baseline has, live lacks):**\\n```\\n%s\\n```\\nRepo: %s | Run: %s\\nIf intentional, update `.github/baselines/pg_viewer_grants.csv` and commit."}' \
+              "${ADDED:-none}" "${REMOVED:-none}" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+            curl -s -X POST "$ALERT_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD" || true
+          fi
+
+          # Drift is a warning (not a hard failure) unless sensitive tables are involved.
+          # Hard failures already exited above.
+          exit 0
+
+      - name: Upload grant snapshot on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-viewer-grants-live-${{ github.run_id }}
+          path: /tmp/pg_viewer_grants_live.csv
+          retention-days: 7
+          if-no-files-found: ignore

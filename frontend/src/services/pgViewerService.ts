@@ -156,21 +156,23 @@ export async function getTableRows(params: {
 }
 
 /**
- * Build a CSV download URL for the current filtered view.
- * Returns a URL for use in `<a href={url} download>` — the browser handles
- * the actual download (streaming binary response; cannot use fetch here).
+ * Download a CSV export via fetch + Authorization header, then trigger a
+ * browser file-save.  This avoids appending the JWT to the URL (C-2 fix).
  *
- * The Bearer token is appended as `token=...` so the browser GET includes auth.
- * Backend must support this query-param auth for the export endpoint.
+ * @param table    - Table name
+ * @param params   - Optional sort / filter overrides
+ *
+ * On auth failure (401/403) throws ApiError so the caller can redirect / toast.
+ * On any other error throws ApiError with the HTTP status.
  */
-export function exportCsvUrl(
+export async function downloadCsv(
   table: string,
   params: {
     order_by?: string;
     order_dir?: 'asc' | 'desc';
     filters?: FilterClause[];
   } = {}
-): string {
+): Promise<void> {
   const { filters, order_dir, ...rest } = params;
 
   const qsParams: Record<string, string | number | boolean | undefined> = {
@@ -179,19 +181,40 @@ export function exportCsvUrl(
     filters: filters && filters.length > 0 ? JSON.stringify(filters) : undefined,
   };
 
-  // Inject the JWT so the browser GET is authenticated.
-  const token =
-    typeof window !== 'undefined' ? localStorage.getItem('auth_token') ?? undefined : undefined;
-  if (token) {
-    qsParams.token = token;
-  }
-
   const apiBase =
     typeof window !== 'undefined'
       ? ''
       : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-  return `${apiBase}/api/pg-viewer/tables/${encodeURIComponent(table)}/export.csv${toQs(qsParams)}`;
+  const url = `${apiBase}/api/pg-viewer/tables/${encodeURIComponent(table)}/export.csv${toQs(qsParams)}`;
+
+  const token =
+    typeof window !== 'undefined' ? localStorage.getItem('auth_token') ?? null : null;
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(url, { headers });
+
+  if (!res.ok) {
+    throw new ApiError(res.status, `CSV export failed: ${res.statusText}`);
+  }
+
+  const blob = await res.blob();
+
+  // Extract filename from Content-Disposition or fall back to table name.
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match?.[1] ?? `${table}.csv`;
+
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(objectUrl);
 }
 
 /**

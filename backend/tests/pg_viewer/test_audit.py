@@ -321,12 +321,14 @@ async def test_row_insert_persists():
     ))
 
     async with main_engine.connect() as conn:
+        # C-1 fix: use migration-002 column names (table_name, execution_ms).
         result = await conn.execute(
             text(
-                "SELECT user_id, query_type, resource, row_count, elapsed_ms, status "
+                "SELECT user_id, query_type, table_name, row_count, "
+                "execution_ms, status, action "
                 "FROM pg_viewer_audit_log "
                 "WHERE user_id = 'audit-test-user' "
-                "ORDER BY logged_at DESC LIMIT 1"
+                "ORDER BY created_at DESC LIMIT 1"
             )
         )
         row = result.fetchone()
@@ -334,10 +336,11 @@ async def test_row_insert_persists():
     assert row is not None, "Audit row was not inserted"
     assert row.user_id == "audit-test-user"
     assert row.query_type == "table_browse"
-    assert row.resource == "maximo_assets"
+    assert row.table_name == "maximo_assets"   # resource → table_name
     assert row.row_count == 10
-    assert row.elapsed_ms == 99
+    assert row.execution_ms == 99              # elapsed_ms → execution_ms
     assert row.status == "ok"
+    assert row.action is not None, "action column must be populated (H-4 fix)"
 
 
 # ===========================================================================
@@ -465,7 +468,7 @@ async def test_sql_injection_parameterized():
         result = await conn.execute(
             text(
                 "SELECT raw_sql FROM pg_viewer_audit_log "
-                "WHERE user_id = 'injection-test' ORDER BY logged_at DESC LIMIT 1"
+                "WHERE user_id = 'injection-test' ORDER BY created_at DESC LIMIT 1"
             )
         )
         row = result.fetchone()
@@ -520,7 +523,7 @@ async def test_pii_redaction_db():
         result = await conn.execute(
             text(
                 "SELECT raw_sql FROM pg_viewer_audit_log "
-                "WHERE user_id = 'pii-redact-db-test' ORDER BY logged_at DESC LIMIT 1"
+                "WHERE user_id = 'pii-redact-db-test' ORDER BY created_at DESC LIMIT 1"
             )
         )
         row = result.fetchone()
@@ -789,6 +792,86 @@ def test_no_request_returns_explicit_ip():
     assert resolved_ua == "curl/7.0"
 
 
+# ===========================================================================
+# Test: C-1 column alignment — insert_values use migration-002 column names
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_audit_columns_match_migration_002():
+    """write_audit() must write to migration-002 column names, not old names.
+
+    Verifies that the INSERT values dict contains:
+      - table_name  (not resource)
+      - execution_ms (not elapsed_ms)
+      - ip_address   (not ip)
+      - user_agent   (not ua)
+      - action       (H-4: must be populated)
+
+    And does NOT contain the old column names:
+      - resource, elapsed_ms, ip, ua
+    """
+    with _UnitEnv() as env:
+        await write_audit(**_default_kwargs(
+            user_id="col-check",
+            query_type="table_browse",
+            resource="my_table",
+            elapsed_ms=42,
+            ip="1.2.3.4",
+            ua="TestAgent/1",
+        ))
+
+    assert len(env.insert_values) >= 1, "No INSERT .values() call captured"
+    v = env.insert_values[0]
+
+    # New column names present
+    assert "table_name" in v, "table_name missing from INSERT values"
+    assert "execution_ms" in v, "execution_ms missing from INSERT values"
+    assert "ip_address" in v, "ip_address missing from INSERT values"
+    assert "user_agent" in v, "user_agent missing from INSERT values"
+    assert "action" in v, "action missing from INSERT values (H-4)"
+
+    # Old column names must NOT be present
+    assert "resource" not in v, "old 'resource' column must not be in INSERT values"
+    assert "elapsed_ms" not in v, "old 'elapsed_ms' column must not be in INSERT values"
+    assert "ip" not in v, "old 'ip' column must not be in INSERT values"
+    assert "ua" not in v, "old 'ua' column must not be in INSERT values"
+
+    # Values correctly mapped
+    assert v["table_name"] == "my_table", f"table_name wrong: {v['table_name']!r}"
+    assert v["execution_ms"] == 42.0, f"execution_ms wrong: {v['execution_ms']!r}"
+    assert v["ip_address"] == "1.2.3.4", f"ip_address wrong: {v['ip_address']!r}"
+    assert v["user_agent"] == "TestAgent/1", f"user_agent wrong: {v['user_agent']!r}"
+    assert v["action"] is not None, "action must not be None"
+
+
+# ===========================================================================
+# Test: H-4 action derivation — all query_type values produce valid action
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("qt,expected_action", [
+    ("schema", "schema"),
+    ("sql_editor", "sql_editor"),
+    ("table_browse", "browse"),
+])
+async def test_action_derived_from_query_type(qt: str, expected_action: str):
+    """write_audit() derives 'action' from query_type when not explicitly provided."""
+    with _UnitEnv() as env:
+        await write_audit(**_default_kwargs(
+            query_type=qt,
+            resource="some_table",
+        ))
+
+    assert len(env.insert_values) >= 1
+    v = env.insert_values[0]
+    assert v.get("action") == expected_action, (
+        f"For query_type={qt!r}, expected action={expected_action!r}, "
+        f"got {v.get('action')!r}"
+    )
+
+
 def test_xff_without_xff_header_uses_peer_ip():
     """Request with no XFF header → direct peer IP used."""
     request = _FakeRequest(peer_ip="10.0.0.5", xff=None)
@@ -806,6 +889,7 @@ async def test_write_audit_xff_end_to_end():
         await write_audit(**_default_kwargs(ip=None, ua=None, request=request))
 
     assert len(env.insert_values) >= 1, "No INSERT .values() call captured"
-    assert env.insert_values[0].get("ip") == "203.0.113.7", (
-        f"Expected XFF IP '203.0.113.7', got {env.insert_values[0].get('ip')!r}"
+    # C-1 fix: column is now ip_address (not ip).
+    assert env.insert_values[0].get("ip_address") == "203.0.113.7", (
+        f"Expected XFF IP '203.0.113.7', got {env.insert_values[0].get('ip_address')!r}"
     )

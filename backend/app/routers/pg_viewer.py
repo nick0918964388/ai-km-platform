@@ -5,7 +5,7 @@ Endpoints
 GET  /api/pg-viewer/tables              — list all tables (TableSummary[])
 GET  /api/pg-viewer/tables/{table}/schema   — describe one table (TableSchema)
 GET  /api/pg-viewer/tables/{table}/rows     — paginated rows (RowPage)
-GET  /api/pg-viewer/tables/{table}/export.csv  — CSV export (501 stub, T-015)
+GET  /api/pg-viewer/tables/{table}/export.csv  — CSV export (T-015 wired)
 GET  /api/pg-viewer/audit               — audit log (AuditEntry[])
 POST /api/pg-viewer/sql                 — SQL editor (T-016 wired)
 
@@ -36,6 +36,7 @@ from app.auth import require_admin_strict
 from app.config import get_settings
 from app.services.circuit_breaker import PG_VIEWER_BREAKER
 from app.services.pg_viewer.metrics import record_request
+from app.services.pg_viewer.rate_limiter import _check_rate
 from app.schemas.pg_viewer import (
     AuditEntry,
     AuditListResponse,
@@ -53,6 +54,34 @@ from app.schemas.pg_viewer import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["pg-viewer"])
+
+
+# ---------------------------------------------------------------------------
+# H-2 fix: asyncpg $N → SQLAlchemy :pN adapter
+# build_table_select() emits asyncpg-style positional placeholders ($1, $2…)
+# and returns a list of values.  SQLAlchemy text() requires :name placeholders
+# and a dict.  This thin adapter converts without touching query_builder.py.
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+def _adapt_params(sql: str, params: list) -> tuple[str, dict]:
+    """Convert asyncpg-style '$N' placeholders to SQLAlchemy ':pN' and
+    return the SQL string + a matching dict.
+
+    Example:
+        sql    = 'SELECT * FROM "t" WHERE "col" = $1 AND "col2" = $2'
+        params = ['foo', 42]
+        →
+        sql    = 'SELECT * FROM "t" WHERE "col" = :p1 AND "col2" = :p2'
+        params = {'p1': 'foo', 'p2': 42}
+    """
+    def _replace(m: "_re.Match[str]") -> str:
+        return f":p{m.group(1)}"
+
+    adapted_sql = _re.sub(r"\$(\d+)", _replace, sql)
+    adapted_params = {f"p{i + 1}": v for i, v in enumerate(params)}
+    return adapted_sql, adapted_params
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +386,28 @@ async def get_table_rows(
     ip = _get_client_ip(request)
     ua = _get_ua(request)
 
+    # Rate limit check (T-014.6) — audit on 429/503
+    try:
+        await _check_rate("rows", user["id"], get_settings().pg_viewer_rate_limit_rows)
+    except HTTPException as rl_exc:
+        elapsed = int((time.monotonic() - t0) * 1000)
+        rl_status = "rate_limited" if rl_exc.status_code == 429 else "error"
+        await _audit.write_audit(
+            user_id=user["id"],
+            query_type="table_browse",
+            resource=table,
+            raw_sql=None,
+            row_count=None,
+            elapsed_ms=elapsed,
+            status=rl_status,
+            error_message=rl_exc.detail,
+            ip=ip,
+            ua=ua,
+            request=request,
+        )
+        record_request("table_rows", rl_exc.status_code, elapsed / 1000.0)
+        raise
+
     # Parse filters JSON
     filter_clauses: list[FilterClause] = []
     if filters:
@@ -443,11 +494,14 @@ async def get_table_rows(
     try:
         from sqlalchemy import text as _text
 
+        # H-2 fix: convert asyncpg $N placeholders to SQLAlchemy :pN + dict.
+        adapted_sql, adapted_params = _adapt_params(sql, params)
+
         gen = get_viewer_db()
         conn = await gen.__anext__()
         try:
             # get_viewer_db already SET LOCAL statement_timeout = '10s'
-            result = await conn.execute(_text(sql), params if params else {})
+            result = await conn.execute(_text(adapted_sql), adapted_params if adapted_params else {})
             db_rows = result.fetchall()
             col_names = list(result.keys())
         finally:
@@ -537,53 +591,151 @@ async def get_table_rows(
 
 
 # ---------------------------------------------------------------------------
-# GET /tables/{table}/export.csv  — T-015 stub
+# GET /tables/{table}/export.csv  — T-015 wired
 # ---------------------------------------------------------------------------
 
 
 @router.get(
     "/tables/{table}/export.csv",
     responses={
-        501: {"model": ErrorSchema},
+        200: {"content": {"text/csv": {}}},
         401: {"model": ErrorSchema},
         403: {"model": ErrorSchema},
+        429: {"model": ErrorSchema},
+        503: {"model": ErrorSchema},
     },
 )
 async def export_table_csv(
     table: str,
     request: Request,
+    columns: Optional[str] = Query(default=None, description="Comma-separated column list; empty = all"),
+    order_by: Optional[str] = Query(default=None),
+    order_dir: str = Query(default="asc", pattern="^(asc|desc|ASC|DESC)$"),
+    filters: Optional[str] = Query(default=None, description="JSON-encoded filter array"),
+    row_limit: int = Query(default=1000, ge=1, le=1000),
     user: dict = Depends(require_admin_strict),
-) -> JSONResponse:
-    """CSV export — not yet implemented (T-015 exporter not yet written).
-
-    TODO: wire T-015 csv_exporter when it lands.
-    """
+):
+    """Export table rows as a streaming CSV file (T-015 wired)."""
     _assert_feature_enabled()
+    _check_circuit()
 
     from app.services.pg_viewer import audit as _audit
+    from app.services.pg_viewer.exporter import export_csv
+    from app.services.pg_viewer.pii_redactor import sanitize_pg_error
+    from app.services.pg_viewer.query_builder import FilterClause
 
+    t0 = time.monotonic()
     ip = _get_client_ip(request)
     ua = _get_ua(request)
 
-    await _audit.write_audit(
-        user_id=user["id"],
-        query_type="table_browse",
-        resource=table,
-        raw_sql=None,
-        row_count=None,
-        elapsed_ms=0,
-        status="error",
-        error_message="CSV export not yet implemented (T-015 pending)",
-        ip=ip,
-        ua=ua,
-        request=request,
-    )
+    # Rate limit check (T-014.6) — same "rows" bucket as /rows endpoint
+    try:
+        await _check_rate("rows", user["id"], get_settings().pg_viewer_rate_limit_rows)
+    except HTTPException as rl_exc:
+        elapsed = int((time.monotonic() - t0) * 1000)
+        rl_status = "rate_limited" if rl_exc.status_code == 429 else "error"
+        await _audit.write_audit(
+            user_id=user["id"],
+            query_type="table_browse",
+            resource=table,
+            raw_sql=None,
+            row_count=None,
+            elapsed_ms=elapsed,
+            status=rl_status,
+            error_message=rl_exc.detail,
+            ip=ip,
+            ua=ua,
+            request=request,
+        )
+        record_request("table_export", rl_exc.status_code, elapsed / 1000.0)
+        raise
 
-    record_request("table_export", 501, 0.0)
-    return JSONResponse(
-        status_code=501,
-        content={"detail": "CSV export not yet implemented (T-015 pending)"},
-    )
+    # Parse columns
+    col_list: list[str] = []
+    if columns:
+        col_list = [c.strip() for c in columns.split(",") if c.strip()]
+
+    # Parse filters JSON
+    filter_clauses: list[FilterClause] = []
+    if filters:
+        try:
+            raw_filters = json.loads(filters)
+            if not isinstance(raw_filters, list):
+                raise ValueError("filters must be a JSON array")
+            filter_clauses = [FilterClause(**f) for f in raw_filters]
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            elapsed = int((time.monotonic() - t0) * 1000)
+            await _audit.write_audit(
+                user_id=user["id"],
+                query_type="table_browse",
+                resource=table,
+                raw_sql=None,
+                row_count=None,
+                elapsed_ms=elapsed,
+                status="error",
+                error_message=f"invalid filters: {exc}",
+                ip=ip,
+                ua=ua,
+                request=request,
+            )
+            record_request("table_export", 400, elapsed / 1000.0)
+            raise HTTPException(status_code=400, detail=f"invalid filters: {exc}")
+
+    # Execute export
+    try:
+        order_by_list = [order_by] if order_by else None
+        streaming_response = await export_csv(
+            table=table,
+            columns=col_list,
+            filters=filter_clauses,
+            order_by=order_by_list,
+            order_dir=order_dir.lower(),  # type: ignore[arg-type]
+            row_limit=row_limit,
+        )
+        PG_VIEWER_BREAKER.record_success()
+        elapsed = int((time.monotonic() - t0) * 1000)
+
+        # Read row count + truncated flag from response headers set by export_csv
+        exported_row_count = int(streaming_response.headers.get("x-row-count", 0))
+        truncated = streaming_response.headers.get("x-truncated", "").lower() == "true"
+
+        await _audit.write_audit(
+            user_id=user["id"],
+            query_type="table_browse",
+            resource=table,
+            raw_sql=None,
+            row_count=exported_row_count,
+            elapsed_ms=elapsed,
+            status="ok",
+            error_message=f"truncated=true" if truncated else None,
+            ip=ip,
+            ua=ua,
+            request=request,
+        )
+        record_request("table_export", 200, elapsed / 1000.0)
+        return streaming_response
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        PG_VIEWER_BREAKER.record_failure()
+        elapsed = int((time.monotonic() - t0) * 1000)
+        http_status, safe_msg = sanitize_pg_error(exc)
+        await _audit.write_audit(
+            user_id=user["id"],
+            query_type="table_browse",
+            resource=table,
+            raw_sql=None,
+            row_count=None,
+            elapsed_ms=elapsed,
+            status="error",
+            error_message=safe_msg,
+            ip=ip,
+            ua=ua,
+            request=request,
+        )
+        record_request("table_export", http_status, elapsed / 1000.0)
+        raise HTTPException(status_code=http_status, detail=safe_msg)
 
 
 # ---------------------------------------------------------------------------
@@ -643,25 +795,28 @@ async def get_audit(
             conditions.append("status = :status")
             params["status"] = status
         if since:
-            conditions.append("logged_at >= :since")
+            conditions.append("created_at >= :since")
             params["since"] = since
         if until:
-            conditions.append("logged_at <= :until")
+            conditions.append("created_at <= :until")
             params["until"] = until
 
         where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+        # Column names match migration 002 DDL exactly (C-1 fix).
         sql = f"""
-            SELECT id, user_id, query_type, resource, raw_sql,
-                   row_count, elapsed_ms, status, error_message,
-                   ip, ua, logged_at
+            SELECT id, user_id, user_email, action, query_type, raw_sql,
+                   table_name, row_count, execution_ms, status, error_message,
+                   ip_address, user_agent, created_at
             FROM pg_viewer_audit_log
             {where_clause}
             ORDER BY id DESC
             LIMIT :limit OFFSET :offset
         """
 
+        from sqlalchemy import text as _text  # noqa: PLC0415 — H-1 fix: text was not imported at module scope
+
         async with main_engine.connect() as conn:
-            result = await conn.execute(text(sql), params)
+            result = await conn.execute(_text(sql), params)
             rows = result.fetchall()
             col_keys = list(result.keys())
 
@@ -670,23 +825,22 @@ async def get_audit(
         entries: list[AuditEntry] = []
         for row in rows:
             row_dict = dict(zip(col_keys, row))
-            # Map DB columns to AuditEntry fields
-            # resource → table_name; query_type → action mapping
-            logged_at = row_dict.get("logged_at")
+            created_at = row_dict.get("created_at")
+            raw_email = row_dict.get("user_email")
             entries.append(
                 AuditEntry(
                     id=row_dict.get("id"),
                     user_id=row_dict.get("user_id"),
-                    user_email=mask_email_ui(None),  # email not stored in log
-                    action=row_dict.get("query_type"),
-                    table_name=row_dict.get("resource"),
+                    user_email=mask_email_ui(raw_email) if raw_email else None,
+                    action=row_dict.get("action"),
+                    table_name=row_dict.get("table_name"),
                     row_count=row_dict.get("row_count"),
-                    execution_ms=row_dict.get("elapsed_ms"),
+                    execution_ms=row_dict.get("execution_ms"),
                     error_message=row_dict.get("error_message"),
                     raw_sql=row_dict.get("raw_sql"),
                     query_type=row_dict.get("query_type"),
                     status=row_dict.get("status"),
-                    created_at=logged_at.isoformat() if logged_at else None,
+                    created_at=created_at.isoformat() if created_at else None,
                 )
             )
 
@@ -780,8 +934,29 @@ async def run_sql_editor(
     ip = _get_client_ip(request)
     ua = _get_ua(request)
 
-    # Rate limit stub — TODO: wire T-014.6 rate limiter when it lands
-    # rate_limit_check(user["id"])  # noqa: ERA001
+    # Rate limit check (T-014.6)
+    try:
+        await _check_rate("sql", user["id"], get_settings().pg_viewer_rate_limit_sql)
+    except HTTPException as rl_exc:
+        elapsed = int((time.monotonic() - t0) * 1000)
+        rl_status = "rate_limited" if rl_exc.status_code == 429 else "error"
+        from app.services.pg_viewer import audit as _audit  # noqa: PLC0415
+        from app.services.pg_viewer.pii_redactor import redact_sql_for_audit  # noqa: PLC0415
+        await _audit.write_audit(
+            user_id=user["id"],
+            query_type="sql_editor",
+            resource=None,
+            raw_sql=redact_sql_for_audit(body.sql),
+            row_count=None,
+            elapsed_ms=elapsed,
+            status=rl_status,
+            error_message=rl_exc.detail,
+            ip=ip,
+            ua=ua,
+            request=request,
+        )
+        record_request("sql_editor", rl_exc.status_code, elapsed / 1000.0)
+        raise
 
     # --- Static analysis (Layer-9) ---
     try:

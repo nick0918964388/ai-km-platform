@@ -169,10 +169,26 @@ async def receive_csp_violation(request: Request) -> Response:
     Returns 204 No Content on success.
     Returns 400 for malformed JSON.
     Returns 413 if body exceeds 16 KB.
-
-    Rate limit: TODO — wire to require_rate_budget(60, "csp_violations", ip)
-    once T-014.6 (rate-budget dependency) is merged.
+    Returns 503 if Redis is down (fail-closed to prevent DB saturation).
     """
+    # --- Rate limit (H-3 fix): 60 requests/min per IP, fail-closed on Redis down ---
+    ip_for_rate = _resolve_client_ip(request) or "anon"
+    try:
+        from app.services.pg_viewer.rate_limiter import _check_rate  # noqa: PLC0415
+        await _check_rate("csp", ip_for_rate, 60)
+    except Exception as rl_exc:
+        from fastapi import HTTPException  # noqa: PLC0415
+        if isinstance(rl_exc, HTTPException):
+            return JSONResponse(
+                status_code=rl_exc.status_code,
+                content={"detail": rl_exc.detail},
+            )
+        # Redis down or other error — fail-closed (503 beats DB saturation).
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "rate limiter unavailable"},
+        )
+
     # --- Body size cap ---
     body_bytes = await request.body()
     if len(body_bytes) > _MAX_BODY_BYTES:

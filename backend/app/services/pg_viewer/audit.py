@@ -44,44 +44,51 @@ _spillover_table: "Table | None" = None
 
 
 def _get_tables():
-    """Return (audit_table, spillover_table), creating them on first call."""
+    """Return (audit_table, spillover_table), creating them on first call.
+
+    Column names MUST match the deployed migration 002 DDL exactly.
+    Source of truth: backend/scripts/pg_viewer_migrate_002_audit_table.sql
+    """
     global _audit_table, _spillover_table
     if _audit_table is not None:
         return _audit_table, _spillover_table
 
-    from sqlalchemy import Column, Integer, MetaData, String, Table, Text  # noqa: PLC0415
+    from sqlalchemy import Column, Float, Integer, MetaData, String, Table, Text  # noqa: PLC0415
 
     _metadata = MetaData()
+
+    # Column set aligned to migration 002 (post-critic C-1 fix).
+    # id and created_at have server-side defaults — omitted from INSERT.
+    _shared_columns = [
+        Column("user_id", String),
+        Column("user_email", String, nullable=True),
+        Column("action", String),
+        Column("query_type", String),
+        Column("raw_sql", Text, nullable=True),
+        Column("table_name", String, nullable=True),
+        Column("filters_json", Text, nullable=True),       # JSONB stored as text
+        Column("order_by", String, nullable=True),
+        Column("order_dir", String, nullable=True),
+        Column("limit_val", Integer, nullable=True),
+        Column("offset_val", Integer, nullable=True),
+        Column("row_count", Integer, nullable=True),
+        Column("execution_ms", Float, nullable=True),
+        Column("status", String),
+        Column("error_message", Text, nullable=True),
+        Column("ip_address", String, nullable=True),       # INET stored as text
+        Column("user_agent", Text, nullable=True),
+    ]
 
     _audit_table = Table(
         "pg_viewer_audit_log",
         _metadata,
-        Column("user_id", String),
-        Column("query_type", String),
-        Column("resource", String, nullable=True),
-        Column("raw_sql", Text, nullable=True),
-        Column("row_count", Integer, nullable=True),
-        Column("elapsed_ms", Integer),
-        Column("status", String),
-        Column("error_message", Text, nullable=True),
-        Column("ip", String, nullable=True),
-        Column("ua", Text, nullable=True),
-        # logged_at has a server-side DEFAULT NOW() — omitted from INSERT.
+        *_shared_columns,
     )
 
     _spillover_table = Table(
         "pg_viewer_audit_log_spillover",
         _metadata,
-        Column("user_id", String),
-        Column("query_type", String),
-        Column("resource", String, nullable=True),
-        Column("raw_sql", Text, nullable=True),
-        Column("row_count", Integer, nullable=True),
-        Column("elapsed_ms", Integer),
-        Column("status", String),
-        Column("error_message", Text, nullable=True),
-        Column("ip", String, nullable=True),
-        Column("ua", Text, nullable=True),
+        *[c.copy() for c in _shared_columns],
     )
 
     return _audit_table, _spillover_table
@@ -170,13 +177,34 @@ async def write_audit(
     raw_sql: "str | None",
     row_count: "int | None",
     elapsed_ms: int,
-    status: "Literal['ok', 'error', 'timeout', 'denied', 'rate_limited']",
+    status: "Literal['ok', 'error', 'timeout', 'denied', 'rate_limited', 'forbidden']",
     error_message: "str | None",
     ip: "str | None",
     ua: "str | None",
     request: "fastapi.Request | None" = None,
+    # Extended fields that map to migration 002 columns.
+    # All are optional to keep existing call sites working unchanged.
+    user_email: "str | None" = None,
+    action: "str | None" = None,
+    filters_json: "str | None" = None,
+    order_by: "str | None" = None,
+    order_dir: "str | None" = None,
+    limit_val: "int | None" = None,
+    offset_val: "int | None" = None,
+    truncated: "bool | None" = None,
 ) -> None:
     """Write a row to ``pg_viewer_audit_log`` in an independent transaction.
+
+    Column mapping (migration 002 source of truth):
+    - ``resource``   → ``table_name``
+    - ``elapsed_ms`` → ``execution_ms``
+    - ``ip``         → ``ip_address``  (after XFF resolution)
+    - ``ua``         → ``user_agent``  (after header resolution)
+    - ``action``     → derived from ``query_type`` when not supplied explicitly
+
+    External call-site signature is kept stable — existing callers that pass
+    only the original parameters (resource, elapsed_ms, ip, ua) continue to
+    work without changes.
 
     - Uses the main aikm async engine (NOT the viewer engine).
     - Opens a NEW connection/transaction, INSERTs via ``sqlalchemy.insert()``,
@@ -212,18 +240,45 @@ async def write_audit(
         redact_sql_for_audit(error_message) if error_message is not None else None
     )
 
+    # --- Derive action from query_type when not explicitly provided ---
+    # Mapping satisfies chk_action_query_type CHECK constraint in migration 002.
+    if action is None:
+        if query_type == "schema":
+            action = "schema"
+        elif query_type == "sql_editor":
+            action = "sql_editor"
+        else:
+            # table_browse — pick a more specific sub-action based on context.
+            if filters_json:
+                action = "filter"
+            elif safe_sql is None:
+                action = "browse"
+            else:
+                action = "browse"
+
+    # Normalise order_dir to uppercase (DB CHECK: 'ASC' or 'DESC' or NULL).
+    norm_order_dir = order_dir.upper() if order_dir else None
+
     # --- Build the values dict once; reused for spillover if needed ---
+    # Keys match migration 002 column names exactly.
     values: dict = {
         "user_id": user_id,
+        "user_email": user_email,
+        "action": action,
         "query_type": query_type,
-        "resource": resource,
         "raw_sql": safe_sql,
-        "row_count": row_count,
-        "elapsed_ms": elapsed_ms,
+        "table_name": resource,            # resource → table_name
+        "filters_json": filters_json,
+        "order_by": order_by,
+        "order_dir": norm_order_dir,
+        "limit_val": limit_val,
+        "offset_val": offset_val,
+        "row_count": row_count if row_count is not None else 0,
+        "execution_ms": float(elapsed_ms),  # elapsed_ms → execution_ms (REAL)
         "status": status,
         "error_message": safe_err,
-        "ip": resolved_ip,
-        "ua": resolved_ua,
+        "ip_address": resolved_ip,         # ip → ip_address
+        "user_agent": resolved_ua,          # ua → user_agent
     }
 
     # --- Independent transaction via main engine ---

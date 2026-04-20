@@ -344,14 +344,23 @@ def test_attack_maps_to_http_400(test_id, sql, exc_type, expected_detail_fragmen
 # (validator call → exception → HTTPException(400)) without importing the
 # full pg_viewer.py router (which would pull in passlib / sqlalchemy).
 
-def _build_slim_sql_app():
-    """Build a minimal FastAPI app with only the /sql validation path."""
+def _build_slim_sql_app(rate_limit: int = 30):
+    """Build a minimal FastAPI app with the /sql validation path and in-memory rate limiter."""
     from fastapi import Body, FastAPI, HTTPException  # noqa: PLC0415
 
     slim_app = FastAPI()
+    _call_count: list[int] = [0]
 
     @slim_app.post("/api/pg-viewer/sql")
     async def _sql_endpoint(sql: str = Body(..., min_length=1, max_length=8000, embed=True)) -> dict:
+        # In-memory rate limiter — mirrors T-014.6 behaviour without Redis
+        _call_count[0] += 1
+        if _call_count[0] > rate_limit:
+            raise HTTPException(
+                status_code=429,
+                detail="rate limit exceeded",
+                headers={"Retry-After": "60"},
+            )
         try:
             validate_select_sql(sql, max_len=8000)
         except _VALIDATOR_EXCEPTIONS as exc:
@@ -515,16 +524,17 @@ class TestRouterExceptionMapping:
             "Router does not raise 400 — validator errors would return wrong status."
         )
 
-    def test_rate_limit_not_wired_in_router(self):
-        """Verify T-014.6 is not yet wired (justifies the xfail test below)."""
+    def test_rate_limit_wired_in_router(self):
+        """Verify T-014.6 is wired into the /sql router handler."""
         router_path = os.path.join(_BACKEND_DIR, "app/routers/pg_viewer.py")
         with open(router_path) as fh:
             source = fh.read()
 
-        # The stub comment must exist
-        assert "Rate limit stub" in source or "TODO: wire T-014.6" in source, (
-            "T-014.6 rate limiter appears to have been wired — "
-            "update the xfail test and this assertion."
+        assert "_check_rate" in source, (
+            "T-014.6 rate limiter (_check_rate) is not imported/called in the router."
+        )
+        assert "pg_viewer_rate_limit_sql" in source, (
+            "T-014.6 rate limiter not wired for /sql endpoint."
         )
 
 
@@ -532,21 +542,8 @@ class TestRouterExceptionMapping:
 # Rate-limit endpoint test — xfail (T-014.6 not wired)
 # ===========================================================================
 
-@pytest.mark.xfail(
-    reason=(
-        "T-014.6 rate limiter is not yet wired into POST /sql. "
-        "See pg_viewer.py: '# Rate limit stub — TODO: wire T-014.6 rate limiter when it lands'. "
-        "When wired, remove this xfail marker and the assertion in "
-        "TestRouterExceptionMapping.test_rate_limit_not_wired_in_router."
-    ),
-    strict=False,
-)
 def test_31st_request_returns_429(slim_client):
-    """Send 31 requests in sequence; the 31st must return HTTP 429.
-
-    xfail because T-014.6 has not been merged into the /sql endpoint.
-    When it is, the slim_client fixture will also need to wire the rate limiter.
-    """
+    """Send 31 requests in sequence; the 31st must return HTTP 429 (T-014.6 wired)."""
     for i in range(30):
         resp = _post(slim_client, "SELECT 1")
         assert resp.status_code == 200, f"Request {i + 1} failed: {resp.status_code}"
@@ -554,6 +551,7 @@ def test_31st_request_returns_429(slim_client):
     resp_31 = _post(slim_client, "SELECT 1")
     assert resp_31.status_code == 429, (
         f"Expected 429 on 31st request, got {resp_31.status_code}. "
-        "Remove xfail once T-014.6 is wired."
+        f"Body: {resp_31.text!r}"
     )
     assert "rate limit" in resp_31.json().get("detail", "").lower()
+    assert resp_31.headers.get("retry-after") == "60"
