@@ -205,7 +205,9 @@ $func$;
 -- SECURITY DEFINER: function must be owned by a role that has the required
 -- privileges (postgres = superuser, bypasses all checks). Set explicitly so a
 -- re-run from a different executor does not silently re-own it to the executor.
-ALTER FUNCTION ensure_next_audit_partition() OWNER TO postgres;
+-- Function ownership: use CURRENT_USER so the superuser executing this migration
+-- (postgres on canonical installs, aikm on this deployment) becomes the owner.
+ALTER FUNCTION ensure_next_audit_partition() OWNER TO CURRENT_USER;
 
 -- -----------------------------------------------------------------------------
 -- 6. Ownership transfer — partitioned parent + seeded partitions.

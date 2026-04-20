@@ -125,8 +125,10 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO aikm_viewer;
 --    Without these, tables created by postgres or aikm after this migration
 --    are invisible to aikm_viewer until a grant sweep.
 -- -----------------------------------------------------------------------------
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-  GRANT SELECT ON TABLES TO aikm_viewer;
+-- Note: in this env the superuser is `aikm` (no separate `postgres` role exists).
+-- Default-privileges for the superuser covers both "postgres installs" and
+-- "ETL/migration scripts" since everything runs as aikm. If a deployment
+-- creates a separate table-creating role, ADD a line for it here.
 ALTER DEFAULT PRIVILEGES FOR ROLE aikm IN SCHEMA public
   GRANT SELECT ON TABLES TO aikm_viewer;
 -- Operators: if a new table-creating role is introduced, ADD a line here.
@@ -150,7 +152,7 @@ GRANT CONNECT ON DATABASE aikm TO aikm;
 REVOKE ALL      ON SCHEMA public   FROM PUBLIC;
 REVOKE ALL      ON DATABASE aikm   FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public                  REVOKE EXECUTE ON FUNCTIONS FROM aikm_viewer;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM aikm_viewer;
+ALTER DEFAULT PRIVILEGES FOR ROLE aikm IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM aikm_viewer;
 ALTER DEFAULT PRIVILEGES FOR ROLE aikm     IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM aikm_viewer;
 
 -- -----------------------------------------------------------------------------
@@ -230,7 +232,9 @@ CREATE OR REPLACE VIEW public.users_public AS
   SELECT id, email, display_name, account_level, created_at, last_login_at
   FROM public.users;
 
-ALTER VIEW public.users_public OWNER TO postgres;
+-- View ownership: use CURRENT_USER so the superuser executing this migration
+-- (postgres on canonical installs, aikm on this deployment) becomes the owner.
+ALTER VIEW public.users_public OWNER TO CURRENT_USER;
 GRANT SELECT ON public.users_public TO aikm_viewer;
 
 -- -----------------------------------------------------------------------------
