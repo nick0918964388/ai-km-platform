@@ -238,7 +238,7 @@ REVOKE SELECT, INSERT, UPDATE, DELETE, REFERENCES, TRIGGER
 --     on underlying users table — see "security definer via view" pattern).
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW public.users_public AS
-  SELECT id, email, display_name, account_level, created_at, last_login_at
+  SELECT id, email, display_name, account_level, created_at, last_login
   FROM public.users;
 
 -- View ownership: use CURRENT_USER so the superuser executing this migration
