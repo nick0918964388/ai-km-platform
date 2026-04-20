@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
+import { UserRole } from '@/types';
 import {
   Bot,
   Document,
@@ -67,7 +68,7 @@ export default function LoginPage() {
         id: data.user.id,
         name: data.user.name,
         email: data.user.email,
-        role: data.user.role as 'admin' | 'user' | 'guest',
+        role: data.user.role as UserRole,
         createdAt: new Date(),
       });
 

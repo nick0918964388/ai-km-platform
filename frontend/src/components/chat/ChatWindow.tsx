@@ -20,6 +20,7 @@ import ChatInput from './ChatInput';
 import RagFeedbackButtons from './RagFeedbackButtons';
 import GraphExpansionPanel from './GraphExpansionPanel';
 import { MOCK_GRAPH_EXPANSION } from '@/lib/mockGraphData';
+import RoutePathBadge from './RoutePathBadge';
 
 interface MessageSources {
   [messageId: string]: SearchResult[];
@@ -116,6 +117,7 @@ export default function ChatWindow() {
   const [taskSteps, setTaskSteps] = useState<Step[]>([]);
   const [reasoningSteps, setReasoningSteps] = useState<{phase: string; text: string}[]>([]);
   const [messageSqlResults, setMessageSqlResults] = useState<Record<string, any[]>>({});
+  const [expandedDebug, setExpandedDebug] = useState<Record<string, boolean>>({});
   const [pendingClarification, setPendingClarification] = useState<{message: string; options: {label: string; query: string}[]} | null>(null);
   const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -145,6 +147,7 @@ export default function ChatWindow() {
     user,
   } = useStore();
   const isAdmin = user?.role === 'admin';
+  const isAdminOrAnalyst = user?.role === 'admin' || user?.role === 'analyst';
 
   // Restore conversation from URL param (e.g., /chat?conversation=xxx from history page)
   useEffect(() => {
@@ -1386,15 +1389,111 @@ export default function ChatWindow() {
                     {/* SQL Result Card */}
                     {msg.role === 'assistant' && messageSqlResults[msg.id]?.length > 0 && !messageStreamingStatus[msg.id] && (
                       <>
-                        {messageSqlResults[msg.id].map((sqlRes: any, idx: number) => (
-                          <SqlResultCard
-                            key={idx}
-                            result={sqlRes}
-                            question={messageQueries[msg.id] || ''}
-                            onRequery={(q) => handleSend(q)}
-                            isAdmin={isAdmin}
-                          />
-                        ))}
+                        {messageSqlResults[msg.id].map((sqlRes: any, idx: number) => {
+                          const debugKey = `${msg.id}-${idx}`;
+                          const debugOpen = expandedDebug[debugKey] ?? false;
+                          const debug = sqlRes.debug;
+                          const hasDebug = isAdminOrAnalyst && debug && Object.keys(debug).length > 0;
+                          return (
+                            <div key={idx}>
+                              {/* Route path badge — shown whenever route_path is present */}
+                              {sqlRes.route_path && (
+                                <div style={{ marginTop: '0.5rem', marginBottom: '0.25rem' }}>
+                                  <RoutePathBadge
+                                    routePath={sqlRes.route_path}
+                                    toolName={sqlRes.tool_name}
+                                  />
+                                </div>
+                              )}
+                              <SqlResultCard
+                                result={sqlRes}
+                                question={messageQueries[msg.id] || ''}
+                                onRequery={(q) => handleSend(q)}
+                                isAdmin={isAdmin}
+                              />
+                              {/* Debug panel — admin/analyst only, collapsed by default */}
+                              {hasDebug && (
+                                <div style={{ marginTop: '0.25rem' }}>
+                                  <button
+                                    onClick={() => setExpandedDebug(prev => ({ ...prev, [debugKey]: !debugOpen }))}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem',
+                                      padding: '0.2rem 0.5rem',
+                                      background: 'transparent',
+                                      border: 'none',
+                                      color: 'var(--text-muted)',
+                                      fontSize: '0.7rem',
+                                      cursor: 'pointer',
+                                    }}
+                                    aria-expanded={debugOpen}
+                                    aria-controls={`debug-panel-${debugKey}`}
+                                  >
+                                    <span>{debugOpen ? '▼' : '▶'}</span>
+                                    <span>詳細資訊 / Debug</span>
+                                  </button>
+                                  {debugOpen && (
+                                    <div
+                                      id={`debug-panel-${debugKey}`}
+                                      style={{
+                                        padding: '0.5rem 0.75rem',
+                                        background: 'var(--bg-tertiary, #f4f4f4)',
+                                        borderRadius: 'var(--radius-sm)',
+                                        fontSize: '0.75rem',
+                                        color: 'var(--text-secondary)',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '0.375rem',
+                                      }}
+                                    >
+                                      {debug.model && (
+                                        <div><strong>模型：</strong>{debug.model}</div>
+                                      )}
+                                      {debug.confidence != null && (
+                                        <div><strong>信心度：</strong>{Math.round(debug.confidence * 100)}%</div>
+                                      )}
+                                      {sqlRes.tool_input && (
+                                        <div>
+                                          <strong>Tool Input：</strong>
+                                          <pre style={{
+                                            margin: '0.25rem 0 0',
+                                            padding: '0.5rem',
+                                            background: '#161616',
+                                            color: '#f4f4f4',
+                                            borderRadius: 4,
+                                            fontFamily: 'monospace',
+                                            fontSize: '0.7rem',
+                                            whiteSpace: 'pre-wrap',
+                                            lineHeight: 1.5,
+                                            overflowX: 'auto',
+                                          }}>{JSON.stringify(sqlRes.tool_input, null, 2)}</pre>
+                                        </div>
+                                      )}
+                                      {debug.sql && (
+                                        <div>
+                                          <strong>SQL：</strong>
+                                          <pre style={{
+                                            margin: '0.25rem 0 0',
+                                            padding: '0.5rem',
+                                            background: '#161616',
+                                            color: '#f4f4f4',
+                                            borderRadius: 4,
+                                            fontFamily: 'monospace',
+                                            fontSize: '0.7rem',
+                                            whiteSpace: 'pre-wrap',
+                                            lineHeight: 1.5,
+                                            overflowX: 'auto',
+                                          }}>{debug.sql}</pre>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </>
                     )}
                     {/* RAG Feedback buttons */}
