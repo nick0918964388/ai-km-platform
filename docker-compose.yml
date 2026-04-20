@@ -39,11 +39,13 @@ services:
       QDRANT__SERVICE__GRPC_PORT: 6334
       QDRANT__LOG_LEVEL: INFO
     restart: unless-stopped
+    # Qdrant image has neither curl nor wget nor python; use bash /dev/tcp for TCP reachability check.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' || exit 1"]
+      interval: 30s
+      timeout: 10s
       retries: 5
+      start_period: 30s
     networks:
       - aikm-network
 
@@ -63,6 +65,36 @@ services:
       retries: 5
     networks:
       - aikm-network
+
+  neo4j:
+    image: neo4j:5.20-community
+    container_name: aikm-neo4j
+    restart: unless-stopped
+    ports:
+      - "7474:7474"   # HTTP browser
+      - "7687:7687"   # Bolt driver
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-aikm_neo4j_change_me}
+      NEO4J_PLUGINS: '["apoc","graph-data-science"]'
+      NEO4J_dbms_memory_heap_max__size: 2G
+      NEO4J_dbms_memory_pagecache_size: 1G
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*,gds.*"
+      NEO4J_dbms_security_procedures_allowlist: "apoc.*,gds.*"
+    volumes:
+      - aikm-neo4j-data:/data
+      - aikm-neo4j-logs:/logs
+      - aikm-neo4j-plugins:/plugins
+      - aikm-neo4j-import:/var/lib/neo4j/import
+    networks:
+      - aikm-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   # ============================================
   # 應用服務
@@ -100,6 +132,9 @@ services:
       COHERE_API_KEY: ${COHERE_API_KEY:-}
       COHERE_MODEL: rerank-v3.5
       RERANK_TOP_N: 10
+      RERANKER_PROVIDER: ${RERANKER_PROVIDER:-ollama}
+      OLLAMA_RERANKER_URL: ${OLLAMA_RERANKER_URL:-http://ollama.webtw.xyz:11434}
+      OLLAMA_RERANKER_MODEL: ${OLLAMA_RERANKER_MODEL:-linux6200/bge-reranker-v2-m3:latest}
       # LLM Configuration
       LLM_PROVIDER: ollama
       OLLAMA_CHAT_URL: http://ollama.webtw.xyz:11434/v1
@@ -112,13 +147,13 @@ services:
       # Fallback OpenAI (optional)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       JINA_API_KEY: ${JINA_API_KEY:-}
+      # Security — REQUIRED in production, no insecure default
+      JWT_SECRET: ${JWT_SECRET}
+      ENV: production
       # Server
       HOST: 0.0.0.0
       PORT: 8000
       LOG_LEVEL: INFO
-      # Security (012 — enforced by backend/app/auth.py guard)
-      JWT_SECRET: ${JWT_SECRET}
-      ENV: ${ENV:-production}
       # PostgreSQL Viewer (013)
       PG_VIEWER_ENABLED: ${PG_VIEWER_ENABLED:-true}
       PG_VIEWER_DATABASE_URL: ${PG_VIEWER_DATABASE_URL:-}
@@ -193,6 +228,31 @@ services:
     networks:
       - aikm-network
 
+  # ============================================
+  # GitHub Actions Self-hosted Runner
+  # ============================================
+  # 用於執行 .github/workflows 下的 pipeline（docs-deploy / ci-test / main-deploy）
+  # Token 需使用者從 GitHub Repo → Settings → Actions → Runners → New 拿短效 token 放入 .env
+  # 詳見 docs/GITHUB_ACTIONS_SETUP.md
+  github-runner:
+    image: myoung34/github-runner:latest
+    container_name: aikm-github-runner
+    restart: unless-stopped
+    environment:
+      REPO_URL: https://github.com/nick0918964388/ai-km-platform
+      RUNNER_NAME: aikm-runner-01
+      RUNNER_TOKEN: ${GITHUB_RUNNER_TOKEN:?GITHUB_RUNNER_TOKEN required — 見 docs/GITHUB_ACTIONS_SETUP.md}
+      RUNNER_WORKDIR: /tmp/runner/work
+      LABELS: self-hosted,linux,aikm
+      DISABLE_AUTO_UPDATE: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/ai-km-platform:/root/ai-km-platform
+      - /mnt/disk3/shared:/mnt/disk3/shared
+      - aikm-runner-work:/tmp/runner/work
+    networks:
+      - aikm-network
+
 # ============================================
 # Networks & Volumes
 # ============================================
@@ -206,3 +266,8 @@ volumes:
   qdrant_data:
   redis_data:
   maximo_extractor_data:
+  aikm-neo4j-data:
+  aikm-neo4j-logs:
+  aikm-neo4j-plugins:
+  aikm-neo4j-import:
+  aikm-runner-work:

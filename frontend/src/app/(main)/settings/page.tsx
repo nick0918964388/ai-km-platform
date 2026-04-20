@@ -236,18 +236,24 @@ export default function SettingsPage() {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  // Fetch available models from Ollama
+  // Fetch available models via backend proxy (avoids browser CORS to Ollama host).
+  // Pass current UI selection so user can preview models without saving first.
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   useEffect(() => {
-    if (llmSettings.ollama_chat_url) {
-      const baseUrl = llmSettings.ollama_chat_url.replace('/v1', '');
-      fetch(`${baseUrl}/api/tags`).then(r => r.json()).then(data => {
-        setAvailableModels((data.models || []).map((m: any) => m.name));
-      }).catch(() => {});
+    const params = new URLSearchParams();
+    if (llmSettings.llm_provider) params.set('provider', llmSettings.llm_provider);
+    if (llmSettings.llm_provider === 'ollama' && llmSettings.ollama_chat_url) {
+      params.set('ollama_url', llmSettings.ollama_chat_url);
     }
-  }, [llmSettings.ollama_chat_url]);
+    fetch(`${STREAM_API_URL}/api/models?${params.toString()}`, { headers: getApiHeaders() })
+      .then(r => r.json())
+      .then(data => {
+        setAvailableModels((data.models || []).map((m: any) => m.name));
+      })
+      .catch(() => {});
+  }, [llmSettings.ollama_chat_url, llmSettings.llm_provider]);
 
-  // Also fetch from intent endpoint
+  // Intent endpoint shares the same backend proxy (Ollama /api/tags is per-host).
   const [intentModels, setIntentModels] = useState<string[]>([]);
   useEffect(() => {
     if (llmSettings.intent_llm_url) {

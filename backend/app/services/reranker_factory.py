@@ -7,6 +7,7 @@ from app.config import get_settings
 from app.models.reranker import RerankerResult, RerankerError
 from app.services.reranker import CohereReranker, get_cohere_reranker
 from app.services.reranker_bge import BGEReranker, get_bge_reranker
+from app.services.reranker_ollama import OllamaReranker, get_ollama_reranker
 
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,7 @@ class RerankerFactory:
     def __init__(self):
         self._cohere: Optional[CohereReranker] = None
         self._bge: Optional[BGEReranker] = None
+        self._ollama: Optional[OllamaReranker] = None
 
     def _get_cohere(self) -> CohereReranker:
         """Get Cohere reranker instance."""
@@ -31,7 +33,13 @@ class RerankerFactory:
             self._bge = get_bge_reranker()
         return self._bge
 
-    def get_reranker(self) -> Optional[CohereReranker | BGEReranker]:
+    def _get_ollama(self) -> OllamaReranker:
+        """Get Ollama reranker instance."""
+        if self._ollama is None:
+            self._ollama = get_ollama_reranker()
+        return self._ollama
+
+    def get_reranker(self) -> Optional[CohereReranker | BGEReranker | OllamaReranker]:
         """
         Get the configured reranker instance.
 
@@ -41,7 +49,8 @@ class RerankerFactory:
         Behavior:
             - "cohere": Returns CohereReranker if available
             - "bge": Returns BGEReranker if available
-            - "auto": Returns CohereReranker if available, else BGEReranker
+            - "ollama": Returns OllamaReranker if available
+            - "auto": Cohere → Ollama → BGE (prefers remote GPU over local CPU)
         """
         settings = get_settings()
         provider = settings.reranker_provider.lower()
@@ -58,11 +67,21 @@ class RerankerFactory:
                 return reranker
             return None
 
+        elif provider == "ollama":
+            reranker = self._get_ollama()
+            if reranker.is_available():
+                return reranker
+            return None
+
         elif provider == "auto":
-            # Try Cohere first, then BGE
+            # Prefer hosted/accelerated options: Cohere → Ollama (GPU) → BGE (local CPU)
             cohere = self._get_cohere()
             if cohere.is_available():
                 return cohere
+
+            ollama = self._get_ollama()
+            if ollama.is_available():
+                return ollama
 
             bge = self._get_bge()
             if bge.is_available():
@@ -94,9 +113,11 @@ class RerankerFactory:
 
         cohere = self._get_cohere()
         bge = self._get_bge()
+        ollama = self._get_ollama()
 
         cohere_available = cohere.is_available()
         bge_available = bge.is_available()
+        ollama_available = ollama.is_available()
 
         # Determine active provider
         active_reranker = self.get_reranker()
@@ -110,6 +131,10 @@ class RerankerFactory:
             "bge": {
                 "available": bge_available,
                 "reason": None if bge_available else "Model failed to load",
+            },
+            "ollama": {
+                "available": ollama_available,
+                "reason": None if ollama_available else "Ollama endpoint or model unreachable",
             },
             "active_provider": active_provider,
             "configured_provider": settings.reranker_provider,
@@ -181,7 +206,7 @@ class RerankerFactory:
 
     def _rerank_with_timeout(
         self,
-        reranker: CohereReranker | BGEReranker,
+        reranker: CohereReranker | BGEReranker | OllamaReranker,
         query: str,
         documents: list[dict],
         top_n: Optional[int],
@@ -215,27 +240,31 @@ class RerankerFactory:
         content_key: str,
         failed_provider: str,
     ) -> RerankerResult:
-        """Try fallback reranker after primary fails."""
-        # Determine fallback provider
-        if failed_provider == "cohere":
-            fallback = self._get_bge()
-        else:
-            fallback = self._get_cohere()
+        """Try fallback reranker(s) in order, skipping the one that just failed."""
+        # Preferred fallback order: Cohere → Ollama → BGE
+        order = [
+            ("cohere", self._get_cohere),
+            ("ollama", self._get_ollama),
+            ("bge", self._get_bge),
+        ]
 
-        if not fallback.is_available():
-            logger.warning(f"Fallback reranker ({fallback.provider_name}) also unavailable")
-            return self._return_original_order(documents, "none", "all_unavailable", fallback_used=True)
+        for name, getter in order:
+            if name == failed_provider:
+                continue
+            candidate = getter()
+            if not candidate.is_available():
+                continue
+            try:
+                logger.info(f"Falling back to {candidate.provider_name} reranker")
+                result = candidate.rerank(query, documents, top_n, content_key)
+                result.fallback_used = True
+                return result
+            except Exception as e:
+                logger.error(f"Fallback reranker ({candidate.provider_name}) also failed: {e}")
+                continue
 
-        try:
-            logger.info(f"Falling back to {fallback.provider_name} reranker")
-            result = fallback.rerank(query, documents, top_n, content_key)
-            # Mark that fallback was used
-            result.fallback_used = True
-            return result
-
-        except Exception as e:
-            logger.error(f"Fallback reranker ({fallback.provider_name}) also failed: {e}")
-            return self._return_original_order(documents, "none", str(e), fallback_used=True)
+        logger.warning("All fallback rerankers unavailable or failed")
+        return self._return_original_order(documents, "none", "all_unavailable", fallback_used=True)
 
     def _return_original_order(
         self,

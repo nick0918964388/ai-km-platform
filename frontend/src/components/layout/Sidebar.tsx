@@ -19,6 +19,7 @@ import {
   Activity,
   DataTable,
   SettingsAdjust,
+  ChartNetwork,
 } from '@carbon/icons-react';
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
@@ -36,6 +37,7 @@ const adminNavItems = [
   { href: '/admin/maximo-knowledge', label: 'Maximo 知識庫', icon: DataBase },
   { href: '/admin/audit', label: '稽核日誌', icon: Activity },
   { href: '/admin/pending-examples', label: 'SQL 範例審核', icon: DataTable },
+  { href: '/admin/knowledge-graph', label: '知識圖譜', icon: ChartNetwork },
   { href: '/admin/permissions', label: '權限設定', icon: Locked },
   { href: '/admin/pg-viewer', label: 'PG Viewer', icon: DataBase },
 ];

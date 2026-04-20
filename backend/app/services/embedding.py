@@ -16,11 +16,13 @@ logger = logging.getLogger(__name__)
 
 # Lazy loading for clients
 _openai_client = None
+_openai_client_key = None  # remembers (api_key, base_url) used to build _openai_client
 _jina_api_key = None
+_logged_embedding_config = False
 
-# OpenAI embedding model
-OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
-OPENAI_EMBEDDING_DIMENSION = 1536
+# Fallback defaults (used only when settings lack a value).
+OPENAI_EMBEDDING_MODEL_DEFAULT = "text-embedding-3-small"
+OPENAI_EMBEDDING_DIMENSION_DEFAULT = 1536
 
 # Jina CLIP model
 JINA_CLIP_MODEL = "jina-clip-v1"
@@ -33,20 +35,53 @@ def get_embedding_provider() -> str:
     return get_settings().embedding_provider
 
 
+def _openai_embedding_model() -> str:
+    return getattr(get_settings(), "openai_embedding_model", "") or OPENAI_EMBEDDING_MODEL_DEFAULT
+
+
+def _openai_embedding_base_url() -> str:
+    """Optional base_url override (empty string → OpenAI default)."""
+    return getattr(get_settings(), "openai_embedding_base_url", "") or ""
+
+
+def _log_embedding_config_once() -> None:
+    """Log active embedding config on first call only."""
+    global _logged_embedding_config
+    if _logged_embedding_config:
+        return
+    _logged_embedding_config = True
+    settings = get_settings()
+    provider = settings.embedding_provider
+    if provider == "ollama":
+        logger.info(
+            "[embedding] provider=%s model=%s endpoint=%s",
+            provider, settings.ollama_embedding_model, settings.ollama_base_url,
+        )
+    else:
+        logger.info(
+            "[embedding] provider=%s model=%s endpoint=%s",
+            provider, _openai_embedding_model(), _openai_embedding_base_url() or "https://api.openai.com",
+        )
+
+
 def get_openai_client():
-    """Get or initialize OpenAI client."""
-    global _openai_client
-    if _openai_client is None:
-        from openai import OpenAI
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is not set")
-        _openai_client = OpenAI(api_key=api_key)
+    """Get or initialize OpenAI client (respects optional base_url override, rebuilds on config change)."""
+    global _openai_client, _openai_client_key
+    from openai import OpenAI
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY environment variable is not set")
+    base_url = _openai_embedding_base_url()
+    key = (api_key, base_url)
+    if _openai_client is None or _openai_client_key != key:
+        _openai_client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+        _openai_client_key = key
     return _openai_client
 
 
 def _ollama_embed(texts: list[str], batch_size: int = 5) -> list[list[float]]:
     """Embed texts using Ollama API with batching to avoid timeouts."""
+    _log_embedding_config_once()
     settings = get_settings()
     url = f"{settings.ollama_base_url}/api/embed"
     all_embeddings: list[list[float]] = []
@@ -86,10 +121,11 @@ def embed_text(text: str) -> list[float]:
     """Embed text using configured provider (OpenAI or Ollama)."""
     if get_embedding_provider() == "ollama":
         return _ollama_embed([text])[0]
+    _log_embedding_config_once()
     client = get_openai_client()
     response = client.embeddings.create(
         input=text,
-        model=OPENAI_EMBEDDING_MODEL
+        model=_openai_embedding_model(),
     )
     return response.data[0].embedding
 
@@ -100,10 +136,11 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         return []
     if get_embedding_provider() == "ollama":
         return _ollama_embed(texts)
+    _log_embedding_config_once()
     client = get_openai_client()
     response = client.embeddings.create(
         input=texts,
-        model=OPENAI_EMBEDDING_MODEL
+        model=_openai_embedding_model(),
     )
     # Sort by index to maintain order
     sorted_embeddings = sorted(response.data, key=lambda x: x.index)
@@ -176,9 +213,10 @@ def embed_image_from_bytes(image_bytes: bytes) -> list[float]:
 
 def get_text_embedding_dimension() -> int:
     """Get text embedding dimension based on configured provider."""
+    settings = get_settings()
     if get_embedding_provider() == "ollama":
-        return get_settings().ollama_embedding_dimension
-    return OPENAI_EMBEDDING_DIMENSION  # text-embedding-3-small
+        return settings.ollama_embedding_dimension
+    return getattr(settings, "openai_embedding_dimension", OPENAI_EMBEDDING_DIMENSION_DEFAULT)
 
 
 def get_embedding_info() -> dict:
@@ -194,9 +232,9 @@ def get_embedding_info() -> dict:
         }
     return {
         "provider": "openai",
-        "model": OPENAI_EMBEDDING_MODEL,
-        "dimension": OPENAI_EMBEDDING_DIMENSION,
-        "base_url": "https://api.openai.com",
+        "model": _openai_embedding_model(),
+        "dimension": getattr(settings, "openai_embedding_dimension", OPENAI_EMBEDDING_DIMENSION_DEFAULT),
+        "base_url": _openai_embedding_base_url() or "https://api.openai.com",
     }
 
 

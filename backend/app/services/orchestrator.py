@@ -231,7 +231,12 @@ async def decompose_query(query: str, context: list = None) -> DecompositionResu
 
 async def _run_sql_task(task: SubTask, sql_history: list = None,
                         prebuilt_schema: tuple = None) -> dict:
-    """Pattern 7: SQL Worker 只拿 schema + SQL history，不帶 RAG/KB context。"""
+    """Pattern 7: SQL Worker 只拿 schema + SQL history，不帶 RAG/KB context.
+
+    Batch 2-A：傳 is_hybrid=True 禁用每個 sub-SQL 的 self-reflection 重試，
+    因為 hybrid 路徑已有 LLM synthesis 可以補救失敗 sub-task，避免重試複合延遲。
+    每個 sub-task 使用獨立的 DB session（來自 pool），可與其他 sub-task 平行執行。
+    """
     t0 = time.time()
     try:
         from app.services.maximo_nl2sql import MaximoNL2SQL
@@ -244,6 +249,7 @@ async def _run_sql_task(task: SubTask, sql_history: list = None,
                 mode="fast",
                 conversation_history=sql_history,
                 prebuilt_schema=prebuilt_schema,
+                is_hybrid=True,
             )
         return {
             "task_id": task.id,
@@ -308,13 +314,17 @@ async def run_parallel_agents(
     depth: int = 0,
 ) -> AsyncGenerator[dict, None]:
     """Run sub-tasks in parallel.
+
+    Batch 2-A：平行化實作 — 所有 sub-task 透過 asyncio.create_task 同時啟動，
+    然後用 asyncio.as_completed 以「完成順序」收集結果並即時 yield（支援 SSE
+    streaming UX）。一個 sub-task 失敗不影響其他（每個 worker 內部 try/except
+    捕獲，最終結果格式統一）。
+
     Pattern 4: Withholding — suppress individual task failures silently.
     Pattern 7: Context Stripping — SQL 只拿 sql_history，RAG 只拿最近對話。
     """
     if depth >= MAX_DELEGATION_DEPTH:
         raise ValueError(f"Maximum delegation depth ({MAX_DELEGATION_DEPTH}) exceeded")
-
-    queue: asyncio.Queue[dict] = asyncio.Queue()
 
     rag_context = None
     if conversation_context:
@@ -324,7 +334,8 @@ async def run_parallel_agents(
             if m.get("intent") != "sql"
         ]
 
-    async def _worker(task: SubTask, trace_id: str):
+    async def _worker(task: SubTask, trace_id: str) -> dict:
+        """單一 sub-task executor，所有錯誤都轉成統一 dict 回傳（不 raise）。"""
         t0 = time.time()
         try:
             if task.type == "sql":
@@ -338,11 +349,14 @@ async def run_parallel_agents(
                     timeout=WORKER_TIMEOUT_SECONDS,
                 )
             result["task_trace_id"] = trace_id
-            log.info("Worker %s (%s) completed in %dms", trace_id, task.id, int((time.time() - t0) * 1000))
-            await queue.put(result)
+            log.info(
+                "Worker %s (%s) completed in %dms",
+                trace_id, task.id, int((time.time() - t0) * 1000),
+            )
+            return result
         except asyncio.TimeoutError:
             log.error("Worker %s (%s) timed out after %ds", trace_id, task.id, WORKER_TIMEOUT_SECONDS)
-            await queue.put({
+            return {
                 "task_id": task.id,
                 "type": task.type,
                 "task_trace_id": trace_id,
@@ -351,10 +365,10 @@ async def run_parallel_agents(
                 "sources": None,
                 "error": f"Worker timed out after {WORKER_TIMEOUT_SECONDS}s",
                 "duration_ms": int((time.time() - t0) * 1000),
-            })
+            }
         except Exception as e:
             log.error("Worker %s (%s) failed: %s", trace_id, task.id, e)
-            await queue.put({
+            return {
                 "task_id": task.id,
                 "type": task.type,
                 "task_trace_id": trace_id,
@@ -362,19 +376,32 @@ async def run_parallel_agents(
                 "sources": None,
                 "error": str(e),
                 "duration_ms": int((time.time() - t0) * 1000),
-            })
+            }
 
-    tasks = []
-    for t in sub_tasks:
-        trace_id = uuid.uuid4().hex[:12]
-        tasks.append(asyncio.create_task(_worker(t, trace_id)))
+    # Launch all sub-tasks in parallel (真正並行啟動).
+    tasks = [
+        asyncio.create_task(_worker(t, uuid.uuid4().hex[:12]))
+        for t in sub_tasks
+    ]
 
-    all_results = []
-    for _ in range(len(tasks)):
-        result = await queue.get()
+    # Collect results as they complete (for SSE streaming UX).
+    # asyncio.as_completed yields futures in completion order.
+    all_results: list[dict] = []
+    for fut in asyncio.as_completed(tasks):
+        try:
+            result = await fut
+        except Exception as e:
+            # _worker 保證不 raise，這裡是防禦性 fallback。
+            log.error("Worker future raised unexpectedly: %s", e)
+            result = {
+                "task_id": "_unknown",
+                "type": "error",
+                "result": None,
+                "sources": None,
+                "error": str(e),
+                "duration_ms": 0,
+            }
         all_results.append(result)
-
-    await asyncio.gather(*tasks, return_exceptions=True)
 
     all_failed = all(r.get("error") for r in all_results)
     all_timeout = all(r.get("status") == "timeout" for r in all_results)
