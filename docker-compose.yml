@@ -147,6 +147,9 @@ services:
       # Fallback OpenAI (optional)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       JINA_API_KEY: ${JINA_API_KEY:-}
+      # Security — REQUIRED in production, no insecure default
+      JWT_SECRET: ${JWT_SECRET}
+      ENV: production
       # Server
       HOST: 0.0.0.0
       PORT: 8000

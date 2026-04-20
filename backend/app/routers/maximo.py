@@ -2,6 +2,8 @@
 Maximo API Routes — NL→SQL structured query + knowledge base management.
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -9,6 +11,8 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 import io
+
+_logger = logging.getLogger(__name__)
 
 from app.db.session import get_db
 from app.services.maximo_nl2sql import MaximoNL2SQL
@@ -128,6 +132,30 @@ async def nl2sql(req: NL2SQLRequest, db: AsyncSession = Depends(get_db), user: d
         workshop=user.get("workshop"),
         email=user.get("email"),
     )
+
+    _logger.info(
+        "maximo tool call | user_id=%s role=%s section=%s workshop=%s query_len=%d",
+        user_ctx.user_id,
+        user_ctx.role,
+        user_ctx.section,
+        user_ctx.workshop,
+        len(query_text),
+    )
+
+    # Zero-row policy: maint_tech without a section assignment must not receive
+    # full-table results. This is a data-integrity problem — surface it clearly.
+    if user_ctx.role == "maint_tech" and not user_ctx.section:
+        _logger.warning(
+            "maint_tech user %s has no section assignment — returning empty result set.",
+            user_ctx.user_id,
+        )
+        return {
+            "success": False,
+            "data": [],
+            "columns": [],
+            "error": "您的帳號尚未設定段別（section），請聯絡管理員指派後再查詢。",
+            "row_count": 0,
+        }
 
     # NL2SQLFallback captures request-scoped db session
     fallback = NL2SQLFallback(db=db, user_context=user)
