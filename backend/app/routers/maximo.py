@@ -18,6 +18,17 @@ from app.auth import get_current_user, require_auth, require_admin
 
 router = APIRouter(prefix="/maximo", tags=["Maximo"])
 
+# ── Role normalizer ───────────────────────────────────────────────────────────
+
+_VALID_ROLES = frozenset({"admin", "maint_manager", "maint_tech", "analyst", "viewer"})
+
+
+def _normalize_role(raw_role: str | None) -> str:
+    """Map unknown/guest/user roles to 'viewer'. UserContext accepts only known roles."""
+    if raw_role in _VALID_ROLES:
+        return raw_role
+    return "viewer"
+
 
 # ── NL→SQL ───────────────────────────────────────────────────────────────────
 
@@ -74,20 +85,121 @@ async def discover_and_index(db: AsyncSession = Depends(get_db), admin: dict = D
         raise HTTPException(status_code=500, detail=f"偵測/索引失敗：{str(e)}")
 
 
-@router.post("/nl2sql", response_model=NL2SQLResponse)
+@router.post("/nl2sql")
 async def nl2sql(req: NL2SQLRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(require_auth)):
-    """Convert natural language question to SQL and execute against Maximo tables."""
-    from app.services.intent_router import detect_ambiguity
-    ambiguity = detect_ambiguity(req.question, history=req.history)
-    if ambiguity:
-        return NL2SQLResponse(
-            success=False,
-            explanation=ambiguity["message"],
-            clarification=ambiguity,
-        )
-    service = MaximoNL2SQL(db)
-    result = await service.query(req.question, mode=req.mode, user_context=user, conversation_history=req.history)
-    return NL2SQLResponse(**result)
+    """Convert natural language question to SQL and execute against Maximo tables.
+
+    When MAXIMO_TOOL_ROUTER_ENABLED=true (default), the query first goes through
+    MaximoQueryRouter. On a tool hit the response includes route_path/tool_name/rows.
+    On fallback (or feature flag disabled), the response includes all original
+    NL2SQLResponse fields for full backward compatibility.
+    """
+    from app.services.maximo_tools.feature_flag import is_tool_router_enabled
+
+    # ── FAST PATH: feature flag disabled → pure legacy behaviour ──────────────
+    if not is_tool_router_enabled():
+        from app.services.intent_router import detect_ambiguity
+        ambiguity = detect_ambiguity(req.question, history=req.history)
+        if ambiguity:
+            return NL2SQLResponse(
+                success=False,
+                explanation=ambiguity["message"],
+                clarification=ambiguity,
+            )
+        service = MaximoNL2SQL(db)
+        result = await service.query(req.question, mode=req.mode, user_context=user, conversation_history=req.history)
+        return NL2SQLResponse(**result)
+
+    # ── ROUTER PATH ───────────────────────────────────────────────────────────
+    from app.services.maximo_tools.base import UserContext
+    from app.services.maximo_tools.nl2sql_fallback import NL2SQLFallback
+    from app.services.maximo_tools.router_factory import build_router
+    from app.models.maximo_tool_schemas import serialize_response
+
+    # query text: support both old "question" field and new "query" field
+    query_text = req.question
+
+    role = _normalize_role(user.get("role"))
+
+    user_ctx = UserContext(
+        user_id=str(user.get("id", "unknown")),
+        role=role,
+        section=user.get("section"),
+        workshop=user.get("workshop"),
+        email=user.get("email"),
+    )
+
+    # NL2SQLFallback captures request-scoped db session
+    fallback = NL2SQLFallback(db=db, user_context=user)
+    query_router = build_router(fallback_fn=fallback)
+
+    raw_result = await query_router.route(query_text, user_ctx)
+
+    # ── Serialize new response (applies debug stripping by role) ──────────────
+    response_data = serialize_response(raw_result, user_ctx.role)
+
+    # ── Merge backward-compat fields ──────────────────────────────────────────
+    # Old frontend clients expect: success, data, columns, sql, explanation, etc.
+    # These come from different sources depending on route_path.
+    route_path = raw_result.get("route_path")
+
+    if route_path == "fallback" and fallback.last_result:
+        # NL2SQL full result is available via side-channel
+        nl2sql = fallback.last_result
+        extra_compat = {
+            "success": nl2sql.get("success", True),
+            "sql": nl2sql.get("sql"),
+            "explanation": nl2sql.get("explanation"),
+            "data": nl2sql.get("data") or [],
+            "columns": nl2sql.get("columns") or [],
+            "execution_ms": nl2sql.get("execution_ms"),
+            "llm_ms": nl2sql.get("llm_ms"),
+            "verify_ms": nl2sql.get("verify_ms"),
+            "model": nl2sql.get("model"),
+            "error": nl2sql.get("error"),
+            "iterations": nl2sql.get("iterations", 1),
+            "confidence": nl2sql.get("confidence"),
+            "verification_history": nl2sql.get("verification_history") or [],
+            "mode": nl2sql.get("mode", req.mode),
+            "cached": nl2sql.get("cached", False),
+            "query_plan": nl2sql.get("query_plan"),
+            "chart_suggestion": nl2sql.get("chart_suggestion"),
+            "summary": nl2sql.get("summary"),
+            "clarification": nl2sql.get("clarification"),
+            "suggestions": nl2sql.get("suggestions") or [],
+            "column_labels": nl2sql.get("column_labels"),
+        }
+    else:
+        # tool / error paths: synthesise compat fields from rows
+        rows = raw_result.get("rows", [])
+        columns_list = list(rows[0].keys()) if rows else []
+        extra_compat = {
+            "success": route_path == "tool" or len(rows) > 0,
+            "data": rows,
+            "columns": columns_list,
+            "sql": None,
+            "explanation": None,
+            "execution_ms": raw_result.get("elapsed_ms"),
+            "llm_ms": None,
+            "verify_ms": None,
+            "model": None,
+            "error": None,
+            "iterations": 1,
+            "confidence": None,
+            "verification_history": [],
+            "mode": req.mode,
+            "cached": False,
+            "query_plan": None,
+            "chart_suggestion": raw_result.get("chart_hint"),
+            "summary": None,
+            "clarification": None,
+            "suggestions": [],
+            "column_labels": None,
+        }
+
+    # New fields override compat fields when both present
+    merged = {**extra_compat, **response_data}
+    return merged
 
 
 @router.get("/export")
