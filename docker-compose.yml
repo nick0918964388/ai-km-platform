@@ -116,6 +116,9 @@ services:
       HOST: 0.0.0.0
       PORT: 8000
       LOG_LEVEL: INFO
+      # Security (012 — enforced by backend/app/auth.py guard)
+      JWT_SECRET: ${JWT_SECRET}
+      ENV: ${ENV:-production}
       # PostgreSQL Viewer (013)
       PG_VIEWER_ENABLED: ${PG_VIEWER_ENABLED:-true}
       PG_VIEWER_DATABASE_URL: ${PG_VIEWER_DATABASE_URL:-}
