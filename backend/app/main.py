@@ -1,9 +1,12 @@
 """AI KM Platform - Multimodal RAG Backend."""
+import logging
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile, maximo, admin, conversations
 from app.routers.auth import router as auth_router
@@ -78,6 +81,12 @@ async def lifespan(app: FastAPI):
         print("✅ PostgreSQL database initialized")
     except Exception as e:
         print(f"⚠️ PostgreSQL not available: {e}")
+
+    # pg_viewer feature-flag check
+    if settings.pg_viewer_enabled and not settings.pg_viewer_database_url:
+        logger.warning(
+            "pg_viewer enabled but PG_VIEWER_DATABASE_URL unset — viewer endpoints will 503"
+        )
 
     # Maximo tag column migration
     try:
