@@ -23,11 +23,14 @@ class CircuitBreaker:
     """輕量級 Circuit Breaker，不依賴外部套件。"""
 
     def __init__(self, name: str, failure_threshold: int = 3,
-                 recovery_timeout: float = 30.0, half_open_max: int = 1):
+                 recovery_timeout: float = 30.0, half_open_max: int = 1,
+                 failure_window: Optional[float] = None):
         self.name = name
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.half_open_max = half_open_max
+        # If set, failure_count resets when the gap between failures exceeds this window (seconds).
+        self.failure_window = failure_window
 
         self._state = CircuitState.CLOSED
         self._failure_count = 0
@@ -62,8 +65,16 @@ class CircuitBreaker:
 
     def record_failure(self):
         """記錄失敗呼叫。"""
+        now = time.time()
+        # If a failure_window is configured, reset count when the last failure
+        # was outside that window (i.e. failures are no longer consecutive/recent).
+        if (self.failure_window is not None
+                and self._last_failure_time > 0
+                and now - self._last_failure_time > self.failure_window):
+            self._failure_count = 0
+
         self._failure_count += 1
-        self._last_failure_time = time.time()
+        self._last_failure_time = now
 
         if self._state == CircuitState.HALF_OPEN:
             self._state = CircuitState.OPEN
@@ -96,10 +107,14 @@ _breakers: dict[str, CircuitBreaker] = {}
 
 
 def get_breaker(name: str, failure_threshold: int = 3,
-                recovery_timeout: float = 30.0) -> CircuitBreaker:
+                recovery_timeout: float = 30.0,
+                failure_window: Optional[float] = None) -> CircuitBreaker:
     """取得或建立指定名稱的 CircuitBreaker。"""
     if name not in _breakers:
-        _breakers[name] = CircuitBreaker(name, failure_threshold, recovery_timeout)
+        _breakers[name] = CircuitBreaker(
+            name, failure_threshold, recovery_timeout,
+            failure_window=failure_window,
+        )
     return _breakers[name]
 
 
@@ -112,3 +127,7 @@ def get_all_breakers() -> dict[str, dict]:
 LLM_BREAKER = get_breaker("llm", failure_threshold=3, recovery_timeout=60.0)
 QDRANT_BREAKER = get_breaker("qdrant", failure_threshold=3, recovery_timeout=30.0)
 REDIS_BREAKER = get_breaker("redis", failure_threshold=5, recovery_timeout=15.0)
+# pg_viewer: open on 5 consecutive failures within 60 s; half-open probe after 30 s
+PG_VIEWER_BREAKER = get_breaker(
+    "pg_viewer", failure_threshold=5, recovery_timeout=30.0, failure_window=60.0
+)

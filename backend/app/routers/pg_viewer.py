@@ -34,6 +34,8 @@ from fastapi.responses import JSONResponse
 
 from app.auth import require_admin_strict
 from app.config import get_settings
+from app.services.circuit_breaker import PG_VIEWER_BREAKER
+from app.services.pg_viewer.metrics import record_request
 from app.schemas.pg_viewer import (
     AuditEntry,
     AuditListResponse,
@@ -62,6 +64,16 @@ def _assert_feature_enabled() -> None:
     """Raise 404 if pg_viewer is disabled.  Read per-request (not at import)."""
     if not get_settings().pg_viewer_enabled:
         raise HTTPException(status_code=404, detail="pg-viewer feature not enabled")
+
+
+def _check_circuit() -> None:
+    """Raise 503 with Retry-After: 30 if the pg_viewer circuit breaker is OPEN."""
+    if not PG_VIEWER_BREAKER.is_available:
+        raise HTTPException(
+            status_code=503,
+            detail="pg-viewer service temporarily unavailable (circuit open)",
+            headers={"Retry-After": "30"},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +109,7 @@ async def list_tables(
 ) -> TableListResponse:
     """List all tables/views in the public schema with approximate row counts."""
     _assert_feature_enabled()
+    _check_circuit()
 
     from app.services.pg_viewer import audit as _audit
     from app.services.pg_viewer import introspect
@@ -108,6 +121,7 @@ async def list_tables(
 
     try:
         tables = await introspect.list_tables()
+        PG_VIEWER_BREAKER.record_success()
         elapsed = int((time.monotonic() - t0) * 1000)
 
         api_tables = [
@@ -135,11 +149,13 @@ async def list_tables(
             ua=ua,
             request=request,
         )
+        record_request("tables_list", 200, elapsed / 1000.0)
         return TableListResponse(tables=api_tables)
 
     except HTTPException:
         raise
     except Exception as exc:
+        PG_VIEWER_BREAKER.record_failure()
         elapsed = int((time.monotonic() - t0) * 1000)
         http_status, safe_msg = sanitize_pg_error(exc)
         await _audit.write_audit(
@@ -155,6 +171,7 @@ async def list_tables(
             ua=ua,
             request=request,
         )
+        record_request("tables_list", http_status, elapsed / 1000.0)
         raise HTTPException(status_code=http_status, detail=safe_msg)
 
 
@@ -179,6 +196,7 @@ async def get_table_schema(
 ) -> TableSchemaResponse:
     """Return the schema (columns, indexes, foreign keys) for a single table."""
     _assert_feature_enabled()
+    _check_circuit()
 
     from app.services.pg_viewer import audit as _audit
     from app.services.pg_viewer import introspect
@@ -190,6 +208,7 @@ async def get_table_schema(
 
     try:
         schema = await introspect.get_schema(table)
+        PG_VIEWER_BREAKER.record_success()
         elapsed = int((time.monotonic() - t0) * 1000)
 
         from app.schemas.pg_viewer import ColumnSchema, ForeignKeySchema, IndexSchema
@@ -208,6 +227,7 @@ async def get_table_schema(
             request=request,
         )
 
+        record_request("table_schema", 200, elapsed / 1000.0)
         return TableSchemaResponse(
             schema_name=schema.schema_name or "public",
             name=schema.name,
@@ -256,6 +276,7 @@ async def get_table_schema(
                 ua=ua,
                 request=request,
             )
+            record_request("table_schema", 404, elapsed / 1000.0)
             raise HTTPException(status_code=404, detail=f"Table not found: {table!r}")
         await _audit.write_audit(
             user_id=user["id"],
@@ -270,11 +291,13 @@ async def get_table_schema(
             ua=ua,
             request=request,
         )
+        record_request("table_schema", 400, elapsed / 1000.0)
         raise HTTPException(status_code=400, detail=msg[:200])
 
     except HTTPException:
         raise
     except Exception as exc:
+        PG_VIEWER_BREAKER.record_failure()
         elapsed = int((time.monotonic() - t0) * 1000)
         http_status, safe_msg = sanitize_pg_error(exc)
         await _audit.write_audit(
@@ -290,6 +313,7 @@ async def get_table_schema(
             ua=ua,
             request=request,
         )
+        record_request("table_schema", http_status, elapsed / 1000.0)
         raise HTTPException(status_code=http_status, detail=safe_msg)
 
 
@@ -321,6 +345,7 @@ async def get_table_rows(
 ) -> RowPage:
     """Fetch paginated, optionally-filtered rows from a table."""
     _assert_feature_enabled()
+    _check_circuit()
 
     from app.services.pg_viewer import audit as _audit
     from app.services.pg_viewer.engine import get_viewer_db
@@ -355,6 +380,7 @@ async def get_table_rows(
                 ua=ua,
                 request=request,
             )
+            record_request("table_rows", 400, elapsed / 1000.0)
             raise HTTPException(status_code=400, detail=f"invalid filters: {exc}")
 
     try:
@@ -392,6 +418,7 @@ async def get_table_rows(
             ua=ua,
             request=request,
         )
+        record_request("table_rows", status_code, elapsed / 1000.0)
         raise HTTPException(status_code=status_code, detail=msg[:200])
     except Exception as exc:
         elapsed = int((time.monotonic() - t0) * 1000)
@@ -409,6 +436,7 @@ async def get_table_rows(
             ua=ua,
             request=request,
         )
+        record_request("table_rows", http_status, elapsed / 1000.0)
         raise HTTPException(status_code=http_status, detail=safe_msg)
 
     # Execute
@@ -427,6 +455,8 @@ async def get_table_rows(
                 await gen.__anext__()
             except StopAsyncIteration:
                 pass
+
+        PG_VIEWER_BREAKER.record_success()
 
         # Approximate total count from pg_class
         from app.services.pg_viewer import introspect
@@ -471,6 +501,7 @@ async def get_table_rows(
             request=request,
         )
 
+        record_request("table_rows", 200, elapsed / 1000.0)
         return RowPage(
             columns=columns_meta,
             rows=redacted_rows,
@@ -484,6 +515,7 @@ async def get_table_rows(
     except HTTPException:
         raise
     except Exception as exc:
+        PG_VIEWER_BREAKER.record_failure()
         elapsed = int((time.monotonic() - t0) * 1000)
         http_status, safe_msg = sanitize_pg_error(exc)
         audit_status = "timeout" if http_status == 408 else "error"
@@ -500,6 +532,7 @@ async def get_table_rows(
             ua=ua,
             request=request,
         )
+        record_request("table_rows", http_status, elapsed / 1000.0)
         raise HTTPException(status_code=http_status, detail=safe_msg)
 
 
@@ -546,6 +579,7 @@ async def export_table_csv(
         request=request,
     )
 
+    record_request("table_export", 501, 0.0)
     return JSONResponse(
         status_code=501,
         content={"detail": "CSV export not yet implemented (T-015 pending)"},
@@ -671,6 +705,7 @@ async def get_audit(
             request=request,
         )
 
+        record_request("audit_list", 200, elapsed / 1000.0)
         return AuditListResponse(entries=entries)
 
     except HTTPException:
@@ -691,6 +726,7 @@ async def get_audit(
             ua=ua,
             request=request,
         )
+        record_request("audit_list", http_status, elapsed / 1000.0)
         raise HTTPException(status_code=http_status, detail=safe_msg)
 
 
@@ -722,6 +758,7 @@ async def run_sql_editor(
     Validated SQL is wrapped as: SELECT * FROM (<user_sql>) _limited LIMIT 1000.
     """
     _assert_feature_enabled()
+    _check_circuit()
 
     from app.services.pg_viewer import audit as _audit
     from app.services.pg_viewer.engine import get_viewer_db
@@ -766,6 +803,7 @@ async def run_sql_editor(
             ua=ua,
             request=request,
         )
+        record_request("sql_editor", 400, elapsed / 1000.0)
         raise HTTPException(status_code=400, detail=msg)
 
     # --- Execute via viewer engine ---
@@ -783,6 +821,8 @@ async def run_sql_editor(
                 await gen.__anext__()
             except StopAsyncIteration:
                 pass
+
+        PG_VIEWER_BREAKER.record_success()
 
         # Build row dicts
         row_dicts = [dict(zip(col_names, row)) for row in db_rows]
@@ -817,6 +857,7 @@ async def run_sql_editor(
             request=request,
         )
 
+        record_request("sql_editor", 200, elapsed / 1000.0)
         return SqlResult(
             columns=columns_meta,
             rows=redacted_rows,
@@ -829,6 +870,7 @@ async def run_sql_editor(
     except HTTPException:
         raise
     except Exception as exc:
+        PG_VIEWER_BREAKER.record_failure()
         elapsed = int((time.monotonic() - t0) * 1000)
         http_status, safe_msg = sanitize_pg_error(exc)
         audit_status = "timeout" if http_status == 408 else "error"
@@ -845,4 +887,5 @@ async def run_sql_editor(
             ua=ua,
             request=request,
         )
+        record_request("sql_editor", http_status, elapsed / 1000.0)
         raise HTTPException(status_code=http_status, detail=safe_msg)

