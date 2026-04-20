@@ -23,8 +23,11 @@ jobs:
         run: |
           set -e
           cd "$REPO_PATH"
-          git fetch origin "${{ github.ref_name }}" || git fetch origin
-          git checkout "${{ github.sha }}"
+          # PR events: github.ref_name="N/merge" 無法直接 fetch；用 head_ref 抓 branch
+          # Push events: github.ref_name=branch name 可直接 fetch
+          REF="${{ github.head_ref || github.ref_name }}"
+          git fetch origin "$REF"
+          git checkout "origin/$REF"
           echo "HEAD: $(git rev-parse HEAD)"
 
       - name: Install test deps (idempotent)
