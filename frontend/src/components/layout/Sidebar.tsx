@@ -37,6 +37,7 @@ const adminNavItems = [
   { href: '/admin/audit', label: '稽核日誌', icon: Activity },
   { href: '/admin/pending-examples', label: 'SQL 範例審核', icon: DataTable },
   { href: '/admin/permissions', label: '權限設定', icon: Locked },
+  { href: '/admin/pg-viewer', label: 'PG Viewer', icon: DataBase },
 ];
 
 const settingsItems = [

@@ -96,3 +96,45 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="需要管理員權限")
     return user
+
+
+async def require_admin_strict(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Require admin role — re-reads account_level from DB on every request.
+
+    Does NOT trust the JWT role claim.  Even if the token says role=admin,
+    this dependency re-queries the users table so a demoted admin is blocked
+    immediately without waiting for token expiry.
+
+    Raises:
+        HTTPException(401): Missing or invalid JWT, or user no longer exists.
+        HTTPException(403): User exists but account_level != 'admin'.
+    """
+    if not credentials:
+        raise HTTPException(status_code=401, detail="請先登入")
+
+    payload = decode_token(credentials.credentials)
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="無效的 Token")
+
+    result = await db.execute(
+        text("SELECT id, email, display_name, account_level FROM users WHERE id = :id"),
+        {"id": user_id},
+    )
+    user = result.fetchone()
+    if not user:
+        raise HTTPException(status_code=401, detail="使用者不存在")
+
+    db_role: str = user.account_level or ""
+    if db_role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理員權限")
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "display_name": user.display_name,
+        "role": db_role,
+    }

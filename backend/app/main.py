@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile, maximo, admin, conversations
 from app.routers.auth import router as auth_router
+from app.routers.pg_viewer import router as pg_viewer_router
 from app.config import get_settings
 
 # API Key for authentication
@@ -285,6 +286,7 @@ app.include_router(maximo.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(conversations.router)
+app.include_router(pg_viewer_router, prefix="/api/pg-viewer")
 
 
 @app.get("/")
