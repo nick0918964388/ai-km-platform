@@ -156,6 +156,11 @@ const defaultSettings: GlobalSettings = {
   maxTokens: 4096,
 };
 
+// Module-level map tracking in-flight conversation creation on server.
+// addMessage / updateMessage must await this to prevent 404 race (conversation
+// not yet created when message POST fires).
+const conversationCreationPromises = new Map<string, Promise<unknown>>();
+
 export const useStore = create<AppState>((set, get) => ({
   // User
   user: loadStoredUser(),
@@ -304,9 +309,11 @@ export const useStore = create<AppState>((set, get) => ({
     const state = get();
     const updated = [conversation, ...state.conversations];
     set({ conversations: updated, activeConversationId: conversation.id });
-    import('@/lib/api').then(({ apiCreateConversation }) => {
-      apiCreateConversation(conversation.id, conversation.title).catch(console.error);
+    // Track creation promise so subsequent apiAddMessage calls wait for conversation to exist on server
+    const createPromise = import('@/lib/api').then(({ apiCreateConversation }) => {
+      return apiCreateConversation(conversation.id, conversation.title).catch(console.error);
     });
+    conversationCreationPromises.set(conversation.id, createPromise);
     if (state.user?.id) {
       saveUserConversations(state.user.id, updated);
       saveActiveConversationId(state.user.id, conversation.id);
@@ -351,7 +358,9 @@ export const useStore = create<AppState>((set, get) => ({
         : c
     );
     set({ conversations: updated });
-    import('@/lib/api').then(({ apiAddMessage }) => {
+    // Wait for conversation creation to land on server before posting messages (prevents 404 race)
+    const pending = conversationCreationPromises.get(conversationId) || Promise.resolve();
+    pending.then(() => import('@/lib/api')).then(({ apiAddMessage }) => {
       const { sources, sqlResult, clarification, query, jobId, ...rest } = message as any;
       const metadata = { sources, sqlResult, clarification, query, jobId };
       apiAddMessage(conversationId, {
@@ -387,7 +396,9 @@ export const useStore = create<AppState>((set, get) => ({
     });
     set({ conversations: updated });
     if (extra?.sources || extra?.sqlResult || extra?.query || extra?.clarification) {
-      import('@/lib/api').then(({ apiAddMessage }) => {
+      // Wait for conversation creation before posting (prevents 404 race)
+      const pending = conversationCreationPromises.get(conversationId) || Promise.resolve();
+      pending.then(() => import('@/lib/api')).then(({ apiAddMessage }) => {
         const msg = updated.find(c => c.id === conversationId)?.messages.find(m => m.id === messageId);
         if (msg) {
           const { sources, sqlResult, clarification, query, jobId, ...rest } = msg as any;

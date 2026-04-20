@@ -247,8 +247,8 @@ async def add_message(
 
     await db.execute(text("""
         INSERT INTO conversation_messages (id, conversation_id, role, content, created_at, metadata)
-        VALUES (:id, :conv_id, :role, :content, :created_at, :metadata::jsonb)
-        ON CONFLICT (id) DO UPDATE SET content = :content, metadata = :metadata::jsonb
+        VALUES (:id, :conv_id, :role, :content, :created_at, CAST(:metadata AS jsonb))
+        ON CONFLICT (id) DO UPDATE SET content = :content, metadata = CAST(:metadata AS jsonb)
     """), {
         "id": msg_id, "conv_id": conversation_id, "role": req.role,
         "content": req.content, "created_at": now,

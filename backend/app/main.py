@@ -1,11 +1,18 @@
 """AI KM Platform - Multimodal RAG Backend."""
+import logging
 import os
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile, maximo, admin, conversations
+from app.routers import kb, chat, upload_ws, structured, query, export, dashboard, profile, maximo, admin, admin_kg, conversations
 from app.routers.auth import router as auth_router
 from app.config import get_settings
 
@@ -154,21 +161,56 @@ async def lifespan(app: FastAPI):
         print(f"⚠️ Conversations migration skipped: {e}")
 
     # Conversations FTS migration
+    # Uses GENERATED column (not trigger) so asyncpg doesn't choke on PL/pgSQL body.
+    # Legacy trigger/function + legacy non-generated content_tsv column are dropped here
+    # (via individual simple statements) before applying the new schema.
     try:
         from app.db.session import get_db_context
         from sqlalchemy import text as _text
         import pathlib
         fts_sql = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "conversations_fts_migration.sql"
         if fts_sql.exists():
-            sql_content = fts_sql.read_text()
             async with get_db_context() as db:
+                # 1) Drop legacy trigger + function if present (older migration versions)
+                await db.execute(_text(
+                    "DROP TRIGGER IF EXISTS trg_conv_msg_tsv ON conversation_messages"
+                ))
+                await db.execute(_text(
+                    "DROP FUNCTION IF EXISTS conversation_messages_tsv_trigger()"
+                ))
+                # 2) If legacy content_tsv exists and is NOT a generated column, drop it
+                #    so the new GENERATED definition can be installed cleanly.
+                row = (await db.execute(_text(
+                    "SELECT is_generated FROM information_schema.columns "
+                    "WHERE table_name = 'conversation_messages' AND column_name = 'content_tsv'"
+                ))).first()
+                if row is not None and (row[0] or "") != "ALWAYS":
+                    # Drop dependent index first (safe: CREATE INDEX IF NOT EXISTS will re-create)
+                    await db.execute(_text(
+                        "DROP INDEX IF EXISTS idx_conv_messages_fts"
+                    ))
+                    await db.execute(_text(
+                        "ALTER TABLE conversation_messages DROP COLUMN content_tsv"
+                    ))
+                # 3) Apply the new schema (simple statements, split by ';')
+                #    Strip full-line comments before checking emptiness, so a
+                #    chunk containing only '--' header lines is treated as empty.
+                sql_content = fts_sql.read_text()
                 for stmt in sql_content.split(";"):
-                    stmt = stmt.strip()
-                    if stmt and not stmt.startswith("--"):
-                        await db.execute(_text(stmt))
-            print("✅ Conversations FTS index ensured")
+                    lines = [
+                        ln for ln in stmt.splitlines()
+                        if ln.strip() and not ln.strip().startswith("--")
+                    ]
+                    cleaned = "\n".join(lines).strip()
+                    if cleaned:
+                        try:
+                            await db.execute(_text(cleaned))
+                        except Exception as stmt_err:
+                            print(f"⚠️ FTS stmt failed: {stmt_err!r}\n  SQL was: {cleaned!r}", flush=True)
+                            raise
+            print("✅ Conversations FTS index ensured (GENERATED column)", flush=True)
     except Exception as e:
-        print(f"⚠️ Conversations FTS migration skipped: {e}")
+        print(f"⚠️ Conversations FTS migration skipped: {e}", flush=True)
 
     # System settings table migration
     try:
@@ -204,6 +246,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Audit conversation_id migration skipped: {e}")
 
+    # Fix date columns stored as TEXT → TIMESTAMPTZ
+    try:
+        date_sql = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "fix_date_columns_migration.sql"
+        if date_sql.exists():
+            sql_content = date_sql.read_text()
+            async with get_db_context() as db:
+                for stmt in sql_content.split(";"):
+                    stmt = stmt.strip()
+                    if stmt and not stmt.startswith("--"):
+                        await db.execute(_text(stmt))
+            print("✅ Date columns converted to TIMESTAMPTZ")
+    except Exception as e:
+        print(f"⚠️ Date column migration skipped: {e}")
+
     # Load domain code→Chinese mappings
     try:
         from app.services.domain_mapper import load_domain_cache
@@ -223,6 +279,12 @@ async def lifespan(app: FastAPI):
             'ollama_light_model', 'intent_llm_url', 'intent_llm_model',
             'intent_provider', 'anthropic_api_key', 'anthropic_model', 'intent_anthropic_model',
             'openai_api_key',
+            # Batch 2-C: SQL generation feature flag
+            'sql_generation_provider', 'sql_generation_model',
+            'nvidia_api_key', 'nvidia_base_url', 'nvidia_sql_model',
+            # Batch 2-B: reflection thresholds
+            'nl2sql_max_retries', 'nl2sql_skip_reflection_on_rule_pass',
+            'nl2sql_reflection_confidence_threshold',
         ]
         for key in override_keys:
             if db_settings.get(key):
@@ -274,6 +336,7 @@ app.include_router(profile.router)  # Already includes /api/profile prefix
 app.include_router(profile.avatar_router)  # Avatar static files at /api/avatars
 app.include_router(maximo.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(admin_kg.router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(conversations.router)
 

@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-KM Platform — IT Review 文件</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --bg-card: #1e293b;
+      --bg-code: #0b1220;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent: #3b82f6;
+      --success: #10b981;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+      line-height: 1.6;
+    }
+    header {
+      background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+      color: white;
+      padding: 48px 32px;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 { margin: 0 0 8px; font-size: 28px; }
+    header .sub { opacity: 0.85; font-size: 14px; }
+    header .badges { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.25);
+    }
+    .container {
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr);
+      gap: 0;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    nav.toc {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow-y: auto;
+      border-right: 1px solid #e2e8f0;
+      padding: 24px 16px;
+      background: #f1f5f9;
+      font-size: 13px;
+    }
+    nav.toc a {
+      display: block;
+      color: #334155;
+      text-decoration: none;
+      padding: 6px 8px;
+      border-radius: 4px;
+      margin-bottom: 2px;
+    }
+    nav.toc a:hover { background: #e2e8f0; color: #1e40af; }
+    nav.toc .section-label {
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #64748b;
+      margin: 16px 8px 4px;
+      letter-spacing: 0.05em;
+    }
+    main { padding: 32px 48px; min-width: 0; }
+    section { margin-bottom: 48px; scroll-margin-top: 16px; }
+    h2 {
+      font-size: 22px;
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: 8px;
+      margin-top: 0;
+    }
+    h3 { font-size: 17px; margin-top: 24px; color: #1e293b; }
+    h4 { font-size: 15px; margin-top: 16px; color: #334155; }
+    p { margin: 12px 0; }
+    ul, ol { padding-left: 24px; }
+    li { margin: 4px 0; }
+    code {
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 13px;
+      color: #be185d;
+    }
+    pre {
+      background: var(--bg-code);
+      color: #e2e8f0;
+      padding: 16px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 12.5px;
+      line-height: 1.5;
+    }
+    pre code { background: none; color: inherit; padding: 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 14px;
+    }
+    th, td {
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    th {
+      background: #f1f5f9;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    tr:hover td { background: #fafbfc; }
+    .card {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 16px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .card.accent { border-left: 4px solid var(--accent); }
+    .card.success { border-left: 4px solid var(--success); }
+    .card.warn { border-left: 4px solid var(--warn); background: #fffbeb; }
+    .card.danger { border-left: 4px solid var(--danger); background: #fef2f2; }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    .stat {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 16px;
+      text-align: center;
+    }
+    .stat .value { font-size: 24px; font-weight: 700; color: var(--accent); }
+    .stat .label { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .pill.ok { background: #d1fae5; color: #065f46; }
+    .pill.warn { background: #fef3c7; color: #92400e; }
+    .pill.critical { background: #fee2e2; color: #991b1b; }
+    .pill.info { background: #dbeafe; color: #1e40af; }
+    .mermaid {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 16px 0;
+      overflow-x: auto;
+    }
+    footer {
+      padding: 32px;
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+      border-top: 1px solid #e2e8f0;
+    }
+    @media (max-width: 900px) {
+      .container { grid-template-columns: 1fr; }
+      nav.toc { position: static; height: auto; border-right: none; border-bottom: 1px solid #e2e8f0; }
+      main { padding: 24px; }
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Knowledge Management Platform</h1>
+    <div class="sub">IT 審查文件 — 系統功能、架構、流程、安全控制與品質保證</div>
+    <div class="badges">
+      <span class="badge">版本：feat/dashboard-domain-e2e</span>
+      <span class="badge">文件日期：2026-04-19</span>
+      <span class="badge">部署環境：192.168.1.11 (Ubuntu)</span>
+      <span class="badge">技術棧：Python / FastAPI / Next.js / Postgres / Qdrant / Neo4j / Redis</span>
+    </div>
+  </header>
+
+  <div class="container">
+    <nav class="toc">
+      <div class="section-label">概要</div>
+      <a href="#overview">1. 系統概要</a>
+      <a href="#capabilities">2. 核心功能</a>
+      <div class="section-label">架構</div>
+      <a href="#architecture">3. 技術架構</a>
+      <a href="#stack">4. 技術棧</a>
+      <a href="#deployment">5. 部署拓撲</a>
+      <div class="section-label">流程</div>
+      <a href="#flow-chat">6. Chat 請求流程</a>
+      <a href="#flow-rag">7. RAG 檢索流程</a>
+      <a href="#flow-sql">8. NL→SQL 流程</a>
+      <a href="#flow-hybrid">9. Hybrid 查詢流程</a>
+      <div class="section-label">安全控制</div>
+      <a href="#security">10. 安全控制總覽</a>
+      <a href="#sec-input">10.1 輸入層</a>
+      <a href="#sec-prompt">10.2 Prompt 層</a>
+      <a href="#sec-validation">10.3 驗證層</a>
+      <a href="#sec-output">10.4 輸出層</a>
+      <a href="#sec-transport">10.5 流量與稽核</a>
+      <a href="#sec-auth">10.6 認證與權限</a>
+      <div class="section-label">品質保證</div>
+      <a href="#qa-tests">11. 測試覆蓋</a>
+      <a href="#qa-monitor">12. 監控與健康檢查</a>
+      <div class="section-label">維運</div>
+      <a href="#ops-deploy">13. 部署流程</a>
+      <a href="#ops-debt">14. 技術債與已知事項</a>
+    </nav>
+
+    <main>
+      <!-- ==================== 1. 系統概要 ==================== -->
+      <section id="overview">
+        <h2>1. 系統概要</h2>
+        <div class="card accent">
+          <p>
+            <strong>AI Knowledge Management Platform（AI-KM）</strong> 是一套針對車輛維修領域設計的企業 AI 知識管理平台，
+            結合 RAG（Retrieval-Augmented Generation）、NL→SQL、知識圖譜（Neo4j + GraphRAG）三種檢索模式，
+            讓維修技師、管理者、分析師能以自然語言詢問工單、故障代碼、資產資訊、SOP 維修程序等結構化與非結構化資料。
+          </p>
+          <p>
+            系統以 Maximo EAM 資料為主要結構化來源（工單 10,742 筆 / 資產 16,165 筆 / 故障通報等），
+            搭配可上傳的 PDF / Word / Excel / 圖片知識庫，提供引用可追溯、低延遲、高安全性的查詢體驗。
+          </p>
+        </div>
+
+        <div class="grid-3">
+          <div class="stat"><div class="value">3</div><div class="label">檢索模式<br>（SQL / RAG / Hybrid）</div></div>
+          <div class="stat"><div class="value">5</div><div class="label">權限群組</div></div>
+          <div class="stat"><div class="value">6</div><div class="label">Docker 服務</div></div>
+          <div class="stat"><div class="value">263</div><div class="label">單元測試通過</div></div>
+          <div class="stat"><div class="value">30</div><div class="label">E2E 測試通過</div></div>
+          <div class="stat"><div class="value">7 層</div><div class="label">安全控制</div></div>
+        </div>
+      </section>
+
+      <!-- ==================== 2. 核心功能 ==================== -->
+      <section id="capabilities">
+        <h2>2. 核心功能</h2>
+        <table>
+          <thead><tr><th>功能</th><th>說明</th><th>使用者</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Chat / RAG</strong></td><td>支援 SSE 串流的文件問答，回應帶來源引用</td><td>全員</td></tr>
+            <tr><td><strong>NL→SQL 結構化查詢</strong></td><td>自然語言轉 SQL，查詢 Maximo 工單、故障、資產等</td><td>分析師、管理者</td></tr>
+            <tr><td><strong>Hybrid 混合查詢</strong></td><td>需同時查結構化資料與文件時，自動分解成 sub-query 平行執行</td><td>全員</td></tr>
+            <tr><td><strong>Knowledge Graph（Phase 3）</strong></td><td>Neo4j 圖譜呈現「工單 ↔ 故障 ↔ 資產 ↔ SOP」關係，支援相似案例檢索</td><td>技師、分析師</td></tr>
+            <tr><td><strong>Dashboard</strong></td><td>Recharts 呈現工單統計、故障趨勢、費用分布，資料來源為真實 Maximo</td><td>管理者</td></tr>
+            <tr><td><strong>知識庫管理</strong></td><td>PDF/Word/Excel/圖片上傳、刪除、備份，分 tag 管理</td><td>管理者</td></tr>
+            <tr><td><strong>Admin 後台</strong></td><td>使用者、權限、查詢稽核、KG 監控、SQL 範例審核</td><td>Admin</td></tr>
+            <tr><td><strong>對話持久化</strong></td><td>Postgres 儲存對話歷史，支援跨 session 記憶（FTS + Redis spillover）</td><td>全員</td></tr>
+            <tr><td><strong>語意快取</strong></td><td>Qdrant 語意匹配 SQL 快取（threshold 0.95），相似問題 20ms 回應</td><td>（系統）</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ==================== 3. 技術架構 ==================== -->
+      <section id="architecture">
+        <h2>3. 技術架構</h2>
+        <p>系統採微服務式 Docker 容器化架構，後端 FastAPI + 前端 Next.js，多類資料儲存針對不同用途：</p>
+        <div class="mermaid">
+flowchart TB
+  subgraph Client[使用者端]
+    Browser[瀏覽器 / Next.js]
+  end
+
+  subgraph Proxy[前端層]
+    FE[aikm-frontend<br/>Next.js 15.5 / React 19<br/>:3000]
+  end
+
+  subgraph Backend[後端 API 層]
+    BE[aikm-backend<br/>FastAPI / Python 3.10+<br/>:8000]
+  end
+
+  subgraph Storage[儲存層]
+    PG[(aikm-postgres<br/>結構化資料 / 對話<br/>:5432)]
+    QD[(aikm-qdrant<br/>向量資料庫<br/>:6333)]
+    NEO[(aikm-neo4j<br/>知識圖譜<br/>:7474 / :7687)]
+    RD[(aikm-redis<br/>Cache / Rate Limit<br/>:6379)]
+  end
+
+  subgraph ETL[資料整合]
+    ME[aikm-maximo-extractor<br/>Maximo REST 同步<br/>:8080]
+    MX[(Maximo Production)]
+  end
+
+  subgraph LLMs[LLM 供應商]
+    AP[Anthropic<br/>Claude Sonnet/Haiku]
+    OA[OpenAI<br/>Embeddings / GPT]
+    NV[NVIDIA API<br/>MiniMax]
+    OL[Ollama<br/>qwen3-embedding]
+  end
+
+  Browser --> FE
+  FE --> BE
+  BE --> PG
+  BE --> QD
+  BE --> NEO
+  BE --> RD
+  BE --> AP
+  BE --> OA
+  BE --> NV
+  BE --> OL
+  ME --> MX
+  ME --> PG
+        </div>
+
+        <h3>3.1 邏輯分層</h3>
+        <div class="mermaid">
+flowchart LR
+  U[User Query] --> IG[Input Guardrail<br/>topic + jailbreak]
+  IG --> RL[Rate Limit]
+  RL --> IC[Intent Classifier]
+  IC --> RT{Route}
+  RT -->|structured| SQL[NL→SQL Path]
+  RT -->|knowledge| RAG[RAG Path]
+  RT -->|hybrid| HY[Hybrid Orchestrator]
+  RT -->|clarification| CL[Reflection + Re-ask]
+  SQL --> SPOL[SQL Policy Check]
+  SPOL --> OSC[Output Scanner]
+  RAG --> OSC
+  HY --> OSC
+  OSC --> RESP[SSE Stream Response]
+        </div>
+      </section>
+
+      <!-- ==================== 4. 技術棧 ==================== -->
+      <section id="stack">
+        <h2>4. 技術棧</h2>
+        <table>
+          <thead><tr><th>層次</th><th>技術</th><th>版本 / 說明</th></tr></thead>
+          <tbody>
+            <tr><td>後端</td><td>Python, FastAPI, asyncio</td><td>Python 3.10+, Uvicorn</td></tr>
+            <tr><td>前端</td><td>Next.js, React, TypeScript</td><td>Next 15.5, React 19, IBM Carbon v1.100, Tailwind v4</td></tr>
+            <tr><td>狀態管理</td><td>Zustand</td><td>全域 store，對話持久化整合</td></tr>
+            <tr><td>視覺化</td><td>Recharts, @xyflow/react</td><td>Dashboard 圖表 + KG 迷你圖</td></tr>
+            <tr><td>向量資料庫</td><td>Qdrant</td><td>文件 chunks、Maximo schema、語意快取</td></tr>
+            <tr><td>關聯資料庫</td><td>PostgreSQL</td><td>Maximo 資料、使用者、對話、稽核</td></tr>
+            <tr><td>圖資料庫</td><td>Neo4j 5.20 Community</td><td>APOC + Graph Data Science 外掛</td></tr>
+            <tr><td>Cache</td><td>Redis</td><td>SQL cache、rate limit counter</td></tr>
+            <tr><td>GraphRAG</td><td>neo4j-graphrag-python 1.14</td><td>Text2Cypher / VectorCypher retriever</td></tr>
+            <tr><td>LLM 主</td><td>Anthropic Claude</td><td>Sonnet 4.6（SQL gen）/ Haiku（intent）</td></tr>
+            <tr><td>LLM 備</td><td>OpenAI, NVIDIA, Ollama</td><td>Fallback chain + embedding</td></tr>
+            <tr><td>Embedding</td><td>Ollama qwen3-embedding</td><td>本地部署，跨洋 API 已下線</td></tr>
+            <tr><td>Reranker</td><td>BGE reranker v2-m3</td><td>17.5s CPU / Cohere API 備援</td></tr>
+            <tr><td>Auth</td><td>JWT (HS256)</td><td>5 角色群組 / admin / maint_manager / maint_tech / analyst / viewer</td></tr>
+            <tr><td>容器</td><td>Docker Compose</td><td>6 個服務 + 自動 healthcheck</td></tr>
+            <tr><td>E2E</td><td>Playwright</td><td>5 browsers × 多個測試</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ==================== 5. 部署拓撲 ==================== -->
+      <section id="deployment">
+        <h2>5. 部署拓撲</h2>
+        <div class="card warn">
+          <strong>重要原則</strong>：
+          <ul>
+            <li><strong>Mac Mini</strong> 為開發機，僅寫 code，不跑服務</li>
+            <li><strong>192.168.1.11 Ubuntu</strong> 為部署機，所有 Docker 容器與生產資料庫在此</li>
+            <li>部署透過 SSH + <code>git pull</code> + <code>docker compose up -d --build</code></li>
+            <li>部署機亦跑 Drone CI (8090) 與 Maximo Liberty (9080/9443)，停止 aikm 服務時避免影響這些</li>
+          </ul>
+        </div>
+        <div class="mermaid">
+flowchart LR
+  Dev[Mac Mini<br/>Dev Only]
+  GH[GitHub<br/>feat/dashboard-domain-e2e]
+  subgraph Prod[192.168.1.11 / Ubuntu]
+    FE2[aikm-frontend :3000]
+    BE2[aikm-backend :8000]
+    PG2[(aikm-postgres :5432)]
+    QD2[(aikm-qdrant :6333)]
+    NEO2[(aikm-neo4j :7474/7687)]
+    RD2[(aikm-redis :6379)]
+    ME2[aikm-maximo-extractor :8080]
+    DC[Drone CI :8090]
+    MX2[Maximo Liberty :9080/9443]
+  end
+  Dev -->|git push| GH
+  GH -->|git pull + compose build| Prod
+        </div>
+      </section>
+
+      <!-- ==================== 6. Chat 流程 ==================== -->
+      <section id="flow-chat">
+        <h2>6. Chat 請求流程</h2>
+        <p>使用者自 Chat 頁送出 Query 到收到 SSE 串流答案的完整流程：</p>
+        <div class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as User
+  participant FE as Frontend (ChatWindow)
+  participant BE as chat_stream (FastAPI)
+  participant G as InputGuardrail
+  participant RL as RateLimit
+  participant IC as IntentClassifier
+  participant O as Orchestrator
+  participant OS as OutputScanner
+
+  U->>FE: 輸入文字 + 送出
+  FE->>BE: POST /api/chat/stream (SSE)
+  BE->>RL: check_rate_limit(user/ip)
+  alt 超過 30 req/min
+    RL-->>BE: 429
+    BE-->>FE: HTTPException
+  end
+  BE->>G: guardrail.check(query)
+  alt jailbreak / off-topic / greeting
+    G-->>BE: action != ALLOW
+    BE->>RL: record_guardrail_block
+    BE-->>FE: SSE content + done (refusal / greeting)
+  else ALLOW
+    BE->>IC: classify intent
+    IC-->>BE: intent + confidence
+    BE->>O: route(intent)
+    alt intent=structured
+      O->>O: NL→SQL flow
+    else intent=knowledge
+      O->>O: RAG flow
+    else intent=hybrid
+      O->>O: parallel SQL + RAG + synthesis
+    else intent=clarification
+      O-->>BE: clarification options
+    end
+    O-->>BE: accumulated_answer
+    BE->>OS: scan(answer)
+    alt BLOCK / REDACT 命中
+      OS-->>BE: cleaned_text
+    end
+    BE-->>FE: SSE content chunks + done
+  end
+  FE-->>U: 串流渲染回答
+        </div>
+      </section>
+
+      <!-- ==================== 7. RAG 流程 ==================== -->
+      <section id="flow-rag">
+        <h2>7. RAG 檢索流程</h2>
+        <div class="mermaid">
+flowchart TB
+  Q[Query] --> EMB[Query Embedding<br/>Ollama qwen3]
+  EMB --> VS[Qdrant 語意檢索<br/>k=20]
+  VS --> RR[Reranker<br/>BGE / Cohere]
+  RR --> TOP[Top-5 相關 chunks]
+  TOP --> FENCE[Hermes Fenced Context<br/>+ tiktoken budget]
+  FENCE --> MP[Memory Prefetch<br/>FTS 跨 session]
+  MP --> SP[System Prompt<br/>+ DOMAIN_CONSTRAINT_PREFIX]
+  SP --> LLM[Anthropic Sonnet<br/>SSE 串流]
+  LLM --> OS[Output Scanner]
+  OS --> ANS[最終答案 + 引用來源]
+        </div>
+      </section>
+
+      <!-- ==================== 8. NL→SQL 流程 ==================== -->
+      <section id="flow-sql">
+        <h2>8. NL→SQL 流程</h2>
+        <div class="mermaid">
+flowchart TB
+  Q[Query] --> RED{Redis MD5<br/>cache hit?}
+  RED -->|hit| FAST[回傳 cached SQL<br/>~20ms]
+  RED -->|miss| QEMB[Query Embedding]
+  QEMB --> SEM{Qdrant 語意 cache<br/>similarity > 0.95?}
+  SEM -->|hit| FAST
+  SEM -->|miss| SCHEMA[Schema RAG<br/>找相關 tables/columns]
+  SCHEMA --> GEN[LLM 產 SQL<br/>Anthropic Sonnet]
+  GEN --> VAL[SQL Validator<br/>規則 + LLM]
+  VAL --> POL[SQL Row-level Policy<br/>17 forbidden tables]
+  POL --> RFLT[Row Filter 注入<br/>使用者權限]
+  RFLT --> EXEC[執行查詢]
+  EXEC --> QUAL{品質檢查<br/>confidence < 0.3?}
+  QUAL -->|低| REFL[Self-Reflection<br/>max 1 retry]
+  QUAL -->|OK| WRITE[寫 Redis + Qdrant 雙層 cache]
+  WRITE --> FMT[格式化 + 圖表建議]
+  FMT --> OS[Output Scanner]
+  OS --> R[回傳結果]
+        </div>
+        <p><strong>效能指標</strong>：</p>
+        <ul>
+          <li>Redis MD5 hit：<code>~20ms</code></li>
+          <li>Qdrant semantic hit：<code>~1.5s</code>（含 embedding）</li>
+          <li>Cache miss 冷啟動：<code>6.5-7s</code></li>
+          <li>Self-Reflection 僅當 <code>confidence &lt; 0.3</code> 或 SQL 語法錯誤時觸發</li>
+        </ul>
+      </section>
+
+      <!-- ==================== 9. Hybrid 流程 ==================== -->
+      <section id="flow-hybrid">
+        <h2>9. Hybrid 查詢流程（平行化）</h2>
+        <div class="mermaid">
+flowchart LR
+  Q[Query] --> DE[Decompose<br/>LLM 拆 sub-questions]
+  DE --> F1[asyncio.create_task]
+  DE --> F2[asyncio.create_task]
+  F1 --> SQL1[Sub-SQL Worker<br/>is_hybrid=True<br/>max_iter=1]
+  F2 --> RAG1[Sub-RAG Worker]
+  SQL1 --> WAIT[asyncio.as_completed]
+  RAG1 --> WAIT
+  WAIT --> SYN[Synthesis LLM<br/>合併結果]
+  SYN --> OS[Output Scanner]
+  OS --> R[最終答案]
+        </div>
+        <p><strong>平行化成果</strong>：從序列 60-80 秒降至 40-45 秒，若改用 Cohere reranker 可再降至 &lt; 25 秒。</p>
+      </section>
+
+      <!-- ==================== 10. 安全控制總覽 ==================== -->
+      <section id="security">
+        <h2>10. 安全控制總覽</h2>
+        <p>採用多層深度防禦（Defense in Depth）策略，無單點信賴。每層皆有獨立測試與稽核：</p>
+
+        <div class="mermaid">
+flowchart TB
+  L1[Layer 1: 輸入層 Guardrail<br/>topic classifier + jailbreak detector + greeting]
+  L2[Layer 2: Prompt 層<br/>DOMAIN_CONSTRAINT_PREFIX + refusal template]
+  L3[Layer 3: 驗證層<br/>SQL Validator + Cypher Validator + Row Policy]
+  L4[Layer 4: 輸出層<br/>Output Scanner 掃密鑰/PII/內部IP]
+  L5[Layer 5: 流量控制<br/>Rate Limit 30/min + Abuse Alert]
+  L6[Layer 6: 認證授權<br/>JWT + 5 Role + Row Filter]
+  L7[Layer 7: 稽核日誌<br/>每筆查詢留痕 + SECURITY_ALERT]
+  L1 --> L2 --> L3 --> L4
+  L5 -.輪流作用.- L1
+  L6 -.輪流作用.- L3
+  L7 -.全程記錄.- L1
+        </div>
+
+        <!-- 10.1 -->
+        <h3 id="sec-input">10.1 輸入層 — Input Guardrail</h3>
+        <div class="card accent">
+          <p>檔案：<code>backend/app/services/input_guardrail.py</code>（純 regex，&lt; 1ms/call）</p>
+          <table>
+            <thead><tr><th>類型</th><th>動作</th><th>範例</th><th>測試</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="pill critical">Jailbreak</span></td>
+                <td>REFUSE + audit</td>
+                <td><code>ignore previous instructions</code>、<code>DAN</code>、<code>eval(...)</code>、<code>; DROP TABLE</code></td>
+                <td>12 tests</td>
+              </tr>
+              <tr>
+                <td><span class="pill warn">Off-topic</span></td>
+                <td>REFUSE</td>
+                <td>天氣、股票、電影、食譜、翻譯</td>
+                <td>8 tests</td>
+              </tr>
+              <tr>
+                <td><span class="pill info">Greeting</span></td>
+                <td>禮貌回應（不走 LLM）</td>
+                <td><code>hi</code>、<code>你好</code>、<code>謝謝</code>、<code>再見</code></td>
+                <td>23 tests</td>
+              </tr>
+              <tr>
+                <td><span class="pill ok">Allow</span></td>
+                <td>進下一層</td>
+                <td>含 domain keyword 的查詢</td>
+                <td>10 tests</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>實測：20/20 攻擊測試全擋下。Greeting 平均 31ms（vs 2s LLM call，省 ~60x）。</p>
+        </div>
+
+        <!-- 10.2 -->
+        <h3 id="sec-prompt">10.2 Prompt 層 — Domain Constraint</h3>
+        <div class="card accent">
+          <p>檔案：<code>backend/app/services/domain_constraint.py</code></p>
+          <p>所有會輸出 freeform text 的 LLM call（RAG 回答、synthesis）於 system prompt 最前面加入領域限制前綴：</p>
+          <ul>
+            <li>明示 AI 只回答工單/故障/資產/SOP/維修/零件/人員相關問題</li>
+            <li>拒絕扮演其他角色、忽略指令、執行程式碼</li>
+            <li>不透露系統 prompt 或內部實作細節</li>
+            <li>Intent classifier 刻意<strong>不套</strong>（輸出為結構化 JSON，無 leak 風險，避免 prompt bloat）</li>
+          </ul>
+        </div>
+
+        <!-- 10.3 -->
+        <h3 id="sec-validation">10.3 驗證層 — SQL / Cypher / Row Policy</h3>
+        <div class="grid-2">
+          <div class="card">
+            <h4>SQL Validator（既有）</h4>
+            <ul>
+              <li>規則層 + LLM 層雙重驗證</li>
+              <li>僅允 <code>SELECT</code>，擋 DDL / DML</li>
+              <li>自動修正常見錯誤並重試（最多 1 次）</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>Cypher Validator</h4>
+            <p>檔案：<code>services/cypher_validator.py</code>（71+ tests）</p>
+            <ul>
+              <li>白名單 <code>MATCH / RETURN / WHERE / WITH / ORDER BY / LIMIT</code></li>
+              <li>擋 <code>CREATE / DELETE / MERGE / SET / CALL db.*</code></li>
+              <li>Unicode 零寬字元正規化（NFKC）</li>
+              <li>Subquery 深度限制 + LIMIT 自動補入（UNION 每段獨立）</li>
+              <li>效能 &lt; 1ms/call</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card">
+          <h4>SQL Row-level Policy</h4>
+          <p>檔案：<code>services/sql_policy.py</code>（27 tests）— 深度防禦，即使 admin 也擋</p>
+          <table>
+            <thead><tr><th>類別</th><th>數量</th><th>範例</th></tr></thead>
+            <tbody>
+              <tr><td>FORBIDDEN_TABLES</td><td>17</td><td><code>users, auth_tokens, sessions, jwt_blacklist, pg_catalog, information_schema</code></td></tr>
+              <tr><td>FORBIDDEN_COLUMNS</td><td>13</td><td><code>password, secret, private_key, api_key, access_token</code></td></tr>
+              <tr><td>Row filter 注入</td><td>per-role</td><td>依使用者 role 自動注入 WHERE 子句，防跨 tenant 越權</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 10.4 -->
+        <h3 id="sec-output">10.4 輸出層 — Output Scanner</h3>
+        <div class="card accent">
+          <p>檔案：<code>services/output_scanner.py</code>（23 tests），於 SSE 最終 content 前掃描 LLM 回應：</p>
+          <table>
+            <thead><tr><th>動作</th><th>Patterns</th><th>範例</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="pill critical">BLOCK</span></td>
+                <td>6</td>
+                <td>openai_key (<code>sk-...</code>), anthropic_key, aws_key (<code>AKIA...</code>), jwt (<code>eyJ...</code>), generic_api_key, ssh_private_key</td>
+              </tr>
+              <tr>
+                <td><span class="pill warn">REDACT</span></td>
+                <td>5</td>
+                <td>credit_card, twn_id, email, phone_twn, bcrypt_hash → 改為 <code>453***010</code> 形式</td>
+              </tr>
+              <tr>
+                <td><span class="pill info">WARN</span></td>
+                <td>2</td>
+                <td>internal_ip (10.*/172.16-31.*/192.168.*), md5_hash → 記 log 不修改</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 10.5 -->
+        <h3 id="sec-transport">10.5 流量與稽核 — Rate Limit / Alert</h3>
+        <div class="card accent">
+          <p>檔案：<code>middleware/rate_limit.py</code>（8 tests，Redis-backed）</p>
+          <ul>
+            <li><strong>Rate limit</strong>：每使用者/IP 30 req/min，超限回 429</li>
+            <li><strong>Abuse alert</strong>：10 分鐘內 3 次 guardrail block → <code>[SECURITY_ALERT]</code> ERROR log（可接 webhook）</li>
+            <li><strong>Fail-open</strong>：Redis 斷線時不阻擋正常流量，避免 single-point failure</li>
+            <li><strong>實測</strong>：40 次連發驗證第 31 次起 429；3 次 jailbreak 即觸發 alert</li>
+          </ul>
+        </div>
+
+        <!-- 10.6 -->
+        <h3 id="sec-auth">10.6 認證與權限</h3>
+        <div class="card">
+          <ul>
+            <li>JWT (HS256) login / register / setup</li>
+            <li>5 個權限群組：<code>admin / maint_manager / maint_tech / analyst / viewer</code></li>
+            <li>Row filter 參數化注入（deny-by-default）</li>
+            <li>Admin API <code>Depends(require_admin)</code>，非 admin 回 401/403</li>
+            <li>稽核日誌記錄：使用者 / query / SQL / 產 response</li>
+          </ul>
+        </div>
+
+        <!-- Prompt Injection 補充 -->
+        <h3>10.7 RAG Prompt Injection Scanner（既有）</h3>
+        <div class="card">
+          <p>Hermes Phase 1 階段引入，掃 RAG 檢索到的文件 chunks 是否含嵌入式 prompt injection，保護 LLM 不被文件內容劫持。</p>
+        </div>
+      </section>
+
+      <!-- ==================== 11. 測試覆蓋 ==================== -->
+      <section id="qa-tests">
+        <h2>11. 測試覆蓋</h2>
+        <div class="grid-3">
+          <div class="stat"><div class="value">263</div><div class="label">Unit tests 通過</div></div>
+          <div class="stat"><div class="value">30</div><div class="label">E2E tests 通過</div></div>
+          <div class="stat"><div class="value">0</div><div class="label">Regression</div></div>
+        </div>
+
+        <h3>11.1 主要單元測試模組</h3>
+        <table>
+          <thead><tr><th>模組</th><th>Tests</th><th>覆蓋</th></tr></thead>
+          <tbody>
+            <tr><td><code>test_cypher_validator</code></td><td>71</td><td>Cypher 白名單、Unicode、subquery depth、LIMIT 自動補</td></tr>
+            <tr><td><code>test_input_guardrail</code></td><td>61</td><td>Topic / Jailbreak / Greeting / 邊界</td></tr>
+            <tr><td><code>test_output_scanner</code></td><td>23</td><td>BLOCK / REDACT / WARN patterns</td></tr>
+            <tr><td><code>test_sql_policy</code></td><td>27</td><td>FORBIDDEN tables/columns / unauthorized join</td></tr>
+            <tr><td><code>test_rate_limit</code></td><td>8</td><td>超限 / fail-open / abuse alert</td></tr>
+            <tr><td><code>test_graph_service</code></td><td>20</td><td>Neo4j driver + circuit breaker</td></tr>
+            <tr><td><code>test_sql_semantic_cache</code></td><td>8</td><td>Qdrant 語意快取命中與過期</td></tr>
+            <tr><td><code>test_intent_classifier</code></td><td>9</td><td>意圖分類 + 輸出格式</td></tr>
+            <tr><td><code>test_hybrid_parallel</code></td><td>7</td><td>併發執行 / 部分失敗 / hybrid retry cap</td></tr>
+            <tr><td><code>test_embedding_config</code></td><td>5</td><td>provider 切換 / config override</td></tr>
+            <tr><td>其他 existing</td><td>~24</td><td>circuit breaker / cache / vector store ...</td></tr>
+          </tbody>
+        </table>
+
+        <h3>11.2 E2E（Playwright）</h3>
+        <p>涵蓋 chromium / Mobile Chrome / WebKit 多瀏覽器：</p>
+        <ul>
+          <li>登入 / 權限 / 對話建立與持久化</li>
+          <li>RWD 375 / 768 / 1440 三斷點</li>
+          <li>Chat 主路徑 SSE 串流</li>
+          <li>Graph Expansion Panel / Mini Graph 視覺化</li>
+          <li>Admin 頁（KG 監控 / SQL 範例審核）權限檢查</li>
+          <li>Regression：對話持久化、feedback、側邊欄收合</li>
+        </ul>
+      </section>
+
+      <!-- ==================== 12. 監控與健康檢查 ==================== -->
+      <section id="qa-monitor">
+        <h2>12. 監控與健康檢查</h2>
+        <table>
+          <thead><tr><th>Endpoint</th><th>用途</th></tr></thead>
+          <tbody>
+            <tr><td><code>GET /health</code></td><td>基本存活檢查</td></tr>
+            <tr><td><code>GET /health/circuits</code></td><td>LLM / Qdrant / Redis / Neo4j 斷路器狀態</td></tr>
+            <tr><td><code>GET /api/admin/kg/stats</code></td><td>知識圖譜節點數 / 邊數 / 覆蓋率（admin）</td></tr>
+            <tr><td><code>GET /api/admin/kg/etl-log</code></td><td>ETL 最近日誌（admin）</td></tr>
+            <tr><td><code>POST /api/admin/kg/rebuild</code></td><td>手動觸發 ETL rebuild（admin）</td></tr>
+          </tbody>
+        </table>
+        <h3>Circuit Breaker</h3>
+        <p>LLM / Qdrant / Redis / Neo4j 各自獨立斷路器：</p>
+        <ul>
+          <li>連續 5 次失敗 → OPEN（拒絕打 service，快速失敗）</li>
+          <li>30 秒後 HALF-OPEN 試探恢復</li>
+          <li>成功 → CLOSED 正常服務</li>
+        </ul>
+      </section>
+
+      <!-- ==================== 13. 部署流程 ==================== -->
+      <section id="ops-deploy">
+        <h2>13. 部署流程</h2>
+        <div class="card accent">
+          <ol>
+            <li>Mac Mini 開發，git commit + push 到 <code>feat/dashboard-domain-e2e</code></li>
+            <li>SSH 進 192.168.1.11</li>
+            <li><code>cd /root/ai-km-platform && git pull</code></li>
+            <li><code>docker compose build backend frontend</code>（視改動）</li>
+            <li><code>docker compose up -d backend frontend</code>（rolling）</li>
+            <li>健康檢查 + Playwright 驗證</li>
+            <li>失敗則 <code>git reset --hard &lt;previous&gt; && docker compose up -d --build</code></li>
+          </ol>
+        </div>
+        <h3>資料庫遷移</h3>
+        <ul>
+          <li>啟動時自動套用 migrations（lifespan handler）</li>
+          <li>Conversations FTS 用 Postgres 12+ <code>GENERATED ALWAYS AS ... STORED</code></li>
+          <li>Neo4j schema 用 <code>IF NOT EXISTS</code> 保證可重跑</li>
+        </ul>
+      </section>
+
+      <!-- ==================== 14. 技術債 ==================== -->
+      <section id="ops-debt">
+        <h2>14. 技術債與已知事項</h2>
+        <div class="card warn">
+          <h3>對外暴露前必修</h3>
+          <ul>
+            <li><strong>AIKM_API_KEY 外洩</strong>：commit <code>f5cc226</code> 在 git history 中包含真實 key。需 rotate + <code>git rm --cached .env</code> + 修 <code>.gitignore</code> 加 <code>.env</code> + BFG 清 history</li>
+            <li><strong>Neo4j port 綁 0.0.0.0</strong>：7474 / 7687 LAN 內可連，UFW 未啟。建議改 <code>127.0.0.1:7474/7687</code> + SSH tunnel</li>
+            <li>docker-compose fallback <code>aikm_neo4j_change_me</code> 應改 <code>${NEO4J_PASSWORD:?required}</code> 強制必填</li>
+          </ul>
+        </div>
+        <div class="card warn">
+          <h3>效能 / 維護</h3>
+          <ul>
+            <li><code>datetime.utcnow()</code> 在 Python 3.14 deprecated（177 warnings）。建議統一改 <code>datetime.now(timezone.utc)</code></li>
+            <li>BGE reranker CPU 17.5s 是 hybrid 瓶頸。已支援 Cohere API fallback（<code>RERANKER_PROVIDER=cohere</code> + <code>COHERE_API_KEY</code>）可省 ~17 秒</li>
+            <li><code>scripts/*.sql</code> runner 皆用 <code>split(";")</code>，若 SQL 註解含 <code>;</code> 會踩雷。已修 conversations_fts_migration，建議抽共用 util</li>
+            <li>NVIDIA MiniMax SQL gen 品質 14/20 = 70%（&lt; 85% 門檻）。目前以 feature flag opt-in，預設仍 Anthropic</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>待開發（Backlog）</h3>
+          <ul>
+            <li>Speculative Execution 真三路平行（intent + schema + SQL pre-gen）</li>
+            <li>Intent 改 local small model（gemma-2b / phi-3-mini）評估，預期省 1-2s</li>
+            <li>SQL 流式輸出（perceived speed）</li>
+            <li>Frontend SSE 渲染優化（react-window virtual scroll）</li>
+            <li>Circuit breaker 啟動預熱</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>資料完整性</h3>
+          <ul>
+            <li><code>maximo_mxwo</code> 目前僅 11 天抓取窗，需擴大到 2024+ 才能建完整 KG 邊</li>
+            <li><code>maximo_mxasset.classstructure</code> FK 100% 空，需 ETL 補</li>
+            <li><code>maximo_mxsr → mxwo</code> 連結率 0.58%（zz_currwonum 欄位未填）</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer>
+    <p>AI-KM Platform IT Review — 文件由系統自動產出，根據 <code>feat/dashboard-domain-e2e</code> branch 實際程式碼與部署狀態撰寫。</p>
+    <p>相關技術報告：<code>docs/PHASE-3-KNOWLEDGE-GRAPH-PLAN.md</code> / <code>docs/nl2sql_latency_report_*.md</code> / <code>docs/security_guardrail_deploy_verify_*.md</code></p>
+  </footer>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'default',
+      flowchart: { curve: 'basis' },
+      securityLevel: 'loose',
+    });
+  </script>
+</body>
+</html>

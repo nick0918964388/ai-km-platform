@@ -14,6 +14,7 @@ from app.services.reranker_factory import get_reranker_factory
 from app.services import cache as cache_service
 from app.services import file_storage
 from app.services.terminology import expand_query, RAIL_TERMINOLOGY
+from app.services.domain_constraint import DOMAIN_CONSTRAINT_PREFIX
 from app.models.schemas import SearchResult, RerankerMetadata, ChunkType
 from app.db.session import get_db_context
 from sqlalchemy import text
@@ -276,7 +277,7 @@ def _call_anthropic_stream(messages: list, model: str, system: str = "", max_tok
 
 
 # 優化後的 System Prompt
-SYSTEM_PROMPT = """你是台鐵 EMU800 電聯車維修知識助手。你的任務是根據知識庫內容準確回答維修相關問題。
+SYSTEM_PROMPT = DOMAIN_CONSTRAINT_PREFIX + """你是台鐵 EMU800 電聯車維修知識助手。你的任務是根據知識庫內容準確回答維修相關問題。
 
 ## 回答規則
 
@@ -999,8 +1000,7 @@ def generate_follow_up_questions(query: str, answer: str, max_questions: int = 3
     if client is None:
         return []
 
-    try:
-        prompt = f"""根據以下問答內容，生成 {max_questions} 個使用者可能想進一步了解的後續問題。
+    prompt = f"""根據以下問答內容，生成 {max_questions} 個使用者可能想進一步了解的後續問題。
 
 使用者問題：{query}
 
@@ -1015,17 +1015,41 @@ AI 回答：{answer[:1000]}...
 
 只輸出問題，不要其他內容。"""
 
-        response = client.chat.completions.create(
-            model=resolved_model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
-            temperature=0.7,
-        )
-        
-        content = response.choices[0].message.content or ""
+    try:
+        # _get_llm_client 對 anthropic provider 回傳 ("anthropic", model) 字串
+        # 不是 OpenAI client 物件，要走 Anthropic SDK 路徑
+        if client == "anthropic":
+            import httpx
+            settings = get_settings()
+            with httpx.Client() as http:
+                resp = http.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": settings.anthropic_api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": resolved_model,
+                        "max_tokens": 200,
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                    timeout=10.0,
+                )
+                resp.raise_for_status()
+                content = resp.json().get("content", [{}])[0].get("text", "") or ""
+        else:
+            response = client.chat.completions.create(
+                model=resolved_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200,
+                temperature=0.7,
+            )
+            content = response.choices[0].message.content or ""
+
         questions = [q.strip() for q in content.strip().split('\n') if q.strip()]
         return questions[:max_questions]
-        
+
     except Exception as e:
         logger.error(f"Error generating follow-up questions: {e}")
         return []

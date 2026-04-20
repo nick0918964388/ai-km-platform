@@ -86,6 +86,19 @@ docker exec -i aikm-postgres psql -U aikm -d aikm < backend/scripts/migration.sq
 
 ---
 
+## CI/CD（GitHub Actions）
+
+> 詳細流程請看 `docs/CICD_WORKFLOW.md`
+
+- **Runner**：self-hosted 跑在 192.168.1.11（`aikm-github-runner`）
+- **Workflows**：
+  - `docs-deploy.yml` — push 改 `docs/*.html` 時自動同步到 `/mnt/disk3/shared/`
+  - `ci-test.yml` — push/PR → pytest + E2E chromium
+  - `main-deploy.yml` — push `main` → rolling deploy + 健康檢查 + 失敗自動 rollback
+- **開發流程**：`feat/*` branch → push 觸發 CI → PR → merge main → 自動部署
+- **⚠️ 踩過的雷**：Git remote URL 可能嵌入舊 PAT 繞過 `gh auth`，push 被擋時先 `git remote -v` 檢查
+- **強制規則**：main branch 要求 ci-test pass 才能 merge（避免部署未測試 code）
+
 ## 開發流程（Agent Team）
 
 所有功能開發必須使用 **Agent Team** 模式，包含以下角色：

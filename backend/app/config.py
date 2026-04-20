@@ -25,6 +25,25 @@ class Settings(BaseSettings):
     ollama_chat_model: str = "qwen3.5:397b-cloud"
     ollama_light_model: str = "gemma4:31b-cloud"
 
+    # NVIDIA API (Batch 2-C: SQL generation alternative provider)
+    nvidia_api_key: str = ""
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nvidia_sql_model: str = "minimaxai/minimax-m2.7"
+
+    # SQL Generation feature flag (Batch 2-C)
+    # "anthropic" (default, no behavior change) | "nvidia" | "ollama"
+    sql_generation_provider: str = "anthropic"
+    # Override SQL generation model; empty = use provider's default
+    sql_generation_model: str = ""
+
+    # Self-Reflection thresholds (Batch 2-B)
+    # max retries for non-hybrid path (was 3, now 1 to cap latency)
+    nl2sql_max_retries: int = 1
+    # skip reflection when rule validator passes and row_count > 0
+    nl2sql_skip_reflection_on_rule_pass: bool = True
+    # only trigger reflection retry when confidence below this (very low)
+    nl2sql_reflection_confidence_threshold: float = 0.3
+
     # Intent classification
     intent_provider: str = "ollama"  # "ollama", "anthropic", or "openai"
     intent_llm_url: str = "http://ollama.webtw.xyz:11434/v1"
@@ -39,6 +58,11 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://ollama.webtw.xyz:11434"
     ollama_embedding_model: str = "qwen3-embedding:latest"
     ollama_embedding_dimension: int = 4096
+
+    # OpenAI Embedding (used only when embedding_provider=openai)
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_dimension: int = 1536
+    openai_embedding_base_url: str = ""  # optional override (e.g. Azure / proxy). empty → default OpenAI endpoint
 
     # Qdrant
     qdrant_collection_name: str = "knowledge_base"
@@ -55,7 +79,7 @@ class Settings(BaseSettings):
     rerank_top_n: int = 10
 
     # Multi-Provider Reranker Configuration
-    reranker_provider: str = "auto"  # "cohere" | "bge" | "auto"
+    reranker_provider: str = "auto"  # "cohere" | "bge" | "ollama" | "auto"
     reranker_timeout: float = 5.0  # seconds
     reranker_fallback_enabled: bool = True
 
@@ -63,6 +87,10 @@ class Settings(BaseSettings):
     bge_model_name: str = "BAAI/bge-reranker-v2-m3"
     bge_max_length: int = 512
     bge_batch_size: int = 32
+
+    # Ollama Reranker (BGE reranker v2-m3 via Ollama /api/embed, GPU-backed)
+    ollama_reranker_url: str = ""  # empty → fall back to ollama_base_url / ollama_chat_url (strip /v1)
+    ollama_reranker_model: str = "linux6200/bge-reranker-v2-m3:latest"
 
     # Backup
     backup_dir: str = "./backups"

@@ -278,13 +278,19 @@ class MaximoSchemaRAG:
 
     # ── Search ───────────────────────────────────────────────────────────────
 
-    async def find_relevant_tables(self, question: str, top_k: int = 3) -> list[dict]:
-        """向量搜尋 table catalog，回傳最相關的表。"""
+    async def find_relevant_tables(
+        self, question: str, top_k: int = 3,
+        query_emb: Optional[list[float]] = None,
+    ) -> list[dict]:
+        """向量搜尋 table catalog，回傳最相關的表。
+        query_emb: 可選的預先計算好的 embedding，避免重算（B: schema embedding 去重）。
+        """
         if not QDRANT_BREAKER.is_available:
             log.warning("Qdrant circuit breaker OPEN — skip vector search")
             return []
         try:
-            query_emb = embed_text(question)
+            if query_emb is None:
+                query_emb = embed_text(question)
             results = self.qdrant.query_points(
                 collection_name=self.TABLES_COLLECTION,
                 query=query_emb,
@@ -348,13 +354,17 @@ class MaximoSchemaRAG:
         return domain_vals
 
     async def find_relevant_columns(
-        self, question: str, object_names: list[str], top_k_per_table: int = 20
+        self, question: str, object_names: list[str], top_k_per_table: int = 20,
+        query_emb: Optional[list[float]] = None,
     ) -> dict[str, list[dict]]:
-        """向量搜尋各 object 的相關欄位。"""
+        """向量搜尋各 object 的相關欄位。
+        query_emb: 可選的預先計算好的 embedding，避免重算（B: schema embedding 去重）。
+        """
         if not object_names:
             return {}
 
-        query_emb = embed_text(question)
+        if query_emb is None:
+            query_emb = embed_text(question)
         result_map: dict[str, list[dict]] = {}
 
         for obj in object_names:
@@ -388,8 +398,15 @@ class MaximoSchemaRAG:
         if not self._collection_ready():
             return "", set()
 
+        # B: 計算 query embedding 一次，兩個 Qdrant collection 共用（省 0.3-0.5s）
+        query_emb: Optional[list[float]] = None
+        try:
+            query_emb = embed_text(question)
+        except Exception as e:
+            log.warning("Query embedding failed, downstream will recompute: %s", e)
+
         # 1) 找相關表
-        tables = await self.find_relevant_tables(question, top_k=3)
+        tables = await self.find_relevant_tables(question, top_k=3, query_emb=query_emb)
         if not tables:
             return "", set()
 
@@ -398,7 +415,9 @@ class MaximoSchemaRAG:
 
         # 2) 找相關欄位（只查有 object_name 的表）
         obj_names = [t["object_name"] for t in tables if t.get("object_name")]
-        columns_by_obj = await self.find_relevant_columns(question, obj_names, top_k_per_table=20)
+        columns_by_obj = await self.find_relevant_columns(
+            question, obj_names, top_k_per_table=20, query_emb=query_emb,
+        )
 
         # 確保 key_columns 也包含在內
         key_col_set: dict[str, set[str]] = {}

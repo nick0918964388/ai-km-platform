@@ -21,13 +21,18 @@ interface SqlResultData {
   spilled?: boolean;
   result_id?: string;
   total_rows?: number;
-  // Technical details (admin only)
+  // Tool-router fields (012-maximo-query-tools)
+  route_path?: 'tool' | 'nl2sql';
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  // Technical details (admin/analyst only)
   debug?: {
     sql?: string;
     model?: string;
     llm_ms?: number;
     execution_ms?: number;
     confidence?: number;
+    [k: string]: unknown;
   };
   // Backward compat — old responses may still have these at top level
   sql?: string;

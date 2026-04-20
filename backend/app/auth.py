@@ -1,5 +1,7 @@
 """JWT authentication utilities."""
 import os
+import secrets
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -12,10 +14,31 @@ from sqlalchemy import text
 
 from app.db.session import get_db
 
-SECRET_KEY = os.getenv("JWT_SECRET", "aikm-secret-key-change-in-production")
-if SECRET_KEY == "aikm-secret-key-change-in-production":
-    import logging
-    logging.getLogger(__name__).warning("JWT_SECRET 使用預設值，請在生產環境設定 JWT_SECRET 環境變數！")
+_logger = logging.getLogger(__name__)
+
+_INSECURE_DEFAULT = "aikm-secret-key-change-in-production"
+_ENV = os.getenv("ENV", "production").lower()
+
+_raw_secret = os.getenv("JWT_SECRET", "")
+
+if not _raw_secret or _raw_secret == _INSECURE_DEFAULT:
+    if _ENV == "development":
+        # Dev-only: generate a random secret that lives only for this process lifetime.
+        _raw_secret = secrets.token_hex(32)
+        _logger.warning(
+            "JWT_SECRET not set (or uses insecure default) — "
+            "generated an ephemeral dev secret for this process. "
+            "Tokens will be invalidated on next restart. "
+            "Set JWT_SECRET in your .env for persistent sessions."
+        )
+    else:
+        raise RuntimeError(
+            "SECURITY: JWT_SECRET env var is missing or equals the insecure literal default. "
+            "Generate a strong secret with: openssl rand -hex 32 "
+            "and set JWT_SECRET in the backend environment before starting."
+        )
+
+SECRET_KEY: str = _raw_secret
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24 * 7  # 7 days
 
@@ -66,18 +89,38 @@ async def get_current_user(
     if not user_id:
         raise HTTPException(status_code=401, detail="無效的 Token")
 
-    result = await db.execute(text(
-        "SELECT id, email, display_name, account_level FROM users WHERE id = :id"
-    ), {"id": user_id})
+    result = await db.execute(text("""
+        SELECT u.id, u.email, u.display_name, u.account_level,
+               up.section, up.workshop
+        FROM users u
+        LEFT JOIN user_permissions up ON up.user_id = u.id
+        WHERE u.id = :id
+        LIMIT 1
+    """), {"id": user_id})
     user = result.fetchone()
     if not user:
         raise HTTPException(status_code=401, detail="使用者不存在")
+
+    role = user.account_level or payload.get("role", "user")
+    section = user.section or None
+    workshop = user.workshop or None
+
+    # Guard: maint_tech with NULL section must not fall through to full-table access.
+    # Callers that gate on `if section:` will drop the row filter → log a warning.
+    if role == "maint_tech" and not section:
+        _logger.warning(
+            "maint_tech user %s has NULL section in user_permissions — "
+            "row filters will be DROPPED (zero-row policy applies at tool layer).",
+            user_id,
+        )
 
     return {
         "id": user.id,
         "email": user.email,
         "display_name": user.display_name,
-        "role": user.account_level or payload.get("role", "user"),
+        "role": role,
+        "section": section,
+        "workshop": workshop,
     }
 
 

@@ -34,12 +34,27 @@ async def run_chat_job(job_id: str, request_data: dict):
         # Import here to avoid circular imports
         from app.routers.chat import chat_stream
         from app.config import get_settings
+        from starlette.requests import Request as StarletteRequest
 
         request = ChatRequest(**request_data)
         settings = get_settings()
 
+        # Construct a minimal ASGI Request scope so chat_stream's rate limiter has a client
+        # (we use conversation_id as rate key when available; fall back to job_id)
+        _scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/chat/stream",
+            "headers": [],
+            "query_string": b"",
+            "client": ("127.0.0.1", 0),
+            "server": ("127.0.0.1", 8000),
+            "scheme": "http",
+        }
+        http_request = StarletteRequest(_scope)
+
         # Call chat_stream to get the StreamingResponse, then consume its body_iterator
-        response = await chat_stream(request)
+        response = await chat_stream(request, http_request)
 
         full_answer = ""
         cancel_check_counter = 0
