@@ -70,23 +70,29 @@ SET lock_timeout = '5s';
 -- or empty. Otherwise a re-run with no -v flag would silently blank the role's
 -- password, locking out the backend. Also guards against accidental clobber of
 -- an out-of-band vault rotation.
+-- psql variable substitution does NOT work inside $$ ... $$ (dollar-quoted is
+-- opaque to psql); instead we SET the password into a session GUC before the
+-- DO block and read it back via current_setting() inside PL/pgSQL.
+SET aikm.pg_viewer_password = :'pg_viewer_password';
+
 DO $$
+DECLARE v_pw TEXT := current_setting('aikm.pg_viewer_password', true);
 BEGIN
-  IF :'pg_viewer_password' IS NULL OR :'pg_viewer_password' = '' THEN
+  IF v_pw IS NULL OR v_pw = '' THEN
     RAISE EXCEPTION 'pg_viewer_password psql variable is empty — pass `-v pg_viewer_password=<hex>` explicitly';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aikm_viewer') THEN
     EXECUTE format(
       'CREATE ROLE aikm_viewer LOGIN PASSWORD %L CONNECTION LIMIT 10 NOINHERIT',
-      :'pg_viewer_password'
+      v_pw
     );
   ELSE
     -- WARNING: re-running this migration rotates the aikm_viewer password to
-    -- whatever :'pg_viewer_password' is. If you rotated the password via vault
+    -- whatever pg_viewer_password var is. If you rotated the password via vault
     -- without updating the -v var, DO NOT re-run 001 — see quickstart §9.
     EXECUTE format(
       'ALTER ROLE aikm_viewer WITH LOGIN PASSWORD %L CONNECTION LIMIT 10 NOINHERIT',
-      :'pg_viewer_password'
+      v_pw
     );
   END IF;
 END $$;
@@ -187,21 +193,24 @@ END $$;
 --     a minimal role whose sole purpose is partition DROP on the audit tree.
 --     Ownership of the partitions is transferred in 002 (owner can DROP).
 -- -----------------------------------------------------------------------------
+SET aikm.pg_audit_purger_password = :'pg_audit_purger_password';
+
 DO $$
+DECLARE v_pw TEXT := current_setting('aikm.pg_audit_purger_password', true);
 BEGIN
-  IF :'pg_audit_purger_password' IS NULL OR :'pg_audit_purger_password' = '' THEN
+  IF v_pw IS NULL OR v_pw = '' THEN
     RAISE EXCEPTION 'pg_audit_purger_password psql variable is empty — pass `-v pg_audit_purger_password=<hex>` explicitly';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aikm_audit_purger') THEN
     EXECUTE format(
       'CREATE ROLE aikm_audit_purger LOGIN PASSWORD %L CONNECTION LIMIT 2 NOINHERIT',
-      :'pg_audit_purger_password'
+      v_pw
     );
   ELSE
     -- Same re-run password rotation warning as aikm_viewer above.
     EXECUTE format(
       'ALTER ROLE aikm_audit_purger WITH LOGIN PASSWORD %L CONNECTION LIMIT 2 NOINHERIT',
-      :'pg_audit_purger_password'
+      v_pw
     );
   END IF;
 END $$;
