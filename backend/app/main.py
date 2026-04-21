@@ -107,6 +107,24 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
+    # Re-apply aikm_viewer role password on startup (idempotent).
+    # The password in the DB may be reset when postgres is recreated.
+    if settings.pg_viewer_enabled:
+        try:
+            from app.db.session import get_engine
+            from app.config import get_settings as _gs
+            _viewer_pw = _gs().pg_viewer_password
+            if _viewer_pw:
+                from sqlalchemy import text as _stext
+                async with get_engine().begin() as _conn:
+                    await _conn.execute(
+                        _stext("ALTER ROLE aikm_viewer WITH PASSWORD :pw"),
+                        {"pw": _viewer_pw},
+                    )
+                print("✅ aikm_viewer password refreshed")
+        except Exception as _e:
+            print(f"⚠️ aikm_viewer password refresh skipped: {_e}")
+
     # Maximo tag column migration
     try:
         from app.db.session import get_db_context
