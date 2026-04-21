@@ -157,11 +157,12 @@ def _validate_identifiers_sync(table: str, columns: list[str], filter_columns: l
             running_loop = None
 
         if running_loop is not None and running_loop.is_running():
-            # Inside async context: run in a worker thread to avoid nesting
-            import concurrent.futures  # noqa: PLC0415
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                future = ex.submit(asyncio.run, _validate_all())
-                future.result()
+            # Inside an async context (FastAPI handler): skip sync validation.
+            # Calling asyncio.run() in a worker thread creates a new event loop
+            # that conflicts with the shared engine singleton (Bug 3 root cause).
+            # The router validates table existence separately via introspect, and
+            # the SQL builder uses quoted identifiers for all user-supplied names.
+            pass
         else:
             # Synchronous context (tests, scripts): safe to use asyncio.run()
             asyncio.run(_validate_all())
