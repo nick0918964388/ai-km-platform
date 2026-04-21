@@ -96,6 +96,17 @@ async def lifespan(app: FastAPI):
             "pg_viewer enabled but PG_VIEWER_DATABASE_URL unset — viewer endpoints will 503"
         )
 
+    # Reset pg_viewer engine singleton so each worker creates a fresh pool
+    # in its own event loop.  Prevents "Future attached to different loop"
+    # errors that occur when the singleton is inherited across a fork/restart.
+    try:
+        import app.services.pg_viewer.engine as _pve
+        if _pve._engine is not None:
+            await _pve._engine.dispose()
+        _pve._engine = None
+    except Exception:
+        pass
+
     # Maximo tag column migration
     try:
         from app.db.session import get_db_context
