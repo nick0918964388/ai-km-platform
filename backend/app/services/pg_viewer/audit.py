@@ -54,11 +54,13 @@ def _get_tables():
         return _audit_table, _spillover_table
 
     from sqlalchemy import Column, Float, Integer, MetaData, String, Table, Text  # noqa: PLC0415
+    from sqlalchemy.dialects.postgresql import JSONB, INET  # noqa: PLC0415
 
     _metadata = MetaData()
 
     # Column set aligned to migration 002 (post-critic C-1 fix).
     # id and created_at have server-side defaults — omitted from INSERT.
+    # Use JSONB/INET dialect types to match actual DB column types exactly.
     _shared_columns = [
         Column("user_id", String),
         Column("user_email", String, nullable=True),
@@ -66,7 +68,7 @@ def _get_tables():
         Column("query_type", String),
         Column("raw_sql", Text, nullable=True),
         Column("table_name", String, nullable=True),
-        Column("filters_json", Text, nullable=True),       # JSONB stored as text
+        Column("filters_json", JSONB, nullable=True),
         Column("order_by", String, nullable=True),
         Column("order_dir", String, nullable=True),
         Column("limit_val", Integer, nullable=True),
@@ -75,7 +77,7 @@ def _get_tables():
         Column("execution_ms", Float, nullable=True),
         Column("status", String),
         Column("error_message", Text, nullable=True),
-        Column("ip_address", String, nullable=True),       # INET stored as text
+        Column("ip_address", INET, nullable=True),
         Column("user_agent", Text, nullable=True),
     ]
 
@@ -259,6 +261,16 @@ async def write_audit(
     # Normalise order_dir to uppercase (DB CHECK: 'ASC' or 'DESC' or NULL).
     norm_order_dir = order_dir.upper() if order_dir else None
 
+    # Normalise filters_json: JSONB column requires a Python object (dict/list),
+    # not a JSON string.  Parse if a string was passed.
+    import json as _json  # noqa: PLC0415
+    parsed_filters_json = None
+    if filters_json is not None:
+        try:
+            parsed_filters_json = _json.loads(filters_json) if isinstance(filters_json, str) else filters_json
+        except Exception:
+            parsed_filters_json = None
+
     # --- Build the values dict once; reused for spillover if needed ---
     # Keys match migration 002 column names exactly.
     values: dict = {
@@ -268,7 +280,7 @@ async def write_audit(
         "query_type": query_type,
         "raw_sql": safe_sql,
         "table_name": resource,            # resource → table_name
-        "filters_json": filters_json,
+        "filters_json": parsed_filters_json,
         "order_by": order_by,
         "order_dir": norm_order_dir,
         "limit_val": limit_val,
