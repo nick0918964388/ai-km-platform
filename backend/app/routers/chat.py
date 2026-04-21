@@ -637,61 +637,110 @@ async def chat_stream(request: ChatRequest, http_request: Request):
 
             if intent in ("sql",):
                 # === NL→SQL Path with granular thinking steps ===
+                # Fix A: Tool router first — if a specific Maximo tool matches, use it;
+                # otherwise fall through to MaximoNL2SQL.
                 yield sse_event('step', {'id': 'schema', 'label': '搜尋相關資料...', 'status': 'running'})
                 t0 = time.time()
 
-                from app.services.maximo_nl2sql import MaximoNL2SQL
                 from app.db.session import get_db_context
 
                 try:
-                    async with get_db_context() as db:
-                        service = MaximoNL2SQL(db)
-                        service._request_id = tracer.request_id
-                        service._conversation_id = conversation_id
-                        schema_ms = int((time.time() - t0) * 1000)
+                    from app.services.maximo_tools.router_factory import build_router
+                    from app.services.maximo_tools.base import UserContext
+                    from app.services.orchestrator import _adapt_tool_result_to_nl2sql_shape
 
-                        yield sse_event('step', {'id': 'schema', 'label': f'搜尋相關資料（{schema_ms}ms）', 'status': 'done'})
-                        yield sse_event('step', {'id': 'sql_generate', 'label': '分析並查詢資料...', 'status': 'running'})
-                        t0 = time.time()
+                    # Extract SQL history for the fallback fn closure
+                    sql_history = []
+                    if request.context:
+                        for m in request.context:
+                            if m.get("intent") == "sql" and m.get("sql"):
+                                sql_history.append({"question": m.get("content", ""), "sql": m["sql"]})
 
-                        # Extract SQL history from conversation context
-                        sql_history = []
-                        if request.context:
-                            for m in request.context:
-                                if m.get("intent") == "sql" and m.get("sql"):
-                                    sql_history.append({"question": m.get("content", ""), "sql": m["sql"]})
+                    async def _chat_nl2sql_fallback(q: str, user_ctx: UserContext, query_id) -> dict:
+                        from app.db.session import get_db_context
+                        from app.services.maximo_nl2sql import MaximoNL2SQL
+                        async with get_db_context() as _db:
+                            _svc = MaximoNL2SQL(_db)
+                            _svc._request_id = tracer.request_id
+                            _svc._conversation_id = conversation_id
+                            _nl2sql = await _svc.query(
+                                q, mode="accurate",
+                                conversation_history=sql_history[-3:] if sql_history else None,
+                                prebuilt_schema=_speculative_schema_result,
+                            )
+                        rows = _nl2sql.get("data", [])
+                        return {
+                            "rows": rows,
+                            "row_count": _nl2sql.get("row_count", 0),
+                            "chart_hint": _nl2sql.get("chart_suggestion"),
+                            "debug": {
+                                "sql": _nl2sql.get("sql"),
+                                "explanation": _nl2sql.get("explanation"),
+                                "nl2sql_result": _nl2sql,
+                            },
+                        }
 
-                        sql_result = await service.query(query, mode="accurate",
-                            conversation_history=sql_history[-3:] if sql_history else None,
-                            prebuilt_schema=_speculative_schema_result)
-                        sql_ms = int((time.time() - t0) * 1000)
+                    _user_ctx = UserContext(user_id="chat", role="admin")
+                    _router = build_router(fallback_fn=_chat_nl2sql_fallback)
+                    _router_result = await _router.route(query, _user_ctx)
+                    _route_path = _router_result.get("route_path")
 
-                        # Detailed timing breakdown
-                        llm_ms = sql_result.get("llm_ms")
-                        verify_ms = sql_result.get("verify_ms")
-                        exec_ms = sql_result.get("execution_ms")
-                        iters = sql_result.get("iterations", 1)
-                        timing_parts = [f'總計 {sql_ms}ms']
-                        if llm_ms:
-                            timing_parts.append(f'LLM {llm_ms}ms')
-                        if verify_ms:
-                            timing_parts.append(f'驗證 {verify_ms}ms')
-                        if exec_ms:
-                            timing_parts.append(f'執行 {exec_ms}ms')
-                        timing_str = '，'.join(timing_parts)
-
-                        trace_llm_call(tracer, "sql_generation", llm_url, sql_result.get("model") or llm_model,
-                            [{"query": query}], sql_result.get("sql") or "", sql_ms,
-                            status="ok" if sql_result.get("success") else "error",
-                            error=(sql_result.get("error") or "")[:200])
-                        yield sse_event('step', {'id': 'sql_generate', 'label': f'查詢完成（{sql_ms}ms）', 'status': 'done'})
-
-                        if sql_result.get("success"):
-                            row_count = len(sql_result.get("data", []))
-                            yield sse_event('reasoning', {'phase': 'sql', 'text': f'查詢成功，取得 {row_count} 筆結果（{timing_str}）'})
-                            yield sse_event('step', {'id': 'execute', 'label': '整理查詢結果...', 'status': 'done'})
+                    if _route_path == "tool":
+                        sql_result = _adapt_tool_result_to_nl2sql_shape(_router_result)
+                    elif _route_path == "fallback":
+                        _nl2sql_inner = _router_result.get("debug", {}).get("nl2sql_result")
+                        if _nl2sql_inner:
+                            sql_result = _nl2sql_inner
                         else:
-                            yield sse_event('reasoning', {'phase': 'sql', 'text': f'查詢失敗：{sql_result.get("error", "未知錯誤")[:80]}'})
+                            rows = _router_result.get("rows", [])
+                            sql_result = {
+                                "success": True,
+                                "sql": _router_result.get("debug", {}).get("sql"),
+                                "explanation": _router_result.get("debug", {}).get("explanation"),
+                                "data": rows,
+                                "columns": list(rows[0].keys()) if rows else [],
+                                "row_count": _router_result.get("row_count", 0),
+                                "execution_ms": _router_result.get("elapsed_ms", 0),
+                            }
+                    else:
+                        sql_result = {
+                            "success": False,
+                            "error": _router_result.get("debug", {}).get("error", {}).get("message", "查詢失敗"),
+                            "data": [], "columns": [], "row_count": 0,
+                        }
+
+                    schema_ms = int((time.time() - t0) * 1000)
+                    sql_ms = schema_ms
+
+                    yield sse_event('step', {'id': 'schema', 'label': f'搜尋相關資料（{schema_ms}ms）', 'status': 'done'})
+                    yield sse_event('step', {'id': 'sql_generate', 'label': f'查詢完成（{sql_ms}ms）', 'status': 'done'})
+
+                    exec_ms = sql_result.get("execution_ms")
+                    llm_ms = sql_result.get("llm_ms")
+                    verify_ms = sql_result.get("verify_ms")
+                    timing_parts = [f'總計 {sql_ms}ms']
+                    if llm_ms:
+                        timing_parts.append(f'LLM {llm_ms}ms')
+                    if verify_ms:
+                        timing_parts.append(f'驗證 {verify_ms}ms')
+                    if exec_ms:
+                        timing_parts.append(f'執行 {exec_ms}ms')
+                    timing_str = '，'.join(timing_parts)
+
+                    _model_used = sql_result.get("model") or llm_model
+                    trace_llm_call(tracer, "sql_generation", llm_url, _model_used,
+                        [{"query": query}], sql_result.get("sql") or "", sql_ms,
+                        status="ok" if sql_result.get("success") else "error",
+                        error=(sql_result.get("error") or "")[:200])
+
+                    if sql_result.get("success"):
+                        row_count = len(sql_result.get("data", []))
+                        _route_label = f"（工具：{sql_result.get('tool_name', _route_path)}）" if _route_path == "tool" else ""
+                        yield sse_event('reasoning', {'phase': 'sql', 'text': f'查詢成功，取得 {row_count} 筆結果（{timing_str}）{_route_label}'})
+                        yield sse_event('step', {'id': 'execute', 'label': '整理查詢結果...', 'status': 'done'})
+                    else:
+                        yield sse_event('reasoning', {'phase': 'sql', 'text': f'查詢失敗：{sql_result.get("error", "未知錯誤")[:80]}'})
+
                 except Exception as sql_err:
                     log.exception("NL→SQL error")
                     sql_result = {"success": False, "error": str(sql_err)}
