@@ -401,8 +401,11 @@ export function DataTab({ tableName }: DataTabProps) {
               getTableProps,
               getTableContainerProps,
             }) => (
-              <TableContainer {...getTableContainerProps()}>
-                <TableToolbar>
+              <TableContainer
+                {...getTableContainerProps()}
+                style={{ maxHeight: '65vh', overflow: 'auto' }}
+              >
+                <TableToolbar style={{ position: 'sticky', top: 0, zIndex: 3, backgroundColor: 'var(--background)' }}>
                   <TableToolbarContent>
                     <span style={{ padding: '0 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
                       {tableName}
@@ -419,7 +422,16 @@ export function DataTab({ tableName }: DataTabProps) {
                           <TableHeader
                             key={header.key}
                             onClick={() => handleHeaderClick(header.key)}
-                            style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                            style={{
+                              cursor: 'pointer',
+                              userSelect: 'none',
+                              whiteSpace: 'nowrap',
+                              position: 'sticky',
+                              top: 0,
+                              zIndex: 2,
+                              backgroundColor: 'var(--cds-layer, #f4f4f4)',
+                              boxShadow: '0 1px 0 var(--cds-border-subtle, #e0e0e0)',
+                            }}
                             sortDirection={isActive ? (orderDir === 'asc' ? 'ASC' : 'DESC') : 'NONE'}
                             isSortHeader={isActive}
                           >
