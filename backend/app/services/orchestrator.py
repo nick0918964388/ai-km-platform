@@ -229,6 +229,51 @@ async def decompose_query(query: str, context: list = None) -> DecompositionResu
         return _heuristic_decompose(query)
 
 
+def _adapt_tool_result_to_nl2sql_shape(router_result: dict) -> dict:
+    """Convert MaximoQueryRouter response dict to the shape MaximoNL2SQL.query() returns.
+
+    Router result keys: query_id, route_path, tool_name, tool_input, rows, row_count,
+                        chart_hint, elapsed_ms, debug
+    NL2SQL result keys: success, sql, explanation, data, columns, row_count,
+                        execution_ms, model, route_path, ...
+    """
+    rows = router_result.get("rows") or []
+    row_count = router_result.get("row_count", 0)
+    tool_name = router_result.get("tool_name") or "tool"
+    tool_input = router_result.get("tool_input") or {}
+    elapsed_ms = router_result.get("elapsed_ms", 0)
+
+    # Infer columns from first row keys; empty list when no rows
+    columns = list(rows[0].keys()) if rows else []
+
+    explanation = f"已使用 {tool_name} 工具（參數: {tool_input}）"
+
+    return {
+        "success": True,
+        "sql": None,
+        "explanation": explanation,
+        "data": rows,
+        "columns": columns,
+        "row_count": row_count,
+        "execution_ms": elapsed_ms,
+        "model": "tool",
+        "llm_ms": None,
+        "verify_ms": None,
+        "iterations": 0,
+        "confidence": 0.9,
+        "verification_history": [],
+        "mode": "tool",
+        "cached": False,
+        "query_plan": None,
+        "chart_suggestion": router_result.get("chart_hint"),
+        "summary": None,
+        "column_labels": {},
+        "suggestions": [],
+        "route_path": "tool",
+        "tool_name": tool_name,
+    }
+
+
 async def _run_sql_task(task: SubTask, sql_history: list = None,
                         prebuilt_schema: tuple = None) -> dict:
     """Pattern 7: SQL Worker 只拿 schema + SQL history，不帶 RAG/KB context.
@@ -236,21 +281,83 @@ async def _run_sql_task(task: SubTask, sql_history: list = None,
     Batch 2-A：傳 is_hybrid=True 禁用每個 sub-SQL 的 self-reflection 重試，
     因為 hybrid 路徑已有 LLM synthesis 可以補救失敗 sub-task，避免重試複合延遲。
     每個 sub-task 使用獨立的 DB session（來自 pool），可與其他 sub-task 平行執行。
+
+    Fix A: Try the 012 tool router first. If it succeeds (route_path=tool), adapt the
+    result to the NL2SQL shape and return. Otherwise fall through to MaximoNL2SQL.
     """
     t0 = time.time()
     try:
-        from app.services.maximo_nl2sql import MaximoNL2SQL
-        from app.db.session import get_db_context
+        # Fix A: Tool router first — covers the 6 specific Maximo tools.
+        # build_router() uses module-level singletons (lazy-init, idempotent).
+        from app.services.maximo_tools.router_factory import build_router
+        from app.services.maximo_tools.base import UserContext
 
-        async with get_db_context() as db:
-            service = MaximoNL2SQL(db)
-            result = await service.query(
-                question=task.sub_query,
-                mode="fast",
-                conversation_history=sql_history,
-                prebuilt_schema=prebuilt_schema,
-                is_hybrid=True,
-            )
+        async def _nl2sql_fallback(query: str, user_ctx: UserContext, query_id) -> dict:
+            """Fallback fn signature required by MaximoQueryRouter."""
+            from app.db.session import get_db_context
+            async with get_db_context() as db:
+                from app.services.maximo_nl2sql import MaximoNL2SQL
+                service = MaximoNL2SQL(db)
+                nl2sql_result = await service.query(
+                    question=query,
+                    mode="fast",
+                    conversation_history=sql_history,
+                    prebuilt_schema=prebuilt_schema,
+                    is_hybrid=True,
+                )
+            rows = nl2sql_result.get("data", [])
+            return {
+                "rows": rows,
+                "row_count": nl2sql_result.get("row_count", 0),
+                "chart_hint": nl2sql_result.get("chart_suggestion"),
+                "debug": {
+                    "sql": nl2sql_result.get("sql"),
+                    "explanation": nl2sql_result.get("explanation"),
+                    "nl2sql_result": nl2sql_result,
+                },
+            }
+
+        # Anonymous user context for orchestrator path — tool router uses it for
+        # row-level filtering; admin gives broadest access.
+        user_ctx = UserContext(user_id="orchestrator", role="admin")
+        router = build_router(fallback_fn=_nl2sql_fallback)
+        router_result = await router.route(task.sub_query, user_ctx)
+
+        route_path = router_result.get("route_path")
+
+        if route_path == "tool":
+            # Tool hit — adapt to NL2SQL shape
+            result = _adapt_tool_result_to_nl2sql_shape(router_result)
+        elif route_path == "fallback":
+            # NL2SQL fallback ran inside _nl2sql_fallback; unpack the nl2sql_result
+            nl2sql_result = router_result.get("debug", {}).get("nl2sql_result")
+            if nl2sql_result:
+                result = nl2sql_result
+            else:
+                # Reconstruct from router fallback shape
+                rows = router_result.get("rows", [])
+                result = {
+                    "success": bool(rows is not None),
+                    "sql": router_result.get("debug", {}).get("sql"),
+                    "explanation": router_result.get("debug", {}).get("explanation"),
+                    "data": rows,
+                    "columns": list(rows[0].keys()) if rows else [],
+                    "row_count": router_result.get("row_count", 0),
+                    "execution_ms": router_result.get("elapsed_ms", 0),
+                    "route_path": "fallback",
+                }
+        else:
+            # error path — return empty result with error flag
+            result = {
+                "success": False,
+                "error": router_result.get("debug", {}).get("error", {}).get("message", "查詢失敗"),
+                "sql": None,
+                "data": [],
+                "columns": [],
+                "row_count": 0,
+                "route_path": route_path,
+            }
+
         return {
             "task_id": task.id,
             "type": "sql",

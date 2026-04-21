@@ -672,27 +672,39 @@ class MaximoNL2SQL:
         return None
 
     async def execute_sql(self, sql: str, params: dict = None) -> Dict[str, Any]:
-        """Execute SQL and return rows + columns."""
+        """Execute SQL and return rows + columns.
+
+        Fix B: Use a savepoint (begin_nested) so a SQL failure only rolls back
+        the savepoint and leaves the outer session transaction intact.  This
+        prevents InFailedSQLTransactionError on subsequent retries / schema
+        queries that share the same AsyncSession.
+        """
         t0 = time.monotonic()
         try:
-            result = await self.db.execute(text(sql), params or {})
-            cols = list(result.keys())
-            rows = [dict(zip(cols, row)) for row in result.fetchall()]
-            # Serialize non-JSON-serializable types
-            for row in rows:
-                for k, v in row.items():
-                    if hasattr(v, 'isoformat'):
-                        row[k] = v.isoformat()
-                    elif v is None:
-                        row[k] = None
-            return {
-                "columns": cols,
-                "rows": rows,
-                "row_count": len(rows),
-                "execution_ms": round((time.monotonic() - t0) * 1000, 1),
-            }
+            async with self.db.begin_nested() as sp:
+                try:
+                    result = await self.db.execute(text(sql), params or {})
+                    cols = list(result.keys())
+                    rows = [dict(zip(cols, row)) for row in result.fetchall()]
+                    # Serialize non-JSON-serializable types
+                    for row in rows:
+                        for k, v in row.items():
+                            if hasattr(v, 'isoformat'):
+                                row[k] = v.isoformat()
+                            elif v is None:
+                                row[k] = None
+                    return {
+                        "columns": cols,
+                        "rows": rows,
+                        "row_count": len(rows),
+                        "execution_ms": round((time.monotonic() - t0) * 1000, 1),
+                    }
+                except Exception as e:
+                    await sp.rollback()
+                    return {"error": str(e), "rows": [], "columns": [], "row_count": 0}
         except Exception as e:
-            # Rollback failed transaction so next query can proceed
+            # begin_nested itself failed (e.g. session already closed).
+            # Fall back to session-level rollback best-effort.
             try:
                 await self.db.rollback()
             except Exception:
@@ -1065,12 +1077,11 @@ SQL：{sql}
             if any(d in col_lower for d in ['date', 'time', 'start', 'finish']):
                 continue
             try:
-                result = await self.db.execute(text(
-                    f"SELECT DISTINCT {col} FROM {table} WHERE {col} IS NOT NULL ORDER BY {col} LIMIT 15"
-                ))
-                actual_values = [str(r[0]) for r in result.fetchall() if r[0]]
-                await self.db.rollback()  # reset any transaction state
-
+                async with self.db.begin_nested() as _sp:
+                    result = await self.db.execute(text(
+                        f"SELECT DISTINCT {col} FROM {table} WHERE {col} IS NOT NULL ORDER BY {col} LIMIT 15"
+                    ))
+                    actual_values = [str(r[0]) for r in result.fetchall() if r[0]]
                 if actual_values and value not in actual_values:
                     # Value doesn't exist — show actual values
                     # Find closest matches
@@ -1099,10 +1110,6 @@ SQL：{sql}
                             })
             except Exception as e:
                 log.debug("Alternative check failed for %s.%s: %s", table, col, e)
-                try:
-                    await self.db.rollback()
-                except Exception:
-                    pass
 
         # 2. For date conditions, check alternative date columns
         date_conditions = re.findall(r"(\w+)\s*(?:>=|<=|>|<)\s*'([\d-]+)'", sql)
@@ -1110,31 +1117,29 @@ SQL：{sql}
             used_date_col = date_conditions[0][0]
             try:
                 # Find all timestamp columns in the table
-                cols_result = await self.db.execute(text(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name = :tbl AND (data_type LIKE '%timestamp%' OR data_type LIKE '%date%')"
-                ), {"tbl": table})
-                date_cols = [r.column_name for r in cols_result.fetchall()]
+                async with self.db.begin_nested():
+                    cols_result = await self.db.execute(text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = :tbl AND (data_type LIKE '%timestamp%' OR data_type LIKE '%date%')"
+                    ), {"tbl": table})
+                    date_cols = [r.column_name for r in cols_result.fetchall()]
 
                 for dcol in date_cols:
                     if dcol.lower() == used_date_col.lower():
                         continue
                     try:
-                        cnt_result = await self.db.execute(text(
-                            f"SELECT COUNT(*) FROM {table} WHERE {dcol} IS NOT NULL"
-                        ))
-                        cnt = cnt_result.scalar() or 0
-                        await self.db.rollback()
+                        async with self.db.begin_nested():
+                            cnt_result = await self.db.execute(text(
+                                f"SELECT COUNT(*) FROM {table} WHERE {dcol} IS NOT NULL"
+                            ))
+                            cnt = cnt_result.scalar() or 0
                         if cnt > 0:
                             suggestions.append({
                                 "label": f"改用 {dcol} 欄位查詢（{cnt:,} 筆有資料）",
                                 "query": question + f"（使用 {dcol} 欄位）",
                             })
                     except Exception:
-                        try:
-                            await self.db.rollback()
-                        except Exception:
-                            pass
+                        pass
             except Exception:
                 pass
 
