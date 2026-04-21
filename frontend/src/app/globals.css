@@ -1893,6 +1893,7 @@ a.btn, a.nav-item, a[role="button"] {
 }
 .pg-viewer-scroll-container {
   display: flex;
+  flex-direction: column;  /* stack toolbar ABOVE table (default block broken by flex:1) */
   flex: 1;
   min-height: 0;
   overflow: auto;
