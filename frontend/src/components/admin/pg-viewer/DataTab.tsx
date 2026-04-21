@@ -404,7 +404,7 @@ export function DataTab({ tableName }: DataTabProps) {
             }) => (
               <TableContainer
                 {...getTableContainerProps()}
-                style={{ flex: 1, minHeight: 0, overflow: 'auto' }}
+                className="pg-viewer-scroll-container"
               >
                 <TableToolbar>
                   <TableToolbarContent>

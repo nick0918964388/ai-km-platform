@@ -1873,3 +1873,27 @@ a.btn, a.nav-item, a[role="button"] {
 @media (max-width: 480px) {
   .hide-on-mobile { display: none !important; }
 }
+
+/* =======================================================================
+   pg-viewer Data tab — enable sticky <th>
+
+   Carbon's DataTable wraps the <table> in a structure:
+     section.cds--data-table-container (scrollable)
+       └── div.cds--data-table-content (overflow: auto by default)
+             └── table
+
+   When the inner content div has overflow:auto, it becomes the nearest
+   scrolling ancestor for position:sticky on <th> — and since it never
+   actually scrolls (it sits inside the scrolling section), the sticky
+   header fails. Override to visible so the section is the only scroll
+   container and `<th position:sticky top:0>` works as expected.
+   ======================================================================= */
+.pg-viewer-scroll-container .cds--data-table-content {
+  overflow: visible !important;
+}
+.pg-viewer-scroll-container {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
