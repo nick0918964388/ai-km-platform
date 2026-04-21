@@ -168,3 +168,4 @@ class AuditListResponse(BaseModel):
     """Response wrapper for GET /audit."""
 
     entries: List[AuditEntry]
+    total: int = 0

@@ -316,4 +316,7 @@ async def write_audit(
                 "status": status,
             },
         )
+        # Full traceback at DEBUG level so ops can diagnose root causes without
+        # leaking internals in production INFO logs.
+        logger.debug("pg_viewer audit raw exception", exc_info=True)
         # INTENTIONALLY no re-raise — audit failures MUST NOT surface to callers.

@@ -57,6 +57,18 @@ router = APIRouter(tags=["pg-viewer"])
 
 
 # ---------------------------------------------------------------------------
+# Bug 1 fix: accept both 'public.foo' and 'foo' as table name
+# ---------------------------------------------------------------------------
+
+
+def _normalize_table_name(t: str) -> str:
+    """Accept both 'public.foo' and 'foo'; return bare name."""
+    if t.startswith("public."):
+        return t[len("public."):]
+    return t
+
+
+# ---------------------------------------------------------------------------
 # H-2 fix: asyncpg $N → SQLAlchemy :pN adapter
 # build_table_select() emits asyncpg-style positional placeholders ($1, $2…)
 # and returns a list of values.  SQLAlchemy text() requires :name placeholders
@@ -231,6 +243,7 @@ async def get_table_schema(
     from app.services.pg_viewer import introspect
     from app.services.pg_viewer.pii_redactor import sanitize_pg_error
 
+    table = _normalize_table_name(table)
     t0 = time.monotonic()
     ip = _get_client_ip(request)
     ua = _get_ua(request)
@@ -382,6 +395,7 @@ async def get_table_rows(
     from app.services.pg_viewer.query_builder import FilterClause, build_table_select
     from app.services.pg_viewer.redaction import apply_redaction
 
+    table = _normalize_table_name(table)
     t0 = time.monotonic()
     ip = _get_client_ip(request)
     ua = _get_ua(request)
@@ -624,6 +638,7 @@ async def export_table_csv(
     from app.services.pg_viewer.pii_redactor import sanitize_pg_error
     from app.services.pg_viewer.query_builder import FilterClause
 
+    table = _normalize_table_name(table)
     t0 = time.monotonic()
     ip = _get_client_ip(request)
     ua = _get_ua(request)
@@ -717,6 +732,26 @@ async def export_table_csv(
 
     except HTTPException:
         raise
+    except ValueError as exc:
+        # ValueError from introspect (unknown table) → 404, not 500.
+        elapsed = int((time.monotonic() - t0) * 1000)
+        msg = str(exc)
+        status_code = 404 if "not found" in msg.lower() else 400
+        await _audit.write_audit(
+            user_id=user["id"],
+            query_type="table_browse",
+            resource=table,
+            raw_sql=None,
+            row_count=None,
+            elapsed_ms=elapsed,
+            status="error",
+            error_message=msg[:200],
+            ip=ip,
+            ua=ua,
+            request=request,
+        )
+        record_request("table_export", status_code, elapsed / 1000.0)
+        raise HTTPException(status_code=status_code, detail=msg[:200])
     except Exception as exc:
         PG_VIEWER_BREAKER.record_failure()
         elapsed = int((time.monotonic() - t0) * 1000)
@@ -815,7 +850,13 @@ async def get_audit(
 
         from sqlalchemy import text as _text  # noqa: PLC0415 — H-1 fix: text was not imported at module scope
 
+        count_sql = f"SELECT count(*) FROM pg_viewer_audit_log {where_clause}"
+        # count_params excludes limit/offset
+        count_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
+
         async with main_engine.connect() as conn:
+            count_result = await conn.execute(_text(count_sql), count_params)
+            total: int = count_result.scalar() or 0
             result = await conn.execute(_text(sql), params)
             rows = result.fetchall()
             col_keys = list(result.keys())
@@ -860,7 +901,7 @@ async def get_audit(
         )
 
         record_request("audit_list", 200, elapsed / 1000.0)
-        return AuditListResponse(entries=entries)
+        return AuditListResponse(entries=entries, total=total)
 
     except HTTPException:
         raise
