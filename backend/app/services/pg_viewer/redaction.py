@@ -279,7 +279,27 @@ def _run_schema_scan() -> None:
                 "or REVOKE SELECT on the table from aikm_viewer."
             )
 
-    asyncio.run(_scan())
+    # Only run the scan when no event loop is currently running. If this module
+    # is imported lazily inside a request handler (e.g. during router startup
+    # retries), asyncio.run() would fail with "cannot be called from a running
+    # event loop". In that case the startup-time scan is skipped — the scan is
+    # a CI/startup-time guard, not a runtime one.
+    try:
+        asyncio.get_running_loop()
+        # An event loop is already running — skip (covered by CI's dev-mode scan).
+        return
+    except RuntimeError:
+        pass
+
+    try:
+        asyncio.run(_scan())
+    except RuntimeError as exc:
+        # Defensive: if asyncio.run complains about nested loops on some runtimes,
+        # degrade to a warning instead of crashing the import.
+        import logging
+        logging.getLogger(__name__).warning(
+            "pg_viewer schema scan skipped: %s", exc
+        )
 
 
 _run_schema_scan()
