@@ -379,7 +379,8 @@ export function DataTab({ tableName }: DataTabProps) {
       )}
 
       {/* ── Carbon DataTable ─────────────────────────────────────────────────── */}
-      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+      {/* Outer wrapper — height contained; inner TableContainer is the actual scroll container. */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {!loading && !error && columns.length === 0 ? (
           <div
             style={{
@@ -403,7 +404,7 @@ export function DataTab({ tableName }: DataTabProps) {
             }) => (
               <TableContainer
                 {...getTableContainerProps()}
-                style={{ maxHeight: '65vh', overflow: 'auto' }}
+                style={{ flex: 1, minHeight: 0, overflow: 'auto' }}
               >
                 <TableToolbar>
                   <TableToolbarContent>
