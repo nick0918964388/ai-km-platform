@@ -12,7 +12,7 @@ import {
   ChevronRight,
   ChatLaunch,
 } from '@carbon/icons-react';
-import { STREAM_API_URL, getApiHeaders } from '@/lib/api';
+import { apiGet, apiRequest } from '@/lib/api';
 
 interface AuditLog {
   id: number;
@@ -27,6 +27,15 @@ interface AuditLog {
   cached: boolean | null;
   created_at: string | null;
   conversation_id: string | null;
+  recovery_path?: string | null;
+}
+
+interface RewriteAttempt {
+  attempt: number;
+  query: string;
+  reason: string;
+  success: boolean;
+  ms: number;
 }
 
 interface AuditDetail {
@@ -39,6 +48,10 @@ interface AuditDetail {
   cached?: boolean;
   execution_ms?: number;
   row_count?: number;
+  // SQL rewrite history fields
+  original_question?: string | null;
+  rewrite_history?: RewriteAttempt[] | null;
+  recovery_path?: string | null;
   // RAG fields
   search_query?: string;
   top_score?: number;
@@ -111,11 +124,7 @@ export default function AuditPage() {
     try {
       const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
       if (filter !== 'all') params.set('type_filter', filter);
-      const res = await fetch(`${STREAM_API_URL}/api/admin/audit-logs?${params}`, {
-        headers: getApiHeaders(),
-      });
-      if (!res.ok) throw new Error(`載入失敗 (${res.status})`);
-      const data = await res.json();
+      const data = await apiGet<{ logs: AuditLog[]; total: number }>(`/api/admin/audit-logs?${params}`);
       setLogs(data.logs || []);
       setTotal(data.total || 0);
     } catch (e: any) {
@@ -146,26 +155,16 @@ export default function AuditPage() {
     if (!details[key]) {
       setLoadingDetail(key);
       try {
-        const res = await fetch(
-          `${STREAM_API_URL}/api/admin/audit-logs/${log.id}?type=${log.type}`,
-          { headers: getApiHeaders() }
-        );
-        if (res.ok) {
-          const d = await res.json();
-          setDetails(prev => ({ ...prev, [key]: d }));
-          if (d.request_id) {
-            const traceRes = await fetch(
-              `${STREAM_API_URL}/api/admin/call-traces/${d.request_id}`,
-              { headers: getApiHeaders() }
-            );
-            if (traceRes.ok) {
-              const traceData = await traceRes.json();
-              setTraces(prev => ({ ...prev, [key]: traceData }));
-              if (traceData.length > 0) {
-                setTraceOpen(prev => ({ ...prev, [key]: true }));
-              }
+        const d = await apiGet<AuditDetail>(`/api/admin/audit-logs/${log.id}?type=${log.type}`);
+        setDetails(prev => ({ ...prev, [key]: d }));
+        if (d.request_id) {
+          try {
+            const traceData = await apiGet<CallTrace[]>(`/api/admin/call-traces/${d.request_id}`);
+            setTraces(prev => ({ ...prev, [key]: traceData }));
+            if (traceData.length > 0) {
+              setTraceOpen(prev => ({ ...prev, [key]: true }));
             }
-          }
+          } catch { /* traces are non-critical */ }
         }
       } catch { /* ignore */ }
       setLoadingDetail(null);
@@ -339,13 +338,43 @@ export default function AuditPage() {
                             {log.user_email || '—'}
                           </td>
                           <td style={{ fontSize: '0.8125rem', color: 'var(--text-primary)', maxWidth: 300 }}>
-                            <div style={{
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              maxWidth: 300,
-                            }}>
-                              {log.query}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', maxWidth: 300 }}>
+                              <div style={{
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                flex: 1,
+                              }}>
+                                {log.query}
+                              </div>
+                              {log.recovery_path === 'sql_retry' && (
+                                <span style={{
+                                  flexShrink: 0,
+                                  padding: '1px 6px',
+                                  borderRadius: 99,
+                                  fontSize: '0.625rem',
+                                  fontWeight: 600,
+                                  background: 'rgba(255,152,0,0.15)',
+                                  color: '#e68900',
+                                  whiteSpace: 'nowrap',
+                                }}>
+                                  SQL 改寫重試
+                                </span>
+                              )}
+                              {log.recovery_path === 'rag_fallback' && (
+                                <span style={{
+                                  flexShrink: 0,
+                                  padding: '1px 6px',
+                                  borderRadius: 99,
+                                  fontSize: '0.625rem',
+                                  fontWeight: 600,
+                                  background: 'rgba(218,30,40,0.12)',
+                                  color: '#da1e28',
+                                  whiteSpace: 'nowrap',
+                                }}>
+                                  轉 RAG
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td style={{ textAlign: 'right', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
@@ -666,6 +695,81 @@ function SqlDetail({ detail }: { detail: AuditDetail }) {
       )}
       {detail.row_count != null && (
         <DetailRow label="Rows" value={`${detail.row_count} 筆`} />
+      )}
+      {detail.recovery_path && detail.recovery_path !== 'direct' && (
+        <DetailRow label="Recovery" value={
+          <span style={{
+            padding: '1px 6px',
+            borderRadius: 99,
+            fontSize: '0.6875rem',
+            fontWeight: 600,
+            background: detail.recovery_path === 'sql_retry' ? 'rgba(255,152,0,0.15)' : 'rgba(218,30,40,0.12)',
+            color: detail.recovery_path === 'sql_retry' ? '#e68900' : '#da1e28',
+          }}>
+            {detail.recovery_path === 'sql_retry' ? 'SQL 改寫重試' : detail.recovery_path === 'rag_fallback' ? '轉 RAG Fallback' : detail.recovery_path}
+          </span>
+        } />
+      )}
+      {detail.original_question && (
+        <DetailRow label="原始問題" value={
+          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+            {detail.original_question}
+          </span>
+        } />
+      )}
+      {detail.rewrite_history && detail.rewrite_history.length > 0 && (
+        <div style={{ marginTop: '0.75rem' }}>
+          <div style={{
+            fontSize: '0.8125rem',
+            fontWeight: 600,
+            color: 'var(--text-secondary)',
+            marginBottom: '0.5rem',
+          }}>
+            改寫歷程
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+            {detail.rewrite_history.map((attempt, idx) => (
+              <div key={idx} style={{
+                padding: '0.5rem 0.75rem',
+                background: 'var(--bg-primary)',
+                borderRadius: 'var(--radius-md)',
+                border: `1px solid ${attempt.success ? 'rgba(25,128,56,0.3)' : 'rgba(218,30,40,0.2)'}`,
+                fontSize: '0.8125rem',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                  <span style={{
+                    padding: '1px 6px',
+                    borderRadius: 99,
+                    fontSize: '0.625rem',
+                    fontWeight: 700,
+                    background: attempt.success ? 'rgba(25,128,56,0.12)' : 'rgba(218,30,40,0.12)',
+                    color: attempt.success ? '#198038' : '#da1e28',
+                  }}>
+                    #{attempt.attempt} {attempt.success ? '成功' : '失敗'}
+                  </span>
+                  {attempt.ms > 0 && (
+                    <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
+                      {attempt.ms}ms
+                    </span>
+                  )}
+                </div>
+                {attempt.reason && (
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
+                    原因：{attempt.reason}
+                  </div>
+                )}
+                <div style={{
+                  fontFamily: 'monospace',
+                  fontSize: '0.75rem',
+                  color: 'var(--text-secondary)',
+                  wordBreak: 'break-all',
+                }}>
+                  {attempt.query}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

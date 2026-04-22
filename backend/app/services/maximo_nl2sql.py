@@ -903,7 +903,9 @@ SQL：{sql}
 
         return sql, params
 
-    async def _write_audit_log(self, user_context: dict, question: str, sql: str, result: dict):
+    async def _write_audit_log(self, user_context: dict, question: str, sql: str, result: dict,
+                               original_question: str = None, rewrite_history: list = None,
+                               recovery_path: str = None):
         """Write query to audit log."""
         try:
             user_id = (user_context or {}).get("id", "guest")
@@ -912,8 +914,8 @@ SQL：{sql}
             request_id = result.get("request_id") or getattr(self, '_request_id', None)
             conversation_id = getattr(self, '_conversation_id', None)
             await self.db.execute(text("""
-                INSERT INTO query_audit_log (user_id, user_email, question, sql_generated, tables_accessed, row_count, execution_ms, mode, request_id, conversation_id)
-                VALUES (:uid, :email, :q, :sql, :tables, :rows, :exec_ms, :mode, :rid, :cid)
+                INSERT INTO query_audit_log (user_id, user_email, question, sql_generated, tables_accessed, row_count, execution_ms, mode, request_id, conversation_id, original_question, rewrite_history, recovery_path)
+                VALUES (:uid, :email, :q, :sql, :tables, :rows, :exec_ms, :mode, :rid, :cid, :orig_q, :rw_hist, :rec_path)
             """), {
                 "uid": user_id, "email": user_email, "q": question,
                 "sql": sql, "tables": list(set(tables)),
@@ -922,8 +924,10 @@ SQL：{sql}
                 "mode": "nl2sql",
                 "rid": request_id,
                 "cid": conversation_id,
+                "orig_q": original_question,
+                "rw_hist": json.dumps(rewrite_history, ensure_ascii=False) if rewrite_history else None,
+                "rec_path": recovery_path,
             })
-            await self.db.commit()
         except Exception as e:
             log.warning("寫入稽核日誌失敗: %s", e)
 
@@ -1175,7 +1179,10 @@ SQL：{sql}
 
     async def query(self, question: str, mode: str = "accurate", user_context: dict = None,
                     conversation_history: list = None, prebuilt_schema: tuple = None,
-                    is_hybrid: bool = False) -> Dict[str, Any]:
+                    is_hybrid: bool = False,
+                    original_question: str = None, rewrite_history: list = None,
+                    recovery_path: str = None,
+                    skip_audit: bool = False) -> Dict[str, Any]:
         """Full pipeline with optional verification loop.
         mode: 'fast' (no verification) or 'accurate' (with verification loop)
         prebuilt_schema: optional (schema_text, allowed_tables) from speculative execution.
@@ -1566,8 +1573,13 @@ SQL：{sql}
                 last_result["data"] = last_result["data"][:max_results]
                 last_result["row_count"] = max_results
 
-        # Write audit log
-        if last_result.get("sql"):
-            await self._write_audit_log(user_context, question, last_result.get("sql"), last_result)
+        # Write audit log (skip when caller manages audit externally, e.g. chat.py retry path)
+        if not skip_audit and last_result.get("sql"):
+            await self._write_audit_log(
+                user_context, question, last_result.get("sql"), last_result,
+                original_question=original_question,
+                rewrite_history=rewrite_history,
+                recovery_path=recovery_path,
+            )
 
         return last_result
