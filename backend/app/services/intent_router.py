@@ -92,8 +92,8 @@ def detect_intent(query: str, context: list = None) -> dict:
         conf = min(0.95, 0.6 + rag_score * 0.1)
         return {"intent": "rag", "confidence": conf, "reason": "偵測到文件搜尋關鍵字"}
 
-    # Default to RAG (knowledge base search)
-    return {"intent": "rag", "confidence": 0.5, "reason": "預設使用知識庫搜尋"}
+    # Default to hybrid — no keyword matched, run both SQL and RAG paths
+    return {"intent": "hybrid", "confidence": 0.4, "reason": "未命中關鍵字，採平行查詢"}
 
 
 def detect_ambiguity(query: str, history: list = None) -> Optional[dict]:

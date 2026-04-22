@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { ThumbsUp, ThumbsDown } from '@carbon/icons-react';
+import { apiPost } from '@/lib/api';
 
 interface RagFeedbackButtonsProps {
   messageId: string;
@@ -15,20 +16,12 @@ export default function RagFeedbackButtons({ messageId, query, answer, onFeedbac
   const [comment, setComment] = useState('');
 
   const send = async (rating: 'up' | 'down', commentText?: string) => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     try {
-      await fetch('/api/chat/feedback', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          message_id: messageId,
-          query,
-          rating,
-          comment: commentText || undefined,
-        }),
+      await apiPost('/api/chat/feedback', {
+        message_id: messageId,
+        query,
+        rating,
+        comment: commentText || undefined,
       });
       setSent(rating);
       setShowModal(false);

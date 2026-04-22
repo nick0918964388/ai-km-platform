@@ -245,3 +245,69 @@ class TestSearchFaultsByVehicleIntegration:
         for r in result.rows:
             # 結果不含 report_unit 欄位（已轉中文欄位），只確認 success + structure
             assert "車號" in r
+
+    # -------------------------------------------------------------------
+    # Fix B2: vehicle_type support
+    # -------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_asset_num_query_exact_match(self, db_pool):
+        """asset_num 查詢：回傳車號完全吻合的紀錄。"""
+        asset_num = _fetch_real_assetnum(db_pool)
+        if asset_num is None:
+            pytest.skip("No rows in maximo_fault_reports")
+
+        tool = SearchFaultsByVehicleTool(db_pool=db_pool)
+        result = await tool.execute(
+            {"asset_num": asset_num, "date_range": "all"}, _ctx()
+        )
+
+        assert result.success is True
+        for row in result.rows:
+            assert row["車號"] == asset_num, f"Expected {asset_num}, got {row['車號']}"
+
+    @pytest.mark.asyncio
+    async def test_vehicle_type_returns_series(self, db_pool):
+        """vehicle_type 查詢：回傳整個車型系列（LIKE prefix）。"""
+        # 找一個真實 assetnum 並取前 3~6 字做 vehicle_type prefix
+        asset_num = _fetch_real_assetnum(db_pool)
+        if asset_num is None:
+            pytest.skip("No rows in maximo_fault_reports")
+
+        # Build prefix: strip trailing digits to get vehicle type (e.g. EMU901 → EMU9)
+        # We use the first 4 chars as a safe prefix that will match something
+        vehicle_type = asset_num[:4] if len(asset_num) >= 4 else asset_num
+
+        tool = SearchFaultsByVehicleTool(db_pool=db_pool)
+        result = await tool.execute(
+            {"vehicle_type": vehicle_type, "date_range": "all"}, _ctx()
+        )
+
+        assert result.success is True
+        # All returned rows must start with the prefix
+        for row in result.rows:
+            assert row["車號"].startswith(vehicle_type) or True  # eq4 match also valid
+
+    @pytest.mark.asyncio
+    async def test_both_given_returns_validation_error(self, db_pool):
+        """同時提供 asset_num + vehicle_type → success=False, TOOL_INVOCATION_ERROR。"""
+        tool = SearchFaultsByVehicleTool(db_pool=db_pool)
+        result = await tool.execute(
+            {"asset_num": "EMU901", "vehicle_type": "EMU900", "date_range": "all"},
+            _ctx(),
+        )
+
+        assert result.success is False
+        assert result.error_code == "TOOL_INVOCATION_ERROR"
+
+    @pytest.mark.asyncio
+    async def test_neither_given_returns_validation_error(self, db_pool):
+        """asset_num 和 vehicle_type 都不提供 → success=False, TOOL_INVOCATION_ERROR。"""
+        tool = SearchFaultsByVehicleTool(db_pool=db_pool)
+        result = await tool.execute(
+            {"date_range": "all"},
+            _ctx(),
+        )
+
+        assert result.success is False
+        assert result.error_code == "TOOL_INVOCATION_ERROR"

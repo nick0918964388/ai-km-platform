@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { ThumbsUp, ThumbsDown } from '@carbon/icons-react';
+import { apiPost } from '@/lib/api';
 
 interface FeedbackButtonsProps {
   question: string;
@@ -14,20 +15,12 @@ export default function FeedbackButtons({ question, sql, onFeedbackSent }: Feedb
   const [correctedSQL, setCorrectedSQL] = useState('');
 
   const handleFeedback = async (rating: 'up' | 'down', corrected?: string) => {
-    const token = localStorage.getItem('auth_token');
     try {
-      await fetch('/api/maximo/feedback', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          question,
-          sql,
-          rating,
-          corrected_sql: corrected || undefined,
-        }),
+      await apiPost('/api/maximo/feedback', {
+        question,
+        sql,
+        rating,
+        corrected_sql: corrected || undefined,
       });
       setFeedbackSent(rating);
       setShowModal(false);

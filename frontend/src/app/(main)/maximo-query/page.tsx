@@ -6,8 +6,7 @@ import ChartRenderer from '@/components/maximo/ChartRenderer';
 import FeedbackButtons from '@/components/maximo/FeedbackButtons';
 import RelatedDocsPanel from '@/components/maximo/RelatedDocsPanel';
 import QueryResultTable from '@/components/maximo/QueryResultTable';
-
-const API = '';
+import { apiPost, fetchWithTimeout, getApiHeaders } from '@/lib/api';
 
 // Steps reflecting real backend NL→SQL pipeline
 const STEPS_FAST = [
@@ -68,12 +67,13 @@ interface QueryResult {
     options: Array<{label: string; query: string}>;
   };
   chart_suggestion?: {
-    type: 'bar' | 'line' | 'pie';
+    type: 'bar' | 'line' | 'pie' | 'none';
     x_key?: string;
     y_key?: string;
     name_key?: string;
     value_key?: string;
     title?: string;
+    warning?: string;
   };
   suggestions?: Array<{label: string; query: string; type?: string}>;
   column_labels?: Record<string, string>;
@@ -100,11 +100,16 @@ export default function MaximoQueryPage() {
   };
 
   const exportExcel = async (q: string) => {
-    const token = localStorage.getItem('auth_token');
     try {
-      const res = await fetch(`/api/maximo/export?question=${encodeURIComponent(q)}`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      const res = await fetchWithTimeout(`/api/maximo/export?question=${encodeURIComponent(q)}`, {
+        headers: getApiHeaders(),
       });
+      if (res.status === 401) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user_session');
+        window.location.href = '/login';
+        return;
+      }
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -141,27 +146,7 @@ export default function MaximoQueryPage() {
     });
 
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        setResult({ success: false, error: '請先登入。請登出後重新登入以取得認證 Token。' } as QueryResult);
-        return;
-      }
-      const res = await fetch(`${API}/api/maximo/nl2sql`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ question: q2, mode, history: queryHistory }),
-      });
-      if (res.status === 401) {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('user_session');
-        setResult({ success: false, error: 'Token 已過期，請重新登入。' } as QueryResult);
-        setTimeout(() => { window.location.href = '/login'; }, 2000);
-        return;
-      }
-      const data = await res.json();
+      const data = await apiPost<QueryResult>('/api/maximo/nl2sql', { question: q2, mode, history: queryHistory });
       if (data.model || data.llm_ms) setLlmInfo({ model: data.model, llm_ms: data.llm_ms });
       const lastStep = steps.length - 2;
       setActiveStep(lastStep);
@@ -170,10 +155,10 @@ export default function MaximoQueryPage() {
       await new Promise(r => setTimeout(r, 200));
       setResult(data);
       if (data.success && data.sql) {
-        setQueryHistory(prev => [...prev.slice(-4), { question: q2, sql: data.sql }]);
+        setQueryHistory(prev => [...prev.slice(-4), { question: q2, sql: data.sql! }]);
       }
-      setViewMode(data.chart_suggestion ? 'chart' : 'table');
-      if (data.chart_suggestion?.type) setChartType(data.chart_suggestion.type);
+      setViewMode(data.chart_suggestion && data.chart_suggestion.type !== 'none' ? 'chart' : 'table');
+      if (data.chart_suggestion?.type && data.chart_suggestion.type !== 'none') setChartType(data.chart_suggestion.type as 'bar' | 'line' | 'pie');
     } finally {
       clearTimers();
       setLoading(false);
@@ -490,6 +475,19 @@ export default function MaximoQueryPage() {
                 ))}
               </div>
             </details>
+          )}
+
+          {/* Chart warning banner */}
+          {result.chart_suggestion?.type === 'none' && result.chart_suggestion?.warning && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
+              padding: '0.625rem 0.875rem', borderRadius: 'var(--radius-sm)',
+              background: 'rgba(15,98,254,0.07)', border: '1px solid rgba(15,98,254,0.25)',
+              fontSize: '0.8125rem', color: 'var(--text-secondary)',
+            }}>
+              <span style={{ color: '#0f62fe', flexShrink: 0, marginTop: '0.0625rem' }}>ℹ</span>
+              <span><strong>資料不適合圖表呈現</strong>：{result.chart_suggestion.warning}</span>
+            </div>
           )}
 
           {/* View mode toggle + Chart */}

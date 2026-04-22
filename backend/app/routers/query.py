@@ -101,7 +101,7 @@ async def unified_query(
                 query_type="clarification",
                 intent_info=intent_info,
                 message="請提供更多資訊以便我更準確地回答您的問題。",
-                suggested_queries=intent_result.suggested_queries,
+                suggested_queries=[o.get("query", "") for o in (intent_result.clarification_options or [])],
                 timestamp=timestamp
             )
         

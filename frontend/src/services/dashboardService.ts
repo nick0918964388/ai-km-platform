@@ -8,13 +8,7 @@ import {
   ActivityTimelineResponse,
   TopTopicsResponse,
 } from '@/types/dashboard';
-
-const API_URL = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
-const _BASE = (path: string, params?: Record<string, string>) => {
-  const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-  return `${API_URL}${path}${qs}`;
-};
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
+import { apiGet } from '@/lib/api';
 
 /**
  * Get complete dashboard metrics for the current user
@@ -23,30 +17,8 @@ const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
  * @throws Error if request fails
  */
 export async function getDashboardMetrics(refresh: boolean = false): Promise<DashboardMetrics> {
-  try {
-    const url = _BASE('/api/profile/dashboard/metrics', refresh ? { refresh: 'true' } : undefined);
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(API_KEY && { 'X-API-Key': API_KEY }),
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(
-        error.detail || `Failed to fetch dashboard metrics: ${response.status} ${response.statusText}`
-      );
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Dashboard metrics fetch error:', error);
-    throw new Error(
-      error instanceof Error ? error.message : 'Failed to fetch dashboard metrics'
-    );
-  }
+  const qs = refresh ? '?refresh=true' : '';
+  return apiGet<DashboardMetrics>(`/api/profile/dashboard/metrics${qs}`);
 }
 
 /**
@@ -60,30 +32,8 @@ export async function getRecentActivity(
   limit: number = 20,
   offset: number = 0
 ): Promise<ActivityTimelineResponse> {
-  try {
-    const url = _BASE('/api/profile/dashboard/activity', { limit: limit.toString(), offset: offset.toString() });
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(API_KEY && { 'X-API-Key': API_KEY }),
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(
-        error.detail || `Failed to fetch activity: ${response.status} ${response.statusText}`
-      );
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Activity fetch error:', error);
-    throw new Error(
-      error instanceof Error ? error.message : 'Failed to fetch activity'
-    );
-  }
+  const qs = `?limit=${limit}&offset=${offset}`;
+  return apiGet<ActivityTimelineResponse>(`/api/profile/dashboard/activity${qs}`);
 }
 
 /**
@@ -93,28 +43,5 @@ export async function getRecentActivity(
  * @throws Error if request fails
  */
 export async function getTopTopics(limit: number = 5): Promise<TopTopicsResponse> {
-  try {
-    const url = _BASE('/api/profile/dashboard/topics', { limit: limit.toString() });
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(API_KEY && { 'X-API-Key': API_KEY }),
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(
-        error.detail || `Failed to fetch top topics: ${response.status} ${response.statusText}`
-      );
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Top topics fetch error:', error);
-    throw new Error(
-      error instanceof Error ? error.message : 'Failed to fetch top topics'
-    );
-  }
+  return apiGet<TopTopicsResponse>(`/api/profile/dashboard/topics?limit=${limit}`);
 }
