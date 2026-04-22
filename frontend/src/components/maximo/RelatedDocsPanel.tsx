@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import { apiPost } from '@/lib/api';
 
 interface RelatedDocsPanelProps {
   row?: Record<string, unknown> | null;
@@ -14,7 +15,6 @@ export default function RelatedDocsPanel({ row, autoSearch, onClose }: RelatedDo
   const search = useCallback(async (searchRow: Record<string, unknown>) => {
     setLoading(true);
     setRelatedDocs(null);
-    const token = localStorage.getItem('auth_token');
     try {
       const body: any = { top_k: 5 };
       // Case-insensitive key lookup
@@ -27,15 +27,8 @@ export default function RelatedDocsPanel({ row, autoSearch, onClose }: RelatedDo
       const desc = get(searchRow, 'description'); if (desc) body.description = String(desc);
       const asset = get(searchRow, 'assetnum'); if (asset) body.asset_num = String(asset);
 
-      const res = await fetch('/api/maximo/related-docs', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(body),
-      });
-      setRelatedDocs(await res.json());
+      const data = await apiPost('/api/maximo/related-docs', body);
+      setRelatedDocs(data);
     } catch (e) {
       console.error('Related docs error:', e);
     } finally {

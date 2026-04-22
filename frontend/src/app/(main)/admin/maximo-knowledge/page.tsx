@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Add, TrashCan, Renew, DataBase, Education, Tag, Edit, Checkmark, Close } from '@carbon/icons-react';
-
-const API = '';
+import { apiGet, apiPost, apiDelete, apiRequest, fetchWithTimeout, getApiHeaders } from '@/lib/api';
 
 const TAGS = [
   { value: 'general',      label: '通用',     color: '#6f6f6f' },
@@ -51,13 +50,6 @@ function TagSelect({ value, onChange, small }: { value: string; onChange: (v: st
   );
 }
 
-const authHeaders = (): Record<string, string> => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-  const h: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) h['Authorization'] = `Bearer ${token}`;
-  return h;
-};
-
 export default function MaximoKnowledgePage() {
   const [rules, setRules]       = useState<Rule[]>([]);
   const [examples, setExamples] = useState<Example[]>([]);
@@ -83,8 +75,7 @@ export default function MaximoKnowledgePage() {
   const fetchKnowledge = async () => {
     setLoading(true);
     try {
-      const res  = await fetch(`${API}/api/maximo/knowledge`, { headers: authHeaders() });
-      const data = await res.json();
+      const data = await apiGet<{ rules: Rule[]; examples: Example[] }>('/api/maximo/knowledge');
       setRules(data.rules || []);
       setExamples(data.examples || []);
     } finally {
@@ -101,12 +92,22 @@ export default function MaximoKnowledgePage() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 600000);
 
-      const res = await fetch(`${API}/api/maximo/schema/index`, {
+      const res = await fetchWithTimeout(`/api/maximo/schema/index`, {
         method: 'POST',
-        headers: authHeaders(),
+        headers: getApiHeaders(),
+        timeout: 600000,
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
+
+      if (res.status === 401) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('user_session');
+          window.location.href = '/login';
+        }
+        return;
+      }
 
       // Check response content type before parsing
       const ct = res.headers.get('content-type') || '';
@@ -153,49 +154,40 @@ export default function MaximoKnowledgePage() {
     if (!editContent.trim()) return;
     setSaving(true);
     try {
-      const res = await fetch(`${API}/api/maximo/knowledge/rule/${id}`, {
+      await apiRequest(`/api/maximo/knowledge/rule/${id}`, {
         method: 'PATCH',
-        headers: authHeaders(),
         body: JSON.stringify({ content: editContent, tag: editTag }),
       });
-      if (res.ok) {
-        setRules(rs => rs.map(r => r.id === id ? { ...r, content: editContent, tag: editTag } : r));
-        setEditing(null);
-      }
-    } finally { setSaving(false); }
+      setRules(rs => rs.map(r => r.id === id ? { ...r, content: editContent, tag: editTag } : r));
+      setEditing(null);
+    } catch { /* ignore */ } finally { setSaving(false); }
   };
 
   const saveEditExample = async (id: number) => {
     if (!editQ.trim() || !editSQL.trim()) return;
     setSaving(true);
     try {
-      const res = await fetch(`${API}/api/maximo/knowledge/example/${id}`, {
+      await apiRequest(`/api/maximo/knowledge/example/${id}`, {
         method: 'PATCH',
-        headers: authHeaders(),
         body: JSON.stringify({ question: editQ, sql_query: editSQL, tag: editTag }),
       });
-      if (res.ok) {
-        setExamples(es => es.map(e => e.id === id ? { ...e, question: editQ, sql_query: editSQL, tag: editTag } : e));
-        setEditing(null);
-      }
-    } finally { setSaving(false); }
+      setExamples(es => es.map(e => e.id === id ? { ...e, question: editQ, sql_query: editSQL, tag: editTag } : e));
+      setEditing(null);
+    } catch { /* ignore */ } finally { setSaving(false); }
   };
 
   const addRule = async () => {
     if (!newRule.trim()) return;
     setSaving(true);
     try {
-      const res = await fetch(`${API}/api/maximo/knowledge/rule`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ content: newRule, tag: newRuleTag }),
-      });
-      if (res.ok) { setNewRule(''); await fetchKnowledge(); }
-    } finally { setSaving(false); }
+      await apiPost('/api/maximo/knowledge/rule', { content: newRule, tag: newRuleTag });
+      setNewRule('');
+      await fetchKnowledge();
+    } catch { /* ignore */ } finally { setSaving(false); }
   };
 
   const deleteRule = async (id: number) => {
-    await fetch(`${API}/api/maximo/knowledge/rule/${id}`, { method: 'DELETE', headers: authHeaders() });
+    await apiDelete(`/api/maximo/knowledge/rule/${id}`);
     setRules(r => r.filter(x => x.id !== id));
   };
 
@@ -203,17 +195,15 @@ export default function MaximoKnowledgePage() {
     if (!newQ.trim() || !newSQL.trim()) return;
     setSaving(true);
     try {
-      const res = await fetch(`${API}/api/maximo/knowledge/example`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ question: newQ, sql_query: newSQL, tag: newExTag }),
-      });
-      if (res.ok) { setNewQ(''); setNewSQL(''); await fetchKnowledge(); }
-    } finally { setSaving(false); }
+      await apiPost('/api/maximo/knowledge/example', { question: newQ, sql_query: newSQL, tag: newExTag });
+      setNewQ('');
+      setNewSQL('');
+      await fetchKnowledge();
+    } catch { /* ignore */ } finally { setSaving(false); }
   };
 
   const deleteExample = async (id: number) => {
-    await fetch(`${API}/api/maximo/knowledge/example/${id}`, { method: 'DELETE', headers: authHeaders() });
+    await apiDelete(`/api/maximo/knowledge/example/${id}`);
     setExamples(e => e.filter(x => x.id !== id));
   };
 

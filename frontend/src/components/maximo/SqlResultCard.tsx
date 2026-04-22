@@ -89,17 +89,13 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
     if (!result.result_id || loadingMore) return;
     setLoadingMore(true);
     try {
-      const { STREAM_API_URL, getApiHeaders } = await import('@/lib/api');
-      const res = await fetch(
-        `${STREAM_API_URL}/chat/results/${result.result_id}?offset=${loadOffset}&limit=100`,
-        { headers: getApiHeaders() }
+      const { apiGet } = await import('@/lib/api');
+      const page = await apiGet<{ data: Record<string, unknown>[]; has_more: boolean }>(
+        `/chat/results/${result.result_id}?offset=${loadOffset}&limit=100`
       );
-      if (res.ok) {
-        const page = await res.json();
-        setExtraData(prev => [...prev, ...page.data]);
-        setLoadOffset(prev => prev + page.data.length);
-        setHasMore(page.has_more);
-      }
+      setExtraData(prev => [...prev, ...page.data]);
+      setLoadOffset(prev => prev + page.data.length);
+      setHasMore(page.has_more);
     } catch (e) {
       console.error('Failed to load more:', e);
     }
@@ -107,11 +103,17 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
   };
 
   const exportExcel = async () => {
-    const token = localStorage.getItem('auth_token');
     try {
-      const res = await fetch(`/api/maximo/export?question=${encodeURIComponent(question)}`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      const { fetchWithTimeout, getApiHeaders } = await import('@/lib/api');
+      const res = await fetchWithTimeout(`/api/maximo/export?question=${encodeURIComponent(question)}`, {
+        headers: getApiHeaders(),
       });
+      if (res.status === 401) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user_session');
+        window.location.href = '/login';
+        return;
+      }
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

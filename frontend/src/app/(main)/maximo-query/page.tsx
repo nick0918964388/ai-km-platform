@@ -6,8 +6,7 @@ import ChartRenderer from '@/components/maximo/ChartRenderer';
 import FeedbackButtons from '@/components/maximo/FeedbackButtons';
 import RelatedDocsPanel from '@/components/maximo/RelatedDocsPanel';
 import QueryResultTable from '@/components/maximo/QueryResultTable';
-
-const API = '';
+import { apiPost, fetchWithTimeout, getApiHeaders } from '@/lib/api';
 
 // Steps reflecting real backend NL→SQL pipeline
 const STEPS_FAST = [
@@ -100,11 +99,16 @@ export default function MaximoQueryPage() {
   };
 
   const exportExcel = async (q: string) => {
-    const token = localStorage.getItem('auth_token');
     try {
-      const res = await fetch(`/api/maximo/export?question=${encodeURIComponent(q)}`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      const res = await fetchWithTimeout(`/api/maximo/export?question=${encodeURIComponent(q)}`, {
+        headers: getApiHeaders(),
       });
+      if (res.status === 401) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user_session');
+        window.location.href = '/login';
+        return;
+      }
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -141,27 +145,7 @@ export default function MaximoQueryPage() {
     });
 
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        setResult({ success: false, error: '請先登入。請登出後重新登入以取得認證 Token。' } as QueryResult);
-        return;
-      }
-      const res = await fetch(`${API}/api/maximo/nl2sql`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ question: q2, mode, history: queryHistory }),
-      });
-      if (res.status === 401) {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('user_session');
-        setResult({ success: false, error: 'Token 已過期，請重新登入。' } as QueryResult);
-        setTimeout(() => { window.location.href = '/login'; }, 2000);
-        return;
-      }
-      const data = await res.json();
+      const data = await apiPost<QueryResult>('/api/maximo/nl2sql', { question: q2, mode, history: queryHistory });
       if (data.model || data.llm_ms) setLlmInfo({ model: data.model, llm_ms: data.llm_ms });
       const lastStep = steps.length - 2;
       setActiveStep(lastStep);
@@ -170,7 +154,7 @@ export default function MaximoQueryPage() {
       await new Promise(r => setTimeout(r, 200));
       setResult(data);
       if (data.success && data.sql) {
-        setQueryHistory(prev => [...prev.slice(-4), { question: q2, sql: data.sql }]);
+        setQueryHistory(prev => [...prev.slice(-4), { question: q2, sql: data.sql! }]);
       }
       setViewMode(data.chart_suggestion ? 'chart' : 'table');
       if (data.chart_suggestion?.type) setChartType(data.chart_suggestion.type);

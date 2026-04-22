@@ -9,7 +9,7 @@ import {
   Close,
   DataTable,
 } from '@carbon/icons-react';
-import { STREAM_API_URL, getApiHeaders } from '@/lib/api';
+import { apiGet, apiRequest } from '@/lib/api';
 
 interface PendingExample {
   id: number;
@@ -54,12 +54,8 @@ export default function PendingExamplesPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${STREAM_API_URL}/api/admin/pending-examples?status=${filter}`, {
-        headers: getApiHeaders(),
-      });
-      if (!res.ok) throw new Error(`載入失敗 (${res.status})`);
-      const data = await res.json();
-      setExamples(Array.isArray(data) ? data : data.examples || []);
+      const data = await apiGet<PendingExample[] | { examples: PendingExample[] }>(`/api/admin/pending-examples?status=${filter}`);
+      setExamples(Array.isArray(data) ? data : (data as { examples: PendingExample[] }).examples || []);
     } catch (e: any) {
       setError(e.message || '載入失敗');
     } finally {
@@ -74,11 +70,7 @@ export default function PendingExamplesPage() {
   const handleApprove = async (id: number) => {
     setActionLoading(id);
     try {
-      const res = await fetch(`${STREAM_API_URL}/api/admin/pending-examples/${id}/approve`, {
-        method: 'PUT',
-        headers: getApiHeaders(),
-      });
-      if (!res.ok) throw new Error(`操作失敗 (${res.status})`);
+      await apiRequest(`/api/admin/pending-examples/${id}/approve`, { method: 'PUT' });
       await fetchExamples();
     } catch (e: any) {
       alert(e.message || '操作失敗');
@@ -92,12 +84,10 @@ export default function PendingExamplesPage() {
     if (notes === null) return;
     setActionLoading(id);
     try {
-      const res = await fetch(`${STREAM_API_URL}/api/admin/pending-examples/${id}/reject`, {
+      await apiRequest(`/api/admin/pending-examples/${id}/reject`, {
         method: 'PUT',
-        headers: getApiHeaders(),
         body: JSON.stringify({ notes }),
       });
-      if (!res.ok) throw new Error(`操作失敗 (${res.status})`);
       await fetchExamples();
     } catch (e: any) {
       alert(e.message || '操作失敗');

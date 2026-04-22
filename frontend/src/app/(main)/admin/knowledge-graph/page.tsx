@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Renew, InProgress, Terminal, ChartNetwork } from '@carbon/icons-react';
-import { STREAM_API_URL, getApiHeaders } from '@/lib/api';
+import { apiGet, apiPost } from '@/lib/api';
 
 interface SparseEntity {
   type: string;
@@ -84,11 +84,7 @@ export default function KnowledgeGraphAdminPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${STREAM_API_URL}/api/admin/kg/stats`, {
-        headers: getApiHeaders(),
-      });
-      if (!res.ok) throw new Error(`載入失敗 (${res.status})`);
-      setStats(await res.json());
+      setStats(await apiGet<KGStats>('/api/admin/kg/stats'));
     } catch (e: any) {
       setError(e.message || '載入失敗');
     } finally {
@@ -98,14 +94,9 @@ export default function KnowledgeGraphAdminPage() {
 
   const loadLog = useCallback(async () => {
     try {
-      const res = await fetch(`${STREAM_API_URL}/api/admin/kg/etl-log?lines=50`, {
-        headers: getApiHeaders(),
-      });
-      if (res.ok) {
-        const data: ETLLogResponse = await res.json();
-        setEtlLog(data.lines || []);
-        setLogSource(data.source);
-      }
+      const data = await apiGet<ETLLogResponse>('/api/admin/kg/etl-log?lines=50');
+      setEtlLog(data.lines || []);
+      setLogSource(data.source);
     } catch {
       // 靜默失敗；log 非關鍵
     }
@@ -115,12 +106,7 @@ export default function KnowledgeGraphAdminPage() {
     setRebuilding(true);
     setRebuildMsg('啟動中…');
     try {
-      const res = await fetch(`${STREAM_API_URL}/api/admin/kg/rebuild`, {
-        method: 'POST',
-        headers: getApiHeaders(),
-      });
-      if (!res.ok) throw new Error(`失敗 (${res.status})`);
-      const data = await res.json();
+      const data = await apiPost<{ status: string; message: string; job_id: string }>('/api/admin/kg/rebuild', {});
       setRebuildMsg(`${data.status}: ${data.message} (job=${data.job_id})`);
     } catch (e: any) {
       setRebuildMsg(e.message || '觸發失敗');

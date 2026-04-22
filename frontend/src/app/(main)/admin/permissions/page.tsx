@@ -13,8 +13,7 @@ import {
   ErrorFilled,
   Renew,
 } from '@carbon/icons-react';
-
-const API = '';
+import { apiGet, apiRequest, apiDelete } from '@/lib/api';
 
 interface UserRecord {
   id: string;
@@ -50,13 +49,6 @@ interface EditingUser {
   group_name: string;
   section: string;
   workshop: string;
-}
-
-function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  return headers;
 }
 
 const roleLabel = (role: string) => role === 'admin' ? '管理員' : '使用者';
@@ -95,14 +87,10 @@ export default function PermissionsPage() {
     setLoadingUsers(true);
     setUsersError('');
     try {
-      const [usersRes, groupsRes] = await Promise.all([
-        fetch(`${API}/api/auth/users`, { headers: getAuthHeaders() }),
-        fetch(`${API}/api/auth/groups`, { headers: getAuthHeaders() }),
+      const [ud, gd] = await Promise.all([
+        apiGet<{ users: UserRecord[] }>('/api/auth/users'),
+        apiGet<{ groups: PermGroup[] }>('/api/auth/groups'),
       ]);
-      if (!usersRes.ok) throw new Error(`使用者載入失敗 (${usersRes.status})`);
-      if (!groupsRes.ok) throw new Error(`群組載入失敗 (${groupsRes.status})`);
-      const ud = await usersRes.json();
-      const gd = await groupsRes.json();
       setUsers(ud.users || []);
       setGroups(gd.groups || []);
     } catch (e: any) {
@@ -116,9 +104,7 @@ export default function PermissionsPage() {
     setLoadingAudit(true);
     setAuditError('');
     try {
-      const res = await fetch(`${API}/api/maximo/audit`, { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error(`稽核載入失敗 (${res.status})`);
-      const data = await res.json();
+      const data = await apiGet<{ logs: AuditLog[] }>('/api/maximo/audit');
       setAuditLogs(data.logs || []);
     } catch (e: any) {
       setAuditError(e.message || '載入失敗');
@@ -159,15 +145,10 @@ export default function PermissionsPage() {
       if (editing.section) body.section = editing.section;
       if (editing.workshop) body.workshop = editing.workshop;
 
-      const res = await fetch(`${API}/api/auth/users/${editing.id}`, {
+      await apiRequest(`/api/auth/users/${editing.id}`, {
         method: 'PATCH',
-        headers: getAuthHeaders(),
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || '儲存失敗');
-      }
       setSaveOk(true);
       setEditing(null);
       await fetchUsers();
@@ -183,14 +164,7 @@ export default function PermissionsPage() {
     if (!confirm(`確定要刪除使用者「${email}」？此操作無法復原。`)) return;
     setDeleting(userId);
     try {
-      const res = await fetch(`${API}/api/auth/users/${userId}`, {
-        method: 'DELETE',
-        headers: getAuthHeaders(),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || '刪除失敗');
-      }
+      await apiDelete(`/api/auth/users/${userId}`);
       setUsers(prev => prev.filter(u => u.id !== userId));
     } catch (e: any) {
       alert(e.message || '刪除失敗');

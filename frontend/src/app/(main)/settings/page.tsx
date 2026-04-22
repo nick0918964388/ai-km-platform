@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
 import { Save, Add, Edit as EditIcon, TrashCan, ChevronUp, ChevronDown, Close } from '@carbon/icons-react';
-import { STREAM_API_URL, getApiHeaders } from '@/lib/api';
+import { apiGet, apiPost, apiDelete, apiRequest } from '@/lib/api';
 
 interface ColumnLabel {
   column_name: string;
@@ -50,37 +50,30 @@ export default function SettingsPage() {
 
   const fetchTableConfigs = useCallback(async () => {
     try {
-      const res = await fetch(`${STREAM_API_URL}/api/admin/table-columns`, { headers: getApiHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        const configs: Record<string, {column_name: string; display_order: number}[]> = {};
-        for (const item of data) {
-          if (!configs[item.table_name]) configs[item.table_name] = [];
-          configs[item.table_name].push({ column_name: item.column_name, display_order: item.display_order });
-        }
-        for (const key of Object.keys(configs)) {
-          configs[key].sort((a, b) => a.display_order - b.display_order);
-        }
-        setTableConfigs(configs);
+      const data = await apiGet<{table_name: string; column_name: string; display_order: number}[]>('/api/admin/table-columns');
+      const configs: Record<string, {column_name: string; display_order: number}[]> = {};
+      for (const item of data) {
+        if (!configs[item.table_name]) configs[item.table_name] = [];
+        configs[item.table_name].push({ column_name: item.column_name, display_order: item.display_order });
       }
+      for (const key of Object.keys(configs)) {
+        configs[key].sort((a, b) => a.display_order - b.display_order);
+      }
+      setTableConfigs(configs);
     } catch { /* ignore */ }
   }, []);
 
   const fetchAvailableCols = useCallback(async (table: string) => {
     try {
-      const res = await fetch(`${STREAM_API_URL}/api/admin/table-columns/${table}/available`, { headers: getApiHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        setAvailableCols(data);
-      }
+      const data = await apiGet<{column_name: string; data_type: string}[]>(`/api/admin/table-columns/${table}/available`);
+      setAvailableCols(data);
     } catch { /* ignore */ }
   }, []);
 
   // Fetch settings from backend on mount
   useEffect(() => {
     if (user?.role === 'admin') {
-      fetch(`${STREAM_API_URL}/api/admin/settings`, { headers: getApiHeaders() })
-        .then(r => r.json())
+      apiGet<any>('/api/admin/settings')
         .then(data => {
           setLocalSettings(prev => ({
             ...prev,
@@ -145,11 +138,7 @@ export default function SettingsPage() {
     if (!selectedTable) return;
     setColConfigSaving(true);
     try {
-      await fetch(`${STREAM_API_URL}/api/admin/table-columns`, {
-        method: 'POST',
-        headers: { ...getApiHeaders() as Record<string, string>, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table_name: selectedTable, columns: selectedCols }),
-      });
+      await apiPost('/api/admin/table-columns', { table_name: selectedTable, columns: selectedCols });
       setTableConfigs(prev => ({ ...prev, [selectedTable]: [...selectedCols] }));
       setColConfigSaved(true);
       setTimeout(() => setColConfigSaved(false), 2000);
@@ -165,11 +154,8 @@ export default function SettingsPage() {
   const fetchLabels = useCallback(async () => {
     setLabelsLoading(true);
     try {
-      const res = await fetch(`${STREAM_API_URL}/api/admin/column-labels`, { headers: getApiHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        setLabels(data);
-      }
+      const data = await apiGet<ColumnLabel[]>('/api/admin/column-labels');
+      setLabels(data);
     } catch { /* ignore */ }
     setLabelsLoading(false);
   }, []);
@@ -181,11 +167,7 @@ export default function SettingsPage() {
   const addLabel = async () => {
     if (!newCol.trim() || !newLabel.trim()) return;
     try {
-      await fetch(`${STREAM_API_URL}/api/admin/column-labels`, {
-        method: 'POST',
-        headers: { ...getApiHeaders() as Record<string, string>, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ column_name: newCol.trim(), label: newLabel.trim() }),
-      });
+      await apiPost('/api/admin/column-labels', { column_name: newCol.trim(), label: newLabel.trim() });
       setLabels(prev => [...prev.filter(l => l.column_name !== newCol.trim()), { column_name: newCol.trim(), label: newLabel.trim() }]);
       setNewCol('');
       setNewLabel('');
@@ -195,11 +177,7 @@ export default function SettingsPage() {
   const updateLabel = async (columnName: string, label: string) => {
     if (!label.trim()) return;
     try {
-      await fetch(`${STREAM_API_URL}/api/admin/column-labels`, {
-        method: 'POST',
-        headers: { ...getApiHeaders() as Record<string, string>, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ column_name: columnName, label: label.trim() }),
-      });
+      await apiPost('/api/admin/column-labels', { column_name: columnName, label: label.trim() });
       setLabels(prev => prev.map(l => l.column_name === columnName ? { ...l, label: label.trim() } : l));
     } catch { /* ignore */ }
     setEditingCol(null);
@@ -208,10 +186,7 @@ export default function SettingsPage() {
   const deleteLabel = async (name: string) => {
     if (!confirm(`確定要刪除「${name}」的欄位映射嗎？`)) return;
     try {
-      await fetch(`${STREAM_API_URL}/api/admin/column-labels/${name}`, {
-        method: 'DELETE',
-        headers: getApiHeaders(),
-      });
+      await apiDelete(`/api/admin/column-labels/${name}`);
       setLabels(prev => prev.filter(l => l.column_name !== name));
     } catch { /* ignore */ }
   };
@@ -219,15 +194,11 @@ export default function SettingsPage() {
   const handleSave = async () => {
     // Save to backend
     try {
-      await fetch(`${STREAM_API_URL}/api/admin/settings`, {
-        method: 'POST',
-        headers: { ...getApiHeaders() as Record<string, string>, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          site_name: localSettings.siteName,
-          primary_color: localSettings.primaryColor,
-          max_tokens: String(localSettings.maxTokens),
-          ...llmSettings,
-        }),
+      await apiPost('/api/admin/settings', {
+        site_name: localSettings.siteName,
+        primary_color: localSettings.primaryColor,
+        max_tokens: String(localSettings.maxTokens),
+        ...llmSettings,
       });
     } catch { /* ignore */ }
     // Also save to local store
@@ -245,8 +216,7 @@ export default function SettingsPage() {
     if (llmSettings.llm_provider === 'ollama' && llmSettings.ollama_chat_url) {
       params.set('ollama_url', llmSettings.ollama_chat_url);
     }
-    fetch(`${STREAM_API_URL}/api/models?${params.toString()}`, { headers: getApiHeaders() })
-      .then(r => r.json())
+    apiGet<{ models: { name: string }[] }>(`/api/models?${params.toString()}`)
       .then(data => {
         setAvailableModels((data.models || []).map((m: any) => m.name));
       })
