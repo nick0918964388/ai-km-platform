@@ -5,12 +5,13 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Cart
 export const CHART_COLORS = ['#0f62fe', '#42be65', '#f1c21b', '#da1e28', '#a56eff', '#ff832b', '#08bdba', '#ba4e00'];
 
 export interface ChartSuggestion {
-  type?: 'bar' | 'line' | 'pie';
+  type?: 'bar' | 'line' | 'pie' | 'none';
   x_key?: string;
   y_key?: string;
   name_key?: string;
   value_key?: string;
   title?: string;
+  warning?: string;
 }
 
 interface ChartRendererProps {
@@ -42,8 +43,11 @@ export default function ChartRenderer({
   chartType: externalChartType,
   onChartTypeChange,
 }: ChartRendererProps) {
-  const [internalViewMode, setInternalViewMode] = useState<'table' | 'chart'>(chartSuggestion ? 'chart' : 'table');
-  const [internalChartType, setInternalChartType] = useState<'bar' | 'line' | 'pie'>(chartSuggestion?.type || 'bar');
+  const hasValidChart = chartSuggestion && chartSuggestion.type !== 'none';
+  const [internalViewMode, setInternalViewMode] = useState<'table' | 'chart'>(hasValidChart ? 'chart' : 'table');
+  const [internalChartType, setInternalChartType] = useState<'bar' | 'line' | 'pie'>(
+    (hasValidChart && chartSuggestion.type) ? (chartSuggestion.type as 'bar' | 'line' | 'pie') : 'bar'
+  );
 
   const viewMode = externalViewMode ?? internalViewMode;
   const chartType = externalChartType ?? internalChartType;
@@ -62,6 +66,20 @@ export default function ChartRenderer({
   const yKey = chartSuggestion?.y_key || chartSuggestion?.value_key || columns[1] || 'y';
 
   const renderChart = () => {
+    if (chartSuggestion?.type === 'none') {
+      return (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.75rem 1rem', borderRadius: 6,
+          background: 'rgba(15,98,254,0.07)', border: '1px solid rgba(15,98,254,0.25)',
+          fontSize: '0.8125rem', color: 'var(--text-secondary)',
+        }}>
+          <span style={{ color: '#0f62fe', flexShrink: 0 }}>ℹ</span>
+          <span><strong>資料不適合圖表呈現</strong>{chartSuggestion.warning ? `：${chartSuggestion.warning}` : ''}</span>
+        </div>
+      );
+    }
+
     if (chartType === 'bar') {
       return (
         <BarChart data={data} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>

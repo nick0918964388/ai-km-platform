@@ -54,10 +54,15 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
   const [copied, setCopied] = useState(false);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [docSearchRow, setDocSearchRow] = useState<Record<string, unknown> | null>(null);
+  const validChartSuggestion = result.chart_suggestion && result.chart_suggestion.type !== 'none'
+    ? result.chart_suggestion
+    : null;
   const [viewMode, setViewMode] = useState<'table' | 'chart'>(
-    result.chart_suggestion || (result.row_count && result.row_count > 20) ? 'chart' : 'table'
+    validChartSuggestion ? 'chart' : 'table'
   );
-  const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>(result.chart_suggestion?.type || 'bar');
+  const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>(
+    (validChartSuggestion?.type as 'bar' | 'line' | 'pie') || 'bar'
+  );
   const [showMeta, setShowMeta] = useState(false);
   const [extraData, setExtraData] = useState<any[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -211,12 +216,25 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
           </div>
         )}
 
+        {/* Chart warning banner (type=none with warning message) */}
+        {result.chart_suggestion?.type === 'none' && result.chart_suggestion?.warning && (
+          <div style={{
+            padding: '0.5rem 0.75rem', marginBottom: '0.5rem',
+            background: 'rgba(241,194,50,0.1)', border: '1px solid rgba(241,194,50,0.4)',
+            borderRadius: 6, fontSize: '0.8125rem', color: '#b28600',
+            display: 'flex', alignItems: 'flex-start', gap: '0.375rem',
+          }}>
+            <span style={{ fontWeight: 600, flexShrink: 0 }}>圖表警告</span>
+            <span>{result.chart_suggestion.warning}</span>
+          </div>
+        )}
+
         {/* Chart + Table using shared components */}
         {result.data && result.data.length > 0 && result.columns && result.columns.length >= 2 && (
           <ChartRenderer
             data={result.data}
             columns={result.columns}
-            chartSuggestion={result.chart_suggestion}
+            chartSuggestion={validChartSuggestion}
             showControls={true}
             height={250}
             viewMode={viewMode}

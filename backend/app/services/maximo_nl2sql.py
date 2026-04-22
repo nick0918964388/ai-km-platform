@@ -11,11 +11,14 @@ import json
 import time
 import hashlib
 import logging
+import datetime
 from typing import Optional, List, Dict, Any
 
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+
+from app.services.maximo_nl2sql_tools import repair_with_tools, SQL_REPAIR_TOOLS  # noqa: F401
 
 log = logging.getLogger(__name__)
 
@@ -109,6 +112,36 @@ FORBIDDEN_KEYWORDS = {
     "grant", "revoke", "execute", "exec", "call", "shutdown", "copy",
     "pg_", "information_schema",
 }
+
+
+CHART_INTENT_KEYWORDS = {
+    "aggregation": ["分布", "分佈", "佔比", "比例", "統計", "排名", "各種", "各類", "月份", "每月", "每年"],
+    "trend": ["趨勢", "變化", "走勢", "歷史"],
+    "ranking": ["排名", "前幾", "最多", "最少", "最高", "最低", "top"],
+}
+
+_ISO_DATE_RE = re.compile(r'^\d{4}[-/]\d{1,2}([-/]\d{1,2})?')
+
+
+def detect_chart_intent(question: str) -> dict:
+    """Analyze question to detect if aggregation/trend is expected."""
+    q = question.lower()
+    has_agg = any(kw in q for kw in CHART_INTENT_KEYWORDS["aggregation"])
+    has_trend = any(kw in q for kw in CHART_INTENT_KEYWORDS["trend"])
+    has_rank = any(kw in q for kw in CHART_INTENT_KEYWORDS["ranking"])
+
+    suggested_viz = None
+    if has_trend:
+        suggested_viz = "line"
+    elif has_rank:
+        suggested_viz = "bar"
+    elif has_agg:
+        suggested_viz = "pie"
+
+    return {
+        "expects_aggregation": has_agg or has_trend or has_rank,
+        "suggested_viz": suggested_viz,
+    }
 
 
 class MaximoNL2SQL:
@@ -506,6 +539,7 @@ class MaximoNL2SQL:
         # Always allow domain lookup for JOIN
         allowed_tables.add('maximo_domain_lookup')
         self._allowed_tables = allowed_tables  # store for validate_sql
+        self._last_schema_ctx = schema_text  # store for tool_use repair
 
         metadata = await self._load_field_metadata()
         examples = await self._load_examples()
@@ -670,6 +704,58 @@ class MaximoNL2SQL:
             if t not in allowed and t not in {"lateral", "unnest", "generate_series"}:
                 return f"不允許存取的表：{t}"
         return None
+
+    def _run_security_gates(
+        self,
+        sql: str,
+        perm: dict,
+        user_context: dict,
+    ) -> tuple[bool, str, str, dict]:
+        """Run all four security gates on *sql* and return:
+
+        (allowed: bool, error_msg: str, final_sql: str, row_filter_params: dict)
+
+        Gates (in order):
+          1. validate_sql   — syntax + forbidden keywords + allowed tables
+          2. sql_policy     — system tables, cross-tenant, sensitive columns
+          3. allowed_tables — permission-based table access check
+          4. _inject_row_filters — row-level security WHERE injection
+
+        On any gate failure returns (False, <reason>, sql, {}).
+        On success returns (True, "", final_sql_with_row_filters, params).
+        """
+        # Gate 1: validate_sql
+        err = self.validate_sql(sql)
+        if err:
+            return False, f"SQL 驗證失敗：{err}", sql, {}
+
+        # Gate 2: sql_policy
+        try:
+            from app.services.sql_policy import get_sql_policy
+            _policy_allowed = (
+                perm["allowed_tables"] if perm.get("allowed_tables")
+                else getattr(self, "_allowed_tables", None)
+            )
+            _policy_res = get_sql_policy().check(sql, _policy_allowed)
+            if not _policy_res.allowed:
+                log.warning("[sql_policy] blocked: %s sql=%s", _policy_res.reason, sql[:200])
+                return False, f"安全政策阻擋：{_policy_res.reason}", sql, {}
+        except Exception as _pe:
+            log.debug("sql_policy check error (fail-closed by skip): %s", _pe)
+
+        # Gate 3: permission-based table access check
+        if perm.get("allowed_tables"):
+            tables_in_sql = re.findall(r'\b(?:from|join)\s+(\w+)', sql.lower())
+            for t in tables_in_sql:
+                if t not in perm["allowed_tables"] and t not in {"lateral", "unnest"}:
+                    return False, f"您沒有權限查詢 {t}", sql, {}
+
+        # Gate 4: inject row filters
+        row_filter_params: dict = {}
+        if perm.get("row_filters"):
+            sql, row_filter_params = self._inject_row_filters(sql, perm["row_filters"], user_context)
+
+        return True, "", sql, row_filter_params
 
     async def execute_sql(self, sql: str, params: dict = None) -> Dict[str, Any]:
         """Execute SQL and return rows + columns.
@@ -1015,12 +1101,23 @@ SQL：{sql}
         rows = result.get("rows", [])
         s = sql.lower()
         q = question.lower()
+        row_count = result["row_count"]
+
+        # Mismatch: question implies grouping/ranking but SQL has no GROUP BY
+        # (trend queries may legitimately omit GROUP BY — skip mismatch check for them)
+        intent = detect_chart_intent(question)
+        has_group_by = "group by" in s
+        agg_without_trend = intent["expects_aggregation"] and intent.get("suggested_viz") != "line"
+        if agg_without_trend and not has_group_by:
+            return {
+                "type": "none",
+                "warning": f"查詢似乎需要聚合（{intent.get('suggested_viz', '統計')}圖），但 SQL 沒有 GROUP BY，無法產生有意義的圖表。請改寫查詢明確指定分組。",
+            }
 
         # Detect aggregation queries
         has_count = "count(" in s or "count(*)" in s
         has_sum = "sum(" in s
         has_avg = "avg(" in s
-        has_group_by = "group by" in s
         has_order_by = "order by" in s
 
         # Detect date columns
@@ -1037,25 +1134,62 @@ SQL：{sql}
                 elif val is not None:
                     text_cols.append(c)
 
-        # Rule 1: GROUP BY + COUNT/SUM → Bar chart
+        # Rule 1: GROUP BY + COUNT/SUM → Pie (≤10 rows) or Bar
         if has_group_by and (has_count or has_sum or has_avg):
             x_col = text_cols[0] if text_cols else cols[0]
             y_col = numeric_cols[0] if numeric_cols else cols[-1]
 
-            # If only 2-5 categories → Pie chart might be better
-            if result["row_count"] <= 5 and has_count:
+            # Shared NULL check: applies to both pie and bar before branching
+            if rows and any(r.get(y_col) is None for r in rows):
+                return {"type": "none", "warning": f"數值欄位 {y_col} 含 NULL 值，無法產生有意義圖表"}
+
+            if row_count <= 10 and has_count:
+                # Validate: x_col must be text, y_col must be numeric
+                x_sample = rows[0].get(x_col)
+                y_sample = rows[0].get(y_col)
+                if not isinstance(x_sample, str):
+                    return {"type": "none", "warning": f"分類欄位 {x_col} 非文字型，無法畫 pie"}
+                if not isinstance(y_sample, (int, float)):
+                    return {"type": "none", "warning": f"數值欄位 {y_col} 非數字型，無法畫 pie"}
                 return {"type": "pie", "name_key": x_col, "value_key": y_col, "title": f"{x_col} 分布"}
 
+            # Bar chart
+            if row_count > 30:
+                return {"type": "none", "warning": f"資料列數過多（{row_count} > 30），不適合 bar chart"}
+            x_sample = rows[0].get(x_col) if rows else None
+            y_sample = rows[0].get(y_col) if rows else None
+            if x_sample is not None and not isinstance(x_sample, str):
+                return {"type": "none", "warning": f"分類欄位 {x_col} 非文字型，無法畫 bar"}
+            if y_sample is not None and not isinstance(y_sample, (int, float)):
+                return {"type": "none", "warning": f"數值欄位 {y_col} 非數字型，無法畫 bar"}
             return {"type": "bar", "x_key": x_col, "y_key": y_col, "title": f"{x_col} 統計"}
 
-        # Rule 2: Date column + numeric → Line chart
-        if date_cols and numeric_cols and has_order_by:
-            return {"type": "line", "x_key": date_cols[0], "y_key": numeric_cols[0], "title": f"{numeric_cols[0]} 趨勢"}
+        def _is_iso_date(val: object) -> bool:
+            if isinstance(val, (datetime.date, datetime.datetime)):
+                return True
+            return bool(_ISO_DATE_RE.match(str(val))) if val is not None else False
 
-        # Rule 3: Date in question keywords → suggest line if date + count
+        # Rule 2: Date column + numeric → Line chart (validate x values are ISO dates)
+        if date_cols and numeric_cols and has_order_by:
+            x_key = date_cols[0]
+            x_sample = rows[0].get(x_key) if rows else None
+            x_str = str(x_sample) if x_sample is not None else ""
+            if not _is_iso_date(x_sample):
+                y_col = numeric_cols[0]
+                if row_count <= 30:
+                    return {"type": "bar", "x_key": x_key, "y_key": y_col, "title": f"{y_col} 統計"}
+                return {"type": "none", "warning": f"X 軸非時間型（值：{x_str!r}），不適合 line chart"}
+            return {"type": "line", "x_key": x_key, "y_key": numeric_cols[0], "title": f"{numeric_cols[0]} 趨勢"}
+
+        # Rule 3: Trend keywords in question → suggest line if date cols present
         if any(kw in q for kw in ["趨勢", "變化", "走勢", "歷史"]) and date_cols:
+            x_key = date_cols[0]
+            x_sample = rows[0].get(x_key) if rows else None
+            x_str = str(x_sample) if x_sample is not None else ""
+            if not _is_iso_date(x_sample):
+                return {"type": "none", "warning": f"X 軸非時間型（值：{x_str!r}），不適合 line chart"}
             y = numeric_cols[0] if numeric_cols else "count"
-            return {"type": "line", "x_key": date_cols[0], "y_key": y, "title": "趨勢圖"}
+            return {"type": "line", "x_key": x_key, "y_key": y, "title": "趨勢圖"}
 
         # Default: no chart suggestion (use table)
         return None
@@ -1288,6 +1422,8 @@ SQL：{sql}
         history: List[Dict[str, Any]] = []
         last_result: Optional[Dict[str, Any]] = None
         final_confidence = None
+        tool_repair_attempted = False  # P2: each query() only tries tool-use repair once
+        _repair_path: Optional[str] = None  # "tool_use" | "rewrite_fallback" | None
 
         for attempt in range(max_iter):
             feedback = history[-1].get("feedback") if history else None
@@ -1366,13 +1502,115 @@ SQL：{sql}
             # 3. Execute SQL
             result = await self.execute_sql(sql, row_filter_params)
             if result.get("error"):
+                exec_error = result["error"]
                 history.append({
                     "attempt": attempt + 1,
                     "sql": sql,
-                    "error": result["error"],
-                    "feedback": f"SQL 執行錯誤：{result['error']}",
+                    "error": exec_error,
+                    "feedback": f"SQL 執行錯誤：{exec_error}",
                 })
-                continue
+
+                # P2: tool_use repair — try once per query() call on execution failure
+                if not tool_repair_attempted and sql and exec_error:
+                    tool_repair_attempted = True
+                    try:
+                        # Build Anthropic client for repair (separate from SQL-gen provider)
+                        _repair_api_key = getattr(self._settings, "anthropic_api_key", None)
+                        if _repair_api_key:
+                            from anthropic import AsyncAnthropic
+                            _repair_client = AsyncAnthropic(api_key=_repair_api_key)
+                            _repair_model = (
+                                getattr(self._settings, "anthropic_sql_model", None)
+                                or getattr(self._settings, "anthropic_model", None)
+                                or "claude-sonnet-4-6"
+                            )
+                            # H3: _last_schema_ctx may be None on prebuilt_schema path
+                            _schema_ctx = (
+                                getattr(self, "_last_schema_ctx", None)
+                                or prebuilt_schema
+                                or ""
+                            )
+                            _t_repair = time.monotonic()
+                            repair_result = await repair_with_tools(
+                                self.db,
+                                question,
+                                sql,
+                                exec_error,
+                                _schema_ctx,
+                                _repair_client,
+                                _repair_model,
+                                max_tool_calls=3,
+                            )
+                            _repair_ms = round((time.monotonic() - _t_repair) * 1000, 1)
+
+                            # Log repair attempt in rewrite_history item
+                            _repair_log = {
+                                "attempt": 99,
+                                "query": "<repair_with_tools>",
+                                "reason": "tool_use repair",
+                                "success": repair_result.get("success", False),
+                                "ms": _repair_ms,
+                                "tool_calls": repair_result.get("tool_calls", []),
+                            }
+                            if rewrite_history is None:
+                                rewrite_history = []
+                            rewrite_history = list(rewrite_history) + [_repair_log]
+
+                            if repair_result.get("success") and repair_result.get("sql"):
+                                repaired_sql = repair_result["sql"]
+
+                                # C1: Re-run ALL security gates on repaired SQL
+                                # (validate_sql → sql_policy → allowed_tables → row_filter)
+                                # so LLM cannot inject forbidden statements via repair.
+                                _sec_ok, _sec_err, repaired_sql_filtered, repaired_row_params = (
+                                    self._run_security_gates(repaired_sql, perm, user_context)
+                                )
+                                if not _sec_ok:
+                                    log.warning(
+                                        "tool_use repair SQL rejected by security gates: %s | sql=%.120s",
+                                        _sec_err, repaired_sql,
+                                    )
+                                    _repair_path = "rewrite_fallback"
+                                    continue
+
+                                repaired_result = await self.execute_sql(
+                                    repaired_sql_filtered, repaired_row_params
+                                )
+                                if not repaired_result.get("error"):
+                                    # Repair succeeded — continue pipeline with repaired SQL
+                                    _repair_path = "tool_use"
+                                    log.info(
+                                        "tool_use repair succeeded: original_error=%s repaired_sql=%.120s",
+                                        exec_error[:80], repaired_sql_filtered,
+                                    )
+                                    sql = repaired_sql_filtered
+                                    result = repaired_result
+                                    # Fall through to rule-validation below (no continue)
+                                else:
+                                    # Repair SQL also failed → fall through to original continue
+                                    log.info(
+                                        "tool_use repair SQL still failed: %s",
+                                        repaired_result.get("error", "")[:80],
+                                    )
+                                    _repair_path = "rewrite_fallback"
+                                    continue
+                            else:
+                                log.info(
+                                    "tool_use repair gave no SQL: %s",
+                                    repair_result.get("error", "")[:80],
+                                )
+                                _repair_path = "rewrite_fallback"
+                                continue
+                        else:
+                            # No API key — skip repair silently
+                            log.debug("tool_use repair skipped: no anthropic_api_key")
+                            continue
+                    except Exception as _re:
+                        log.warning("tool_use repair exception (non-fatal): %s", _re)
+                        _repair_path = "rewrite_fallback"
+                        continue
+                else:
+                    continue
 
             # 4. Rule-based validation
             rule_issues = self._rule_validate(question, sql, result)
@@ -1488,6 +1726,7 @@ SQL：{sql}
                 "chart_suggestion": chart_suggestion,
                 "summary": self._generate_summary(result["columns"], result["rows"], result["row_count"]),
                 "column_labels": column_labels,
+                "repair_path": _repair_path,
             }
             break
 
@@ -1511,6 +1750,7 @@ SQL：{sql}
                 "mode": mode,
                 "cached": False,
                 "query_plan": self._query_plan,
+                "repair_path": _repair_path or "rewrite_fallback",
             }
 
         # Cache SQL permanently (no TTL) — only stores SQL + metadata, not data

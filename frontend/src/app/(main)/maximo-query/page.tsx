@@ -67,12 +67,13 @@ interface QueryResult {
     options: Array<{label: string; query: string}>;
   };
   chart_suggestion?: {
-    type: 'bar' | 'line' | 'pie';
+    type: 'bar' | 'line' | 'pie' | 'none';
     x_key?: string;
     y_key?: string;
     name_key?: string;
     value_key?: string;
     title?: string;
+    warning?: string;
   };
   suggestions?: Array<{label: string; query: string; type?: string}>;
   column_labels?: Record<string, string>;
@@ -156,8 +157,8 @@ export default function MaximoQueryPage() {
       if (data.success && data.sql) {
         setQueryHistory(prev => [...prev.slice(-4), { question: q2, sql: data.sql! }]);
       }
-      setViewMode(data.chart_suggestion ? 'chart' : 'table');
-      if (data.chart_suggestion?.type) setChartType(data.chart_suggestion.type);
+      setViewMode(data.chart_suggestion && data.chart_suggestion.type !== 'none' ? 'chart' : 'table');
+      if (data.chart_suggestion?.type && data.chart_suggestion.type !== 'none') setChartType(data.chart_suggestion.type as 'bar' | 'line' | 'pie');
     } finally {
       clearTimers();
       setLoading(false);
@@ -474,6 +475,19 @@ export default function MaximoQueryPage() {
                 ))}
               </div>
             </details>
+          )}
+
+          {/* Chart warning banner */}
+          {result.chart_suggestion?.type === 'none' && result.chart_suggestion?.warning && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
+              padding: '0.625rem 0.875rem', borderRadius: 'var(--radius-sm)',
+              background: 'rgba(15,98,254,0.07)', border: '1px solid rgba(15,98,254,0.25)',
+              fontSize: '0.8125rem', color: 'var(--text-secondary)',
+            }}>
+              <span style={{ color: '#0f62fe', flexShrink: 0, marginTop: '0.0625rem' }}>ℹ</span>
+              <span><strong>資料不適合圖表呈現</strong>：{result.chart_suggestion.warning}</span>
+            </div>
           )}
 
           {/* View mode toggle + Chart */}
