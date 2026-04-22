@@ -1,19 +1,23 @@
 """
-Tool 2: search_workorders_by_vehicle — 依車號查工單（UNION PM+CM）
+Tool 2: search_workorders_by_vehicle — 依車號或車型查工單（UNION PM+CM）
 
 SSH 實測（2026-04-20）：
 - maximo_pm_workorders 331K 筆，work_type: 1A/2A/3A/4A（定檢）
 - maximo_cm_workorders   6K 筆，work_type: T1/TR/CM（臨修）
 - status 為 9 種中文值（直接存中文，非英文 enum）
+
+輸入模式（二擇一，不可同時）：
+- asset_num: 特定車號，e.g. "EMU901"
+- vehicle_type: 車型前綴，e.g. "EMU900"（比對整個車型系列）
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.services.maximo_tools.base import (
     Tool,
@@ -37,7 +41,14 @@ _SCHEMA: dict[str, Any] = {
     "properties": {
         "asset_num": {
             "type": "string",
-            "description": "車輛資產編號，如 A12345",
+            "description": "特定車號，如 EMU901。與 vehicle_type 二擇一，不可同時提供。",
+        },
+        "vehicle_type": {
+            "type": "string",
+            "description": (
+                "車型前綴，如 EMU900（比對 EMU900/EMU901/EMU902 等整個車型系列）。"
+                "用於「EMU900 型工單」等車型層級查詢。與 asset_num 二擇一，不可同時提供。"
+            ),
         },
         "status": {
             "type": "string",
@@ -70,22 +81,33 @@ _SCHEMA: dict[str, Any] = {
             "description": "ISO 8601 結束日期，如 2026-03-31",
         },
     },
-    "required": ["asset_num"],
+    "required": [],
 }
 
 validate_tool_schema(_SCHEMA)  # 啟動時驗證，確保與 Anthropic tool_use 相容
 
 
 class _Input(BaseModel):
-    """Runtime 參數驗證。schema 與此分離（見 _SCHEMA）。"""
+    """Runtime 參數驗證。schema 與此分離（見 _SCHEMA）。asset_num 與 vehicle_type 二擇一。"""
 
-    asset_num: str = Field(..., description="車輛資產編號")
+    asset_num: Optional[str] = Field(None, description="特定車號")
+    vehicle_type: Optional[str] = Field(None, description="車型前綴")
     status: str | None = None
     status_group: str | None = None
     wo_type: str = "all"
     date_range: str = "last_30d"
     from_date: str | None = None
     to_date: str | None = None
+
+    @model_validator(mode="after")
+    def _xor_vehicle(self) -> "_Input":
+        has_asset = self.asset_num is not None and self.asset_num.strip() != ""
+        has_type = self.vehicle_type is not None and self.vehicle_type.strip() != ""
+        if has_asset and has_type:
+            raise ValueError("asset_num 與 vehicle_type 不可同時提供，二擇一")
+        if not has_asset and not has_type:
+            raise ValueError("asset_num 或 vehicle_type 必須提供一個")
+        return self
 
     def model_post_init(self, __context: Any) -> None:
         _valid_statuses = set(_STATUS_OPEN + _STATUS_CLOSED + _STATUS_CANCELLED)
@@ -103,9 +125,12 @@ class SearchWorkordersByVehicleTool(Tool):
     definition = ToolDefinition(
         name="search_workorders_by_vehicle",
         description=(
-            "依車號查工單。合併 PM 定檢 + CM 臨修 ETL 表，回傳 list 含工單類型欄位。"
+            "依車號或車型查工單。合併 PM 定檢 + CM 臨修 ETL 表，回傳 list 含工單類型欄位。"
             "支援狀態過濾（單一中文值或 open/closed/cancelled 分組）、日期範圍、工單類型（定檢/臨修/all）。"
-            "使用場景：『A12345 最近故障』、『查這台車的工單』、『上個月未結案工單』。"
+            "使用場景：『EMU901 最近工單』（用 asset_num）、"
+            "『EMU900 型的工單』（用 vehicle_type='EMU900'，比對整個車型系列）、"
+            "『上個月未結案工單』。"
+            "注意：asset_num 與 vehicle_type 二擇一，不可同時提供。"
         ),
         input_schema=_SCHEMA,
     )
@@ -179,9 +204,17 @@ class SearchWorkordersByVehicleTool(Tool):
                 f"SELECT wonum, assetnum, status, '{wo_type_label}' AS wo_type,"  # noqa: S608
                 " work_type, description, report_date, act_start, act_finish"
                 f" FROM {table}"
-                " WHERE assetnum = %s"
+                " WHERE "
             )
-            sub_args: list[Any] = [params.asset_num]
+            sub_args: list[Any] = []
+
+            if params.asset_num is not None:
+                sub += "assetnum = %s"
+                sub_args.append(params.asset_num)
+            else:
+                sub += "(assetnum LIKE %s OR eq4 = %s)"
+                sub_args.append(f"{params.vehicle_type}%")
+                sub_args.append(params.vehicle_type)
 
             if status_values is not None:
                 placeholders = ", ".join(["%s"] * len(status_values))

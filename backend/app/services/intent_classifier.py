@@ -177,12 +177,44 @@ class IntentClassifierService:
             result = json.loads(content[start:end])
 
             LLM_BREAKER.record_success()
+
+            raw_intent = result.get("intent", "clarification")
+            raw_confidence = result.get("confidence", 0.5)
+
+            # Post-processing override: if LLM hallucinates clarification on a
+            # long query with low confidence, override to a safer default.
+            if (
+                raw_intent == "clarification"
+                and len(query) >= 20
+                and raw_confidence < 0.8
+            ):
+                _VEHICLE_CODE_RE = re.compile(r'\b(EMU|TEMU|DMU)\d+', re.IGNORECASE)
+                _STRUCTURED_KEYWORDS = {"工單", "故障通報", "車輛", "檢修", "資產"}
+                _KNOWLEDGE_KEYWORDS = {"手冊", "SOP", "程序", "規範", "如何", "怎麼", "為什麼"}
+
+                if _VEHICLE_CODE_RE.search(query) or any(kw in query for kw in _STRUCTURED_KEYWORDS):
+                    new_intent = "structured"
+                    log.warning(
+                        "intent override: LLM said clarification but query was %d chars, forcing %s",
+                        len(query), new_intent,
+                    )
+                    raw_intent = new_intent
+                    raw_confidence = 0.7
+                elif any(kw in query for kw in _KNOWLEDGE_KEYWORDS):
+                    new_intent = "knowledge"
+                    log.warning(
+                        "intent override: LLM said clarification but query was %d chars, forcing %s",
+                        len(query), new_intent,
+                    )
+                    raw_intent = new_intent
+                    raw_confidence = 0.7
+
             return IntentResult(
-                intent=QueryIntent(result.get("intent", "clarification")),
-                confidence=result.get("confidence", 0.5),
+                intent=QueryIntent(raw_intent),
+                confidence=raw_confidence,
                 entities=result.get("entities", {}),
                 reasoning=result.get("reasoning", ""),
-                clarification_options=result.get("clarification_options"),
+                clarification_options=result.get("clarification_options") if raw_intent == "clarification" else None,
             )
 
         except Exception as e:
