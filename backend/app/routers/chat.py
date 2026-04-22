@@ -823,6 +823,12 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                     if follow_ups:
                         yield sse_event('follow_up', follow_ups)
 
+                    # 0-row fallback: pure SQL query returned no data → supplement with RAG
+                    if intent == "sql" and sql_result.get("row_count", 0) == 0:
+                        yield sse_event('reasoning', {'phase': 'fallback', 'text': 'SQL 查無資料，自動補充知識庫搜尋'})
+                        yield sse_event('metadata', {'intent': {'intent': 'hybrid'}, 'fallback_reason': 'sql_zero_rows'})
+                        intent = "hybrid"
+
                     if intent == "sql":
                         asyncio.create_task(tracer.save())
                         yield sse_event('done', {}, terminal=TerminalState.COMPLETED)

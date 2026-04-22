@@ -153,8 +153,10 @@ def _heuristic_decompose(query: str) -> DecompositionResult:
     tasks.append(SubTask(id="rag_docs", type="rag", sub_query=query, label="搜尋知識庫"))
 
     if len(tasks) == 1:
-        # Only RAG, no SQL keywords matched
-        return DecompositionResult(sub_tasks=tasks, synthesis_instruction="根據知識庫文件回答")
+        # No SQL keyword matched — add a generic SQL sub-task so the default path is hybrid,
+        # not RAG-only. The SQL worker will return 0 rows if there is nothing relevant, which
+        # is safe. This matches the intent_router default of "hybrid".
+        tasks.insert(0, SubTask(id="sql_general", type="sql", sub_query=query, label="查詢資料庫"))
 
     return DecompositionResult(
         sub_tasks=tasks,
