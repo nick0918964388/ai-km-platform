@@ -216,7 +216,11 @@ class MaximoNL2SQL:
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["content"][0]["text"]
+            stop_reason = data.get("stop_reason")
+            if stop_reason and stop_reason != "end_turn":
+                log.warning("_call_anthropic: unexpected stop_reason=%s", stop_reason)
+            text_blocks = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
+            return "".join(text_blocks)
 
     # Column name → Chinese display label
     _COL_LABELS = {
@@ -639,9 +643,11 @@ class MaximoNL2SQL:
             t_llm = time.monotonic()
             if self.provider == "anthropic":
                 # 合併 messages 成單一 user_msg（Anthropic 不支援 system+user 疊加）
-                user_text = messages[-1]["content"] if messages else question
+                # Bug 1 fix: always anchor from messages[1] (original question),
+                # not messages[-1] which may be the feedback-only message.
+                user_text = messages[1]["content"] if len(messages) > 1 else question
                 if feedback:
-                    user_text = f"{user_text}\n\n上次回覆：我上次產生的 SQL 有問題。\n{feedback}\n請重新產生正確的 SQL。"
+                    user_text = f"{user_text}\n\n上次 SQL 有問題：{feedback}\n請重新產生正確的 SQL。"
                 content = await self._call_anthropic(system_prompt, user_text, max_tokens=2000)
             else:
                 resp = await self.client.chat.completions.create(
@@ -672,13 +678,30 @@ class MaximoNL2SQL:
                                 break
                     if end != -1:
                         content = content[:end]
-            result = json.loads(content)
+            # Handle LLM-escaped single quotes before JSON parse
+            content = content.replace("\\'", "'")
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError as je:
+                log.error("generate_sql JSON parse failed: %s | raw content: %r", je, content[:500])
+                raise
             result["_model"] = self.model
             result["_llm_ms"] = getattr(self, "_llm_ms", None)
             return result
         except Exception as e:
             log.exception("generate_sql failed")
             return {"error": str(e), "sql": None}
+
+    @staticmethod
+    def _strip_markdown_sql(text: str) -> str:
+        """Strip markdown code fence from LLM-generated SQL."""
+        if not text:
+            return text
+        text = text.strip()
+        m = re.search(r'```(?:sql|postgresql|postgres)?\s*\n?(.*?)\n?```', text, re.DOTALL | re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+        return text
 
     def validate_sql(self, sql: str) -> Optional[str]:
         """Return error string if invalid, None if ok."""
@@ -994,6 +1017,10 @@ SQL：{sql}
                                recovery_path: str = None):
         """Write query to audit log."""
         try:
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
             user_id = (user_context or {}).get("id", "guest")
             user_email = (user_context or {}).get("email", "")
             tables = re.findall(r'\b(?:from|join)\s+(\w+)', (sql or "").lower())
@@ -1530,6 +1557,11 @@ SQL：{sql}
                                 or prebuilt_schema
                                 or ""
                             )
+                            # Defensive: clear any aborted outer tx before tool repair
+                            try:
+                                await self.db.rollback()
+                            except Exception as _rb_err:
+                                log.warning("Pre-repair rollback failed: %s", _rb_err)
                             _t_repair = time.monotonic()
                             repair_result = await repair_with_tools(
                                 self.db,
@@ -1557,7 +1589,7 @@ SQL：{sql}
                             rewrite_history = list(rewrite_history) + [_repair_log]
 
                             if repair_result.get("success") and repair_result.get("sql"):
-                                repaired_sql = repair_result["sql"]
+                                repaired_sql = self._strip_markdown_sql(repair_result["sql"])
 
                                 # C1: Re-run ALL security gates on repaired SQL
                                 # (validate_sql → sql_policy → allowed_tables → row_filter)

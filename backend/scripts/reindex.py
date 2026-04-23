@@ -6,8 +6,8 @@ import sys
 import requests
 from pathlib import Path
 
-API_URL = "http://localhost:8000"
-API_KEY = "_lAWtCn29ETEomZjfz1Xa9SvVsrjOaCMvqt0htX3Shw"
+API_URL = os.environ.get("API_URL", "http://localhost:8000")
+API_KEY = os.environ["AIKM_API_KEY"]  # fail-fast: set AIKM_API_KEY before running
 STORAGE_DIR = Path(__file__).parent.parent / "storage" / "documents"
 
 def upload_file(filepath: Path) -> dict:

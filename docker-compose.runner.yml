@@ -1,0 +1,49 @@
+# docker-compose.runner.yml
+# GitHub Actions self-hosted runner — 與主應用生命週期分離
+#
+# ⚠️ 必須在 /root/ai-km-platform 目錄下執行（或加 -p ai-km-platform）
+# 否則 external volume/network 命名前綴對不上會找不到。
+# 驗證：`docker volume ls | grep runner-work` 應看到 ai-km-platform_aikm-runner-work
+#
+# 運維指令：
+#   docker compose -f docker-compose.runner.yml -p ai-km-platform up -d github-runner
+#   docker compose -f docker-compose.runner.yml -p ai-km-platform restart github-runner
+#   docker compose -f docker-compose.runner.yml -p ai-km-platform logs -f github-runner
+#
+# 首次註冊需要 GITHUB_RUNNER_TOKEN（從 GitHub Settings → Actions → Runners → Add）
+# 已註冊的 runner 重啟不需要 token（靠 aikm-runner-work volume 內的 .credentials）
+
+services:
+  github-runner:
+    image: myoung34/github-runner:latest
+    container_name: aikm-github-runner
+    restart: unless-stopped
+    environment:
+      REPO_URL: https://github.com/nick0918964388/ai-km-platform
+      RUNNER_NAME: aikm-runner-01
+      RUNNER_TOKEN: ${GITHUB_RUNNER_TOKEN:?GITHUB_RUNNER_TOKEN required — 見 docs/GITHUB_ACTIONS_SETUP.md}
+      RUNNER_WORKDIR: /tmp/runner/work
+      LABELS: self-hosted,linux,aikm
+      DISABLE_AUTO_UPDATE: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/ai-km-platform:/root/ai-km-platform
+      - /mnt/disk3/shared:/mnt/disk3/shared
+      - aikm-runner-work:/tmp/runner/work
+    networks:
+      - aikm-network
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /tmp/runner/_work/.runner || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  aikm-runner-work:
+    external: true
+    name: ai-km-platform_aikm-runner-work   # docker compose 預設 project prefix（目錄名）
+
+networks:
+  aikm-network:
+    external: true
+    name: ai-km-platform_aikm-network       # docker compose 預設 project prefix（目錄名）

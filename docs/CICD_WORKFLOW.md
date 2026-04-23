@@ -113,12 +113,12 @@ merge 後 `main-deploy` 立刻跑 → 完整 rolling update + 健康檢查 + 失
 ### Runner 顯示 Offline
 ```bash
 ssh root@192.168.1.11
-docker logs aikm-github-runner --tail 50
+docker compose -f docker-compose.runner.yml -p ai-km-platform logs -f github-runner
 ```
 若 token 過期（container recreate 後），需重拿 token：
 1. GitHub → Settings → Actions → Runners → New self-hosted runner → 複製 token
 2. `echo "GITHUB_RUNNER_TOKEN=<新 token>" >> /root/ai-km-platform/.env`（覆蓋舊的）
-3. `docker compose restart github-runner`
+3. `docker compose -f docker-compose.runner.yml -p ai-km-platform up -d github-runner`
 
 ### Push 被擋：PAT workflow scope
 錯誤訊息 `refusing to allow a Personal Access Token to create or update workflow`
@@ -167,9 +167,53 @@ docker exec aikm-backend pip install pytest pytest-asyncio fakeredis
 
 ---
 
+## GitHub Runner 生命週期
+
+Runner 從主 `docker-compose.yml` 拆分至 `docker-compose.runner.yml`，與應用服務生命週期分離。
+
+### 日常重啟（已註冊，不需要 token）
+
+> ⚠️ 必須在 `/root/ai-km-platform` 目錄下執行，或加 `-p ai-km-platform`，否則 external volume/network 命名前綴對不上。
+
+```bash
+docker compose -f docker-compose.runner.yml -p ai-km-platform restart github-runner
+```
+
+已註冊的 runner 靠 `aikm-runner-work` volume 內的 `.credentials` 維持 GitHub session，重啟不需要 `GITHUB_RUNNER_TOKEN`。
+
+### 首次註冊 / 清 volume 後重建（需要 token）
+
+1. GitHub → Settings → Actions → Runners → **New self-hosted runner** → 複製 token
+2. 在部署機 `.env` 寫入 token：
+   ```bash
+   echo "GITHUB_RUNNER_TOKEN=<新 token>" >> /root/ai-km-platform/.env
+   ```
+3. 啟動 runner（必須在 `/root/ai-km-platform` 目錄下執行）：
+   ```bash
+   docker compose -f docker-compose.runner.yml -p ai-km-platform up -d github-runner
+   ```
+
+token 官方 TTL 1 小時，僅首次啟動時消耗；之後重啟均無需更新。
+
+### Runner offline 排查
+
+```bash
+docker logs aikm-github-runner --tail 50
+```
+
+- log 顯示 `Runner connect` 相關錯誤 → `.credentials` 損壞，需清 volume 重新走首次註冊流程
+- log 顯示網路錯誤 → 確認部署機可連 `github.com`
+
+### CI 行為說明
+
+`.github/workflows/main-deploy.yml` 中 `runs-on: self-hosted` 只要求 runner 標籤符合（`self-hosted,linux,aikm`），與 compose service 名稱無關。只要 `aikm-github-runner` container 在線且與 GitHub 有有效 session，job 就會被接收執行。
+
+---
+
 ## 相關文件
 
 - `docs/GITHUB_ACTIONS_SETUP.md` — Runner 首次註冊指南（已完成）
 - `.github/workflows/` — 三個 workflow YAML 檔
-- `docker-compose.yml` — `github-runner` service 定義
+- `docker-compose.runner.yml` — GitHub Runner 獨立 compose（從主 compose 拆出）
+- `docker-compose.yml` — 主應用 compose（postgres/qdrant/redis/backend/frontend/maximo-extractor）
 - `CLAUDE.md` — Claude 工作手冊（含部署原則）
