@@ -110,6 +110,13 @@ class Settings(BaseSettings):
     # Document Storage (for original file preview)
     storage_dir: str = "./storage/documents"
 
+    # Skill Agent (S3)
+    skill_agent_validate_enabled: bool = True
+    # threshold_upper: 觸發 validate 的 row count 上限
+    # default 10000 保守涵蓋儀表板類查詢（< 10000 筆視為合理）
+    # 也注意：validate=no 不代表 SQL 錯，只是「讓 agent 再評估一輪是否要 refine」
+    skill_agent_validate_threshold_upper: int = 10000
+
     # PostgreSQL Viewer (013)
     pg_viewer_enabled: bool = True
     pg_viewer_database_url: str = ""

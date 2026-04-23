@@ -18,6 +18,7 @@ from app.routers import kb, chat, upload_ws, structured, query, export, dashboar
 from app.routers.auth import router as auth_router
 from app.routers.pg_viewer import router as pg_viewer_router
 from app.routers.csp_violations import router as csp_violations_router
+from app.routers.skills_admin import router as skills_admin_router
 from app.config import get_settings
 
 # API Key for authentication
@@ -302,6 +303,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Date column migration skipped: {e}")
 
+    # Skills system: ensure Qdrant collection + run migration
+    try:
+        import pathlib as _pl
+        _skills_sql = _pl.Path(__file__).resolve().parent.parent / "scripts" / "migration_013_skills.sql"
+        if _skills_sql.exists():
+            from app.db.session import get_db_context
+            from sqlalchemy import text as _text
+            _sql_content = _skills_sql.read_text()
+            async with get_db_context() as _db:
+                for _stmt in _sql_content.split(";"):
+                    _stmt = _stmt.strip()
+                    if _stmt and not _stmt.startswith("--"):
+                        await _db.execute(_text(_stmt))
+        from app.services.vector_store import get_client as _get_qdrant
+        from app.services.skills.qdrant_collection import ensure_collection as _ensure_skills
+        _ensure_skills(_get_qdrant())
+        print("✅ Skills tables + Qdrant collection ensured")
+    except Exception as e:
+        print(f"⚠️ Skills system init skipped: {e}")
+
     # Load domain code→Chinese mappings
     try:
         from app.services.domain_mapper import load_domain_cache
@@ -383,6 +404,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(conversations.router)
 app.include_router(pg_viewer_router, prefix="/api/pg-viewer")
 app.include_router(csp_violations_router, prefix="/api")
+app.include_router(skills_admin_router)
 
 
 @app.get("/")
