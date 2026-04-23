@@ -35,6 +35,7 @@ from app.services.maximo_nl2sql_tools import (
     exec_sample_rows,
     repair_with_tools,
 )
+from app.services.maximo_nl2sql import MaximoNL2SQL
 
 
 # ---------------------------------------------------------------------------
@@ -553,6 +554,38 @@ async def test_exec_execute_sql_rejects_pg_catalog():
 # ---------------------------------------------------------------------------
 # H2: Mixed text+tool_use block in repair_with_tools
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Bug 6: _strip_markdown_sql strips code fence before security gate
+# ---------------------------------------------------------------------------
+
+
+def test_strip_markdown_sql_strips_fence():
+    """Bug 6: SQL wrapped in ```sql fence must be unwrapped."""
+    fenced = "```sql\nSELECT 1\n```"
+    assert MaximoNL2SQL._strip_markdown_sql(fenced) == "SELECT 1"
+
+
+def test_strip_markdown_sql_strips_plain_fence():
+    """Bug 6b: Plain ``` fence (no language tag) must also be unwrapped."""
+    fenced = "```\nSELECT assetnum FROM maximo_assets LIMIT 5\n```"
+    result = MaximoNL2SQL._strip_markdown_sql(fenced)
+    assert result == "SELECT assetnum FROM maximo_assets LIMIT 5"
+
+
+def test_strip_markdown_sql_passthrough_plain():
+    """Bug 6c: SQL without fences passes through unchanged."""
+    sql = "SELECT 1"
+    assert MaximoNL2SQL._strip_markdown_sql(sql) == "SELECT 1"
+
+
+def test_strip_markdown_sql_then_security_gate_passes():
+    """Bug 6d: ```sql\\nSELECT 1\\n``` → strip → _is_safe_select accepts it."""
+    fenced = "```sql\nSELECT 1\n```"
+    stripped = MaximoNL2SQL._strip_markdown_sql(fenced)
+    ok, err = _is_safe_select(stripped)
+    assert ok, f"Expected safe after strip but got: {err}"
 
 
 @pytest.mark.asyncio

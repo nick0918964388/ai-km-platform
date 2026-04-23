@@ -643,9 +643,11 @@ class MaximoNL2SQL:
             t_llm = time.monotonic()
             if self.provider == "anthropic":
                 # 合併 messages 成單一 user_msg（Anthropic 不支援 system+user 疊加）
-                user_text = messages[-1]["content"] if messages else question
+                # Bug 1 fix: always anchor from messages[1] (original question),
+                # not messages[-1] which may be the feedback-only message.
+                user_text = messages[1]["content"] if len(messages) > 1 else question
                 if feedback:
-                    user_text = f"{user_text}\n\n上次回覆：我上次產生的 SQL 有問題。\n{feedback}\n請重新產生正確的 SQL。"
+                    user_text = f"{user_text}\n\n上次 SQL 有問題：{feedback}\n請重新產生正確的 SQL。"
                 content = await self._call_anthropic(system_prompt, user_text, max_tokens=2000)
             else:
                 resp = await self.client.chat.completions.create(
@@ -689,6 +691,17 @@ class MaximoNL2SQL:
         except Exception as e:
             log.exception("generate_sql failed")
             return {"error": str(e), "sql": None}
+
+    @staticmethod
+    def _strip_markdown_sql(text: str) -> str:
+        """Strip markdown code fence from LLM-generated SQL."""
+        if not text:
+            return text
+        text = text.strip()
+        m = re.search(r'```(?:sql|postgresql|postgres)?\s*\n?(.*?)\n?```', text, re.DOTALL | re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+        return text
 
     def validate_sql(self, sql: str) -> Optional[str]:
         """Return error string if invalid, None if ok."""
@@ -1572,7 +1585,7 @@ SQL：{sql}
                             rewrite_history = list(rewrite_history) + [_repair_log]
 
                             if repair_result.get("success") and repair_result.get("sql"):
-                                repaired_sql = repair_result["sql"]
+                                repaired_sql = self._strip_markdown_sql(repair_result["sql"])
 
                                 # C1: Re-run ALL security gates on repaired SQL
                                 # (validate_sql → sql_policy → allowed_tables → row_filter)
