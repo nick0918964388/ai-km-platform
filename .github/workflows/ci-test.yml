@@ -32,6 +32,9 @@ jobs:
           git clean -fd
           echo "HEAD: $(git rev-parse HEAD)"
 
+      - name: Check env.example drift
+        run: bash scripts/check_env_drift.sh
+
       - name: Install test deps (idempotent)
         run: |
           docker exec aikm-backend pip install --quiet pytest pytest-asyncio fakeredis 2>&1 | tail -10 || true

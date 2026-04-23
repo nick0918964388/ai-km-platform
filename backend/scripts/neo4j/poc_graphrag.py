@@ -33,7 +33,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://192.168.1.11:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "8bdYv##P&bE+-r^3uVrp7v8b")
+NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]  # fail-fast: set NEO4J_PASSWORD before running
 
 # 測試 label 前綴 — 清除時依此 match
 POC_LABELS = [
