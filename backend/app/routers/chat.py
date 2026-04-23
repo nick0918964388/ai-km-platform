@@ -140,7 +140,7 @@ async def _write_rag_fallback_audit(query: str, rewrite_history: list,
                      original_question, rewrite_history, recovery_path)
                 VALUES
                     (NULL, NULL, :q, NULL, '{}', 0, NULL, 'nl2sql', :rid, :cid,
-                     NULL, :rw_hist::jsonb, :rec_path)
+                     NULL, CAST(:rw_hist AS jsonb), :rec_path)
             """), {
                 "q": query,
                 "rid": request_id,
@@ -181,26 +181,49 @@ async def _generate_sql_recovery_options(query: str, error: str, context: list =
 
     try:
         import re as _re
-        from openai import AsyncOpenAI
-        # llm_api_key 不存在於 Settings；依 provider 取對應 key，或用 dummy（Ollama 不需真 key）
         _provider = getattr(settings, "llm_provider", "ollama")
-        _api_key = (
-            settings.anthropic_api_key if _provider == "anthropic" else
-            settings.openai_api_key if _provider == "openai" else
-            getattr(settings, "ollama_chat_api_key", None)
-        ) or "sk-unused"
-        client = AsyncOpenAI(base_url=llm_url, api_key=_api_key)
 
-        response = await asyncio.wait_for(
-            client.chat.completions.create(
-                model=llm_model,
-                messages=[{"role": "user", "content": f"/no_think\n{prompt}"}],
-                temperature=0.3,
-                max_tokens=500,
-            ),
-            timeout=10.0,
-        )
-        content = response.choices[0].message.content.strip()
+        if _provider == "anthropic" and getattr(settings, "anthropic_api_key", None):
+            import httpx
+            async with httpx.AsyncClient() as _http:
+                _resp = await asyncio.wait_for(
+                    _http.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={
+                            "x-api-key": settings.anthropic_api_key,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json",
+                        },
+                        json={
+                            "model": llm_model,
+                            "max_tokens": 500,
+                            "messages": [{"role": "user", "content": prompt}],
+                        },
+                        timeout=10.0,
+                    ),
+                    timeout=12.0,
+                )
+                _resp.raise_for_status()
+                _data = _resp.json()
+                text_blocks = [b.get("text", "") for b in _data.get("content", []) if b.get("type") == "text"]
+                content = "".join(text_blocks).strip()
+        else:
+            from openai import AsyncOpenAI
+            _api_key = (
+                settings.openai_api_key if _provider == "openai" else
+                getattr(settings, "ollama_chat_api_key", None)
+            ) or "sk-unused"
+            client = AsyncOpenAI(base_url=llm_url, api_key=_api_key)
+            response = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=llm_model,
+                    messages=[{"role": "user", "content": f"/no_think\n{prompt}"}],
+                    temperature=0.3,
+                    max_tokens=500,
+                ),
+                timeout=10.0,
+            )
+            content = (response.choices[0].message.content or "").strip()
 
         content = _re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
         if content.startswith("```"):

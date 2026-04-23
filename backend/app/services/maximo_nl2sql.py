@@ -216,7 +216,11 @@ class MaximoNL2SQL:
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["content"][0]["text"]
+            stop_reason = data.get("stop_reason")
+            if stop_reason and stop_reason != "end_turn":
+                log.warning("_call_anthropic: unexpected stop_reason=%s", stop_reason)
+            text_blocks = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
+            return "".join(text_blocks)
 
     # Column name → Chinese display label
     _COL_LABELS = {
@@ -672,7 +676,13 @@ class MaximoNL2SQL:
                                 break
                     if end != -1:
                         content = content[:end]
-            result = json.loads(content)
+            # Handle LLM-escaped single quotes before JSON parse
+            content = content.replace("\\'", "'")
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError as je:
+                log.error("generate_sql JSON parse failed: %s | raw content: %r", je, content[:500])
+                raise
             result["_model"] = self.model
             result["_llm_ms"] = getattr(self, "_llm_ms", None)
             return result
@@ -1530,6 +1540,11 @@ SQL：{sql}
                                 or prebuilt_schema
                                 or ""
                             )
+                            # Defensive: clear any aborted outer tx before tool repair
+                            try:
+                                await self.db.rollback()
+                            except Exception as _rb_err:
+                                log.warning("Pre-repair rollback failed: %s", _rb_err)
                             _t_repair = time.monotonic()
                             repair_result = await repair_with_tools(
                                 self.db,
