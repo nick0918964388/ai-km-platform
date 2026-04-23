@@ -71,7 +71,7 @@ async def get_audit_logs(
         SELECT id, 'rag' as type, NULL as user_email, query,
                search_query as detail, NULL as tables_accessed,
                source_count as row_count, duration_ms,
-               quality as mode, rewrite_used as cached, created_at, request_id, conversation_id,
+               quality as mode, rewrite_used as cached, created_at, NULL as request_id, conversation_id,
                NULL as recovery_path
         FROM rag_search_log
     """
