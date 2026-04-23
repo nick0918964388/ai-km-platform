@@ -1017,6 +1017,10 @@ SQL：{sql}
                                recovery_path: str = None):
         """Write query to audit log."""
         try:
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
             user_id = (user_context or {}).get("id", "guest")
             user_email = (user_context or {}).get("email", "")
             tables = re.findall(r'\b(?:from|join)\s+(\w+)', (sql or "").lower())
