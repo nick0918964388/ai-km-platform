@@ -212,9 +212,8 @@ class SearchWorkordersByVehicleTool(Tool):
                 sub += "assetnum = %s"
                 sub_args.append(params.asset_num)
             else:
-                sub += "(assetnum LIKE %s OR eq4 = %s)"
+                sub += "assetnum LIKE %s"
                 sub_args.append(f"{params.vehicle_type}%")
-                sub_args.append(params.vehicle_type)
 
             if status_values is not None:
                 placeholders = ", ".join(["%s"] * len(status_values))
