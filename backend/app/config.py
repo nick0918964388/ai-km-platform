@@ -110,6 +110,9 @@ class Settings(BaseSettings):
     # Document Storage (for original file preview)
     storage_dir: str = "./storage/documents"
 
+    # Skills System (S0) — feature flag; default OFF (灰度 5% 由 _should_use_v2 控制)
+    enable_skills_system: bool = False
+
     # Skill Agent (S3)
     skill_agent_validate_enabled: bool = True
     # threshold_upper: 觸發 validate 的 row count 上限

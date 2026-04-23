@@ -10,8 +10,14 @@ from typing import Dict
 
 logger = logging.getLogger(__name__)
 
-# 預設 YAML 路徑（相對於此檔案的專案根目錄）
-_DEFAULT_YAML = Path(__file__).resolve().parents[4] / "data" / "terminology.yml"
+# 預設 YAML 路徑（相對於 backend package root）
+# __file__ layout:
+#   Docker : /app/app/services/terminology_normalizer/loader.py
+#   parents[0] = terminology_normalizer, [1] = services, [2] = app, [3] = /app  (backend root)
+#   Mac    : .../backend/app/services/terminology_normalizer/loader.py
+#   parents[3] = backend/
+# Either way: parents[3] / "data" / "terminology.yml" resolves correctly.
+_DEFAULT_YAML = Path(__file__).resolve().parents[3] / "data" / "terminology.yml"
 
 
 def load_terminology(path: str | Path | None = None) -> Dict[str, str]:

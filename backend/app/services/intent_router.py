@@ -1,4 +1,8 @@
-"""Intent Router — Detect whether a query is about documents (RAG) or data (SQL) or both."""
+"""Intent Router — Detect whether a query is about documents (RAG) or data (SQL) or both.
+
+@deprecated — replaced by Skills System pipeline (S0).
+Retained for 1 sprint to allow rollback via enable_skills_system=False.
+"""
 
 import re
 import logging

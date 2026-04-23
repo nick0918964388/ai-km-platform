@@ -1,4 +1,8 @@
-"""Intent Classifier Service — LLM-based query intent classification with Ollama."""
+"""Intent Classifier Service — LLM-based query intent classification with Ollama.
+
+@deprecated — replaced by Skills System pipeline (S0).
+Retained for 1 sprint to allow rollback via enable_skills_system=False.
+"""
 
 import asyncio
 import json
