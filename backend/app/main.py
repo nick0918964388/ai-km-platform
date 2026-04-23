@@ -331,6 +331,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Domain mapper cache skipped: {e}")
 
+    # Terminology normalizer — verify YAML loads correctly (C2 fix verification)
+    try:
+        from app.services.terminology_normalizer.loader import load_terminology, _DEFAULT_YAML
+        _terms = load_terminology()
+        if _terms:
+            print(f"✅ Terminology normalizer loaded {len(_terms)} terms from {_DEFAULT_YAML}")
+        else:
+            logger.warning("Terminology normalizer: 0 terms loaded (file missing or empty at %s)", _DEFAULT_YAML)
+    except Exception as e:
+        logger.warning("Terminology normalizer load failed: %s", e)
+
     # Load DB settings and override config singleton
     try:
         from app.services import settings_service

@@ -33,6 +33,10 @@ from app.db.session import get_db_context
 
 log = logging.getLogger(__name__)
 
+# GC guard for fire-and-forget tasks in the v2 branch (M3 fix).
+# asyncio holds only weak-refs to tasks; keeping strong refs here prevents GC interruption.
+_CHAT_TASKS: set[asyncio.Task] = set()
+
 
 def _is_multi_facet_query(query: str) -> bool:
     """偵測查詢是否涉及多個資料面向（括號列舉 / 冒號列舉 / 多個頓號分隔的主題）。
@@ -440,6 +444,165 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                     log.debug("Memory prefetch timed out")
                 except Exception:
                     pass
+
+            # === S0: Skills System Pipeline (feature flag) ===
+            # Flag OFF (default) → fall through to original intent_classifier path below.
+            # Flag ON + 5% grayscale (or image present) → run v2 pipeline.
+            _use_v2 = False
+            if settings.enable_skills_system:
+                from app.services.chat_pipeline_v2 import _should_use_v2 as _v2_gate
+                # Resolve the real user_id for stable grayscale bucketing (C1 fix).
+                # conversation_id is NOT user_id — same user opening multiple conversations
+                # would land in different buckets if we hashed conversation_id.
+                # Anonymous / no conversation → never use v2 (avoids "guest" bucket surprise).
+                _grayscale_uid: str | None = None
+                if conversation_id:
+                    async with get_db_context() as _gs_db:
+                        _gs_row = await _gs_db.execute(
+                            text("SELECT user_id FROM conversations WHERE id = :id"),
+                            {"id": conversation_id},
+                        )
+                        _gs_uid = _gs_row.scalar()
+                        _grayscale_uid = str(_gs_uid) if _gs_uid else None
+                # image_base64 present → always use v2 (old path has no multimodal SQL support)
+                _use_v2 = bool(request.image_base64) or _v2_gate(_grayscale_uid)
+
+            if _use_v2:
+                from app.services.chat_pipeline_v2 import (
+                    run_pipeline_v2,
+                    _emit_follow_up,
+                )
+                from app.services.domain_mapper import translate_rows as _translate_rows
+
+                yield sse_event('step', {'id': 'skills', 'label': '技能系統分析...', 'status': 'running'})
+                t0 = time.time()
+
+                # Build Qdrant + embedder (best-effort; None → matcher skipped → agent_fallback)
+                _qdrant = None
+                _embedder = None
+                try:
+                    from qdrant_client import QdrantClient
+                    from app.services.embedding import embed_text as _embed_text
+                    _qdrant = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key or None)
+                    _embedder = _embed_text
+                except Exception:
+                    pass
+
+                # Extract conversation history for agent
+                _v2_history = []
+                if request.context:
+                    for _m in request.context:
+                        if _m.get("intent") == "sql" and _m.get("sql"):
+                            _v2_history.append({
+                                "q": _m.get("content", ""),
+                                "sql": _m["sql"],
+                                "row_count": _m.get("row_count", 0),
+                                "intent": "sql",
+                            })
+
+                async with get_db_context() as _v2_db:
+                    v2_result = await run_pipeline_v2(
+                        query=query,
+                        user_ctx={"id": _grayscale_uid or conversation_id or "anonymous", "role": "viewer"},
+                        conversation_history=_v2_history[-3:] if _v2_history else None,
+                        image_base64=request.image_base64,
+                        request_id=tracer.request_id,
+                        conversation_id=conversation_id,
+                        qdrant_client=_qdrant,
+                        embedder=_embedder,
+                        db=_v2_db,
+                    )
+
+                skills_ms = int((time.time() - t0) * 1000)
+                recovery = v2_result.recovery_path
+
+                yield sse_event('step', {'id': 'skills', 'label': f'技能系統完成（{skills_ms}ms）', 'status': 'done'})
+
+                # --- pre_filter_reject: no LLM, no SQL ---
+                if recovery == "pre_filter_reject":
+                    _pf_action = v2_result.pre_filter_action  # "chitchat" | "clarify" | "cost_block"
+                    if _pf_action == "chitchat":
+                        yield sse_event('content', '您好！我是 AI 知識管理平台，可以幫您查詢車輛維修、工單、故障資料。請問有什麼可以協助您？')
+                        _pf_terminal = TerminalState.COMPLETED
+                    elif _pf_action == "clarify":
+                        yield sse_event('clarification', {
+                            "message": "請提供更具體的查詢描述",
+                            "options": [
+                                {"label": "查詢工單狀態", "value": "查詢核簽中的工單"},
+                                {"label": "查詢資產資訊", "value": "查詢 EMU800 的維修紀錄"},
+                                {"label": "查詢故障報告", "value": "最近一週的故障報告"},
+                            ],
+                        }, terminal=TerminalState.CLARIFICATION)
+                        _pf_terminal = TerminalState.CLARIFICATION
+                    elif _pf_action == "cost_block":
+                        yield sse_event('error', {
+                            'message': '查詢會觸發大量資料掃描，請加上 WHERE 條件或指定欄位',
+                            'code': 'cost_block',
+                        }, terminal=TerminalState.ERROR)
+                        return
+                    else:
+                        yield sse_event('content', v2_result.error or "請提供更具體的問題描述")
+                        _pf_terminal = TerminalState.CLARIFICATION
+                    total_ms = int((time.time() - total_start) * 1000)
+                    yield sse_event('metadata', {'duration_ms': total_ms, 'request_id': tracer.request_id})
+                    _pf_tracer_task = asyncio.create_task(tracer.save())
+                    _CHAT_TASKS.add(_pf_tracer_task)
+                    _pf_tracer_task.add_done_callback(_CHAT_TASKS.discard)
+                    yield sse_event('done', {}, terminal=_pf_terminal)
+                    return
+
+                # --- error ---
+                if v2_result.error and not v2_result.data and not v2_result.answer:
+                    yield sse_event('error', v2_result.error or '查詢失敗', terminal=TerminalState.ERROR)
+                    return
+
+                # --- SQL result (skill_direct / agent_fallback / agent_fallback_image) ---
+                if v2_result.data or v2_result.sql:
+                    explanation = v2_result.explanation or (
+                        f"（{recovery}）查詢完成，取得 {v2_result.row_count} 筆結果"
+                    )
+                    yield sse_event('content', explanation)
+                    budgeted_v2 = _translate_rows(v2_result.data[:50])  # Pattern 8 budget
+                    sql_event_v2 = {
+                        "success": True,
+                        "explanation": explanation,
+                        "columns": v2_result.columns,
+                        "data": budgeted_v2,
+                        "row_count": v2_result.row_count,
+                        "debug": {
+                            "sql": v2_result.sql,
+                            "recovery_path": recovery,
+                        },
+                    }
+                    yield sse_event('sql_result', sql_event_v2)
+
+                    follow_ups = _emit_follow_up(v2_result, query)
+                    if follow_ups:
+                        yield sse_event('follow_up', follow_ups)
+
+                elif v2_result.answer:
+                    # Pure RAG-style answer from agent
+                    yield sse_event('content', v2_result.answer)
+                    try:
+                        _rag_fus = rag.generate_follow_up_questions(
+                            query=query, answer=v2_result.answer, max_questions=3,
+                        )
+                        if _rag_fus:
+                            yield sse_event('follow_up', _rag_fus)
+                    except Exception:
+                        pass
+
+                total_ms = int((time.time() - total_start) * 1000)
+                yield sse_event('metadata', {
+                    'duration_ms': total_ms,
+                    'request_id': tracer.request_id,
+                    'intent': {'intent': 'skills_v2', 'recovery_path': recovery},
+                })
+                _v2_tracer_task = asyncio.create_task(tracer.save())
+                _CHAT_TASKS.add(_v2_tracer_task)
+                _v2_tracer_task.add_done_callback(_CHAT_TASKS.discard)
+                yield sse_event('done', {}, terminal=TerminalState.COMPLETED)
+                return
 
             # === Pattern 1: Speculative Execution ===
             # 平行啟動 intent classification + schema pre-build（推測可能是 SQL 查詢）
