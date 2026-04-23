@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { getApiHeaders, API_URL } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 
 interface ModelInfo {
   name: string;
@@ -19,8 +19,7 @@ export default function ModelSelector({ selectedModel, onModelChange }: ModelSel
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/models`, { headers: getApiHeaders() })
-      .then(r => r.json())
+    apiGet<{ models: ModelInfo[]; current?: string }>('/api/models')
       .then(data => {
         if (data.models?.length) setModels(data.models);
         if (data.current) onModelChange(data.current);

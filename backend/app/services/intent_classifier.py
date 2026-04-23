@@ -32,47 +32,57 @@ class IntentResult:
     confidence: float
     entities: Dict[str, Any]
     reasoning: str
+    sql_score: float = 0.0
+    rag_score: float = 0.0
     clarification_options: List[Dict[str, str]] = None
+
+
+def _score_to_intent(sql_score: float, rag_score: float) -> QueryIntent:
+    """Convert dual scores to a QueryIntent.
+
+    Only assigns a single-source intent when one score clearly dominates.
+    Everything else (both high, both low, ambiguous middle) routes to HYBRID
+    as the safe fallback.
+    """
+    if sql_score >= 0.7 and rag_score < 0.3:
+        return QueryIntent.STRUCTURED
+    if rag_score >= 0.7 and sql_score < 0.3:
+        return QueryIntent.KNOWLEDGE
+    return QueryIntent.HYBRID
 
 
 # Compact few-shots: cover each intent + follow-up edge case
 FEW_SHOT_EXAMPLES = """範例:
 Q: 查詢 EMU801 故障歷程
-A: {"intent":"structured","confidence":0.95,"entities":{"vehicle_code":"EMU801","query_type":"faults"},"reasoning":"指定車號與查詢類型"}
+A: {"sql_score":0.95,"rag_score":0.05,"entities":{"vehicle_code":"EMU801","query_type":"faults"},"reasoning":"指定車號與查詢類型，需結構化資料"}
 
 Q: 如何更換集電弓碳條？
-A: {"intent":"knowledge","confidence":0.95,"entities":{"topic":"集電弓碳條更換"},"reasoning":"操作程序文件"}
+A: {"sql_score":0.05,"rag_score":0.95,"entities":{"topic":"集電弓碳條更換"},"reasoning":"操作程序查詢，需文件知識"}
 
 Q: EMU900 的維修紀錄與對應的 SOP 處理程序
-A: {"intent":"hybrid","confidence":0.92,"entities":{"vehicle_code":"EMU900"},"reasoning":"需結構化工單資料 + 文件庫 SOP 程序，才能完整回答"}
+A: {"sql_score":0.85,"rag_score":0.85,"entities":{"vehicle_code":"EMU900"},"reasoning":"需結構化工單資料 + 文件庫 SOP 程序"}
 
 前一輪: structured (EMU3000 工單類型分布)
 Q: 那同樣的 EMU900 呢？
-A: {"intent":"structured","confidence":0.93,"entities":{"vehicle_code":"EMU900","query_type":"worktype_distribution"},"reasoning":"追問延續前題 structured 模式，僅換車號"}
+A: {"sql_score":0.93,"rag_score":0.05,"entities":{"vehicle_code":"EMU900","query_type":"worktype_distribution"},"reasoning":"追問延續資料查詢，僅換車號"}
 
 Q: 工單
-A: {"intent":"clarification","confidence":0.6,"entities":{},"reasoning":"查詢過於簡短","clarification_options":[{"label":"所有工單列表","query":"列出所有工單"},{"label":"核簽中的工單","query":"核簽中的工單有哪些"}]}"""
+A: {"sql_score":0.0,"rag_score":0.0,"needs_clarification":true,"reasoning":"查詢過於簡短","clarification_options":[{"label":"所有工單列表","query":"列出所有工單"},{"label":"核簽中的工單","query":"核簽中的工單有哪些"}]}"""
 
 SYSTEM_PROMPT = f"""你是車輛維修系統的意圖分類器。請輸出純 JSON。
 
-意圖類別：
-- structured: 結構化資料（車輛/故障/檢修/成本/庫存/工單統計）
-- knowledge: 文件知識（手冊/程序/規範/SOP）
-- hybrid: **同時**需要結構化資料 + 文件知識（例：工單紀錄 + 對應 SOP 處理）。僅「多車號比較」或「多車型對比」仍屬 structured，不是 hybrid。
-- clarification: 不明確，需反問
+對每個問題回答兩個問題並給出 0-1 分數：
+1. sql_score：這個問題需要結構化資料查詢（車輛/故障/工單/成本/庫存/統計）嗎？
+2. rag_score：這個問題需要文件知識（手冊/程序/規範/SOP）嗎？
 
-規則：
-- **追問繼承**：使用者用「那/同樣地/再/也」等接續詞，intent 應繼承前一輪，除非明確轉向其他類別。
-- **結構化比較**：「EMU3000 vs EMU900」「A 和 B 哪個多」這類比較屬 structured（同一 SQL 加 GROUP BY 或兩次查詢合併），不是 hybrid。
-- hybrid 的判準是「**資料來源**不同」（SQL + 文件），不是「面向多」。
-- 若對話脈絡已足夠，即使當前查詢短，也分類為 structured/knowledge/hybrid，而非 clarification。
-- clarification_options 格式：[{{"label": "顯示文字", "query": "完整查詢"}}]。
+若問題真的過於模糊無法判斷，輸出 needs_clarification:true（sql_score 和 rag_score 都設 0）。
 
 實體：vehicle_code, vehicle_type, depot, fault_type, date_range, query_type。
 
 {FEW_SHOT_EXAMPLES}
 
-輸出 JSON 欄位：intent, confidence, entities, reasoning, clarification_options(僅 clarification 時)。"""
+輸出 JSON 欄位：sql_score, rag_score, entities, reasoning。
+需要釐清時額外輸出：needs_clarification:true, clarification_options([{{"label":"...", "query":"..."}}])。"""
 
 
 class IntentClassifierService:
@@ -177,23 +187,38 @@ class IntentClassifierService:
             result = json.loads(content[start:end])
 
             LLM_BREAKER.record_success()
+
+            sql_score = float(result.get("sql_score") or 0.0)
+            rag_score = float(result.get("rag_score") or 0.0)
+
+            if result.get("needs_clarification"):
+                final_intent = QueryIntent.CLARIFICATION
+                confidence = 0.6
+            else:
+                final_intent = _score_to_intent(sql_score, rag_score)
+                # Derive a single confidence value: how far the winner is from 0.5
+                confidence = round(max(sql_score, rag_score, 0.5), 2)
+
             return IntentResult(
-                intent=QueryIntent(result.get("intent", "clarification")),
-                confidence=result.get("confidence", 0.5),
+                intent=final_intent,
+                confidence=confidence,
                 entities=result.get("entities", {}),
                 reasoning=result.get("reasoning", ""),
-                clarification_options=result.get("clarification_options"),
+                sql_score=sql_score,
+                rag_score=rag_score,
+                clarification_options=result.get("clarification_options") if final_intent == QueryIntent.CLARIFICATION else None,
             )
 
         except Exception as e:
             LLM_BREAKER.record_failure()
             log.warning("Intent classification error: %s", e)
             return IntentResult(
-                intent=QueryIntent.CLARIFICATION,
+                intent=QueryIntent.HYBRID,
                 confidence=0.0,
                 entities={},
                 reasoning=f"分類錯誤: {str(e)}",
-                clarification_options=[{"label": "請重新描述您的問題", "query": query}],
+                sql_score=0.0,
+                rag_score=0.0,
             )
 
     async def classify_with_fallback(self, query: str, context: list = None, timeout: float = 10.0) -> IntentResult:
@@ -205,10 +230,12 @@ class IntentClassifierService:
             kw = detect_intent(query, context=context)
             intent_map = {"sql": QueryIntent.STRUCTURED, "rag": QueryIntent.KNOWLEDGE, "hybrid": QueryIntent.HYBRID}
             return IntentResult(
-                intent=intent_map.get(kw["intent"], QueryIntent.KNOWLEDGE),
+                intent=intent_map.get(kw["intent"], QueryIntent.HYBRID),
                 confidence=kw["confidence"],
                 entities={},
                 reasoning=f"[fallback] {kw['reason']}",
+                sql_score=0.0,
+                rag_score=0.0,
             )
 
 

@@ -93,9 +93,13 @@ class TestDefinition:
         from app.services.maximo_tools.base import validate_tool_schema
         validate_tool_schema(_SCHEMA)  # must not raise
 
-    def test_schema_requires_asset_num(self):
+    def test_schema_has_asset_num_and_vehicle_type(self):
+        """asset_num and vehicle_type are both optional in schema (XOR enforced at runtime)."""
         assert "asset_num" in _SCHEMA["properties"]
-        assert "asset_num" in _SCHEMA["required"]
+        assert "vehicle_type" in _SCHEMA["properties"]
+        # Neither is required[] — XOR constraint enforced by _Input model_validator
+        assert "asset_num" not in _SCHEMA.get("required", [])
+        assert "vehicle_type" not in _SCHEMA.get("required", [])
 
     def test_schema_optional_urgency_present(self):
         assert "urgency" in _SCHEMA["properties"]

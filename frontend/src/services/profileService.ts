@@ -4,17 +4,7 @@
  */
 
 import { UserProfile, ProfileUpdateRequest, AvatarUploadResponse } from '@/types/profile';
-
-const API_URL = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
-
-function getAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (API_KEY) headers['X-API-Key'] = API_KEY;
-  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  return headers;
-}
+import { apiGet, apiRequest, apiDelete, apiUpload } from '@/lib/api';
 
 /**
  * Get the current user's profile
@@ -22,26 +12,7 @@ function getAuthHeaders(): Record<string, string> {
  * @throws Error if request fails
  */
 export async function getProfile(): Promise<UserProfile> {
-  try {
-    const response = await fetch(`${API_URL}/api/profile`, {
-      method: 'GET',
-      headers: getAuthHeaders(),
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(
-        error.detail || `Failed to fetch profile: ${response.status} ${response.statusText}`
-      );
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Profile fetch error:', error);
-    throw new Error(
-      error instanceof Error ? error.message : 'Failed to fetch profile'
-    );
-  }
+  return apiGet<UserProfile>('/api/profile');
 }
 
 /**
@@ -51,29 +22,11 @@ export async function getProfile(): Promise<UserProfile> {
  * @throws Error if request fails or validation fails
  */
 export async function updateProfile(displayName: string): Promise<UserProfile> {
-  try {
-    const requestData: ProfileUpdateRequest = { display_name: displayName };
-
-    const response = await fetch(`${API_URL}/api/profile`, {
-      method: 'PATCH',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(requestData),
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(
-        error.detail || `Failed to update profile: ${response.status} ${response.statusText}`
-      );
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Profile update error:', error);
-    throw new Error(
-      error instanceof Error ? error.message : 'Failed to update profile'
-    );
-  }
+  const requestData: ProfileUpdateRequest = { display_name: displayName };
+  return apiRequest<UserProfile>('/api/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(requestData),
+  });
 }
 
 /**
@@ -83,33 +36,10 @@ export async function updateProfile(displayName: string): Promise<UserProfile> {
  * @throws Error if upload fails or validation fails
  */
 export async function uploadAvatar(file: File): Promise<AvatarUploadResponse> {
-  try {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const response = await fetch(`${API_URL}/api/profile/avatar`, {
-      method: 'POST',
-      headers: {
-        ...(API_KEY && { 'X-API-Key': API_KEY }),
-        // Don't set Content-Type - browser will set it with boundary for multipart
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(
-        error.detail || `Failed to upload avatar: ${response.status} ${response.statusText}`
-      );
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Avatar upload error:', error);
-    throw new Error(
-      error instanceof Error ? error.message : 'Failed to upload avatar'
-    );
-  }
+  const formData = new FormData();
+  formData.append('file', file);
+  // apiUpload handles auth header and multipart (no Content-Type override)
+  return apiUpload<AvatarUploadResponse>('/api/profile/avatar', formData);
 }
 
 /**
@@ -118,24 +48,5 @@ export async function uploadAvatar(file: File): Promise<AvatarUploadResponse> {
  * @throws Error if request fails
  */
 export async function deleteAvatar(): Promise<{ message: string }> {
-  try {
-    const response = await fetch(`${API_URL}/api/profile/avatar`, {
-      method: 'DELETE',
-      headers: getAuthHeaders(),
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(
-        error.detail || `Failed to delete avatar: ${response.status} ${response.statusText}`
-      );
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Avatar delete error:', error);
-    throw new Error(
-      error instanceof Error ? error.message : 'Failed to delete avatar'
-    );
-  }
+  return apiDelete<{ message: string }>('/api/profile/avatar');
 }

@@ -54,10 +54,15 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
   const [copied, setCopied] = useState(false);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [docSearchRow, setDocSearchRow] = useState<Record<string, unknown> | null>(null);
+  const validChartSuggestion = result.chart_suggestion && result.chart_suggestion.type !== 'none'
+    ? result.chart_suggestion
+    : null;
   const [viewMode, setViewMode] = useState<'table' | 'chart'>(
-    result.chart_suggestion || (result.row_count && result.row_count > 20) ? 'chart' : 'table'
+    validChartSuggestion ? 'chart' : 'table'
   );
-  const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>(result.chart_suggestion?.type || 'bar');
+  const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>(
+    (validChartSuggestion?.type as 'bar' | 'line' | 'pie') || 'bar'
+  );
   const [showMeta, setShowMeta] = useState(false);
   const [extraData, setExtraData] = useState<any[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -89,17 +94,13 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
     if (!result.result_id || loadingMore) return;
     setLoadingMore(true);
     try {
-      const { STREAM_API_URL, getApiHeaders } = await import('@/lib/api');
-      const res = await fetch(
-        `${STREAM_API_URL}/chat/results/${result.result_id}?offset=${loadOffset}&limit=100`,
-        { headers: getApiHeaders() }
+      const { apiGet } = await import('@/lib/api');
+      const page = await apiGet<{ data: Record<string, unknown>[]; has_more: boolean }>(
+        `/chat/results/${result.result_id}?offset=${loadOffset}&limit=100`
       );
-      if (res.ok) {
-        const page = await res.json();
-        setExtraData(prev => [...prev, ...page.data]);
-        setLoadOffset(prev => prev + page.data.length);
-        setHasMore(page.has_more);
-      }
+      setExtraData(prev => [...prev, ...page.data]);
+      setLoadOffset(prev => prev + page.data.length);
+      setHasMore(page.has_more);
     } catch (e) {
       console.error('Failed to load more:', e);
     }
@@ -107,11 +108,17 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
   };
 
   const exportExcel = async () => {
-    const token = localStorage.getItem('auth_token');
     try {
-      const res = await fetch(`/api/maximo/export?question=${encodeURIComponent(question)}`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      const { fetchWithTimeout, getApiHeaders } = await import('@/lib/api');
+      const res = await fetchWithTimeout(`/api/maximo/export?question=${encodeURIComponent(question)}`, {
+        headers: getApiHeaders(),
       });
+      if (res.status === 401) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user_session');
+        window.location.href = '/login';
+        return;
+      }
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -209,12 +216,25 @@ export default function SqlResultCard({ result, question, onRequery, isAdmin }: 
           </div>
         )}
 
+        {/* Chart warning banner (type=none with warning message) */}
+        {result.chart_suggestion?.type === 'none' && result.chart_suggestion?.warning && (
+          <div style={{
+            padding: '0.5rem 0.75rem', marginBottom: '0.5rem',
+            background: 'rgba(241,194,50,0.1)', border: '1px solid rgba(241,194,50,0.4)',
+            borderRadius: 6, fontSize: '0.8125rem', color: '#b28600',
+            display: 'flex', alignItems: 'flex-start', gap: '0.375rem',
+          }}>
+            <span style={{ fontWeight: 600, flexShrink: 0 }}>圖表警告</span>
+            <span>{result.chart_suggestion.warning}</span>
+          </div>
+        )}
+
         {/* Chart + Table using shared components */}
         {result.data && result.data.length > 0 && result.columns && result.columns.length >= 2 && (
           <ChartRenderer
             data={result.data}
             columns={result.columns}
-            chartSuggestion={result.chart_suggestion}
+            chartSuggestion={validChartSuggestion}
             showControls={true}
             height={250}
             viewMode={viewMode}

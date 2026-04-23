@@ -126,6 +126,32 @@ def _generate_sql_follow_ups(query: str, result: dict) -> list:
     return suggestions[:3]
 
 
+async def _write_rag_fallback_audit(query: str, rewrite_history: list,
+                                    request_id: str = None, conversation_id: str = None,
+                                    recovery_path: str = "rag_fallback"):
+    """Write a query_audit_log entry for SQL-failed non-success paths."""
+    try:
+        async with get_db_context() as db:
+            rw_hist_json = json.dumps(rewrite_history, ensure_ascii=False) if rewrite_history else None
+            await db.execute(text("""
+                INSERT INTO query_audit_log
+                    (user_id, user_email, question, sql_generated, tables_accessed,
+                     row_count, execution_ms, mode, request_id, conversation_id,
+                     original_question, rewrite_history, recovery_path)
+                VALUES
+                    (NULL, NULL, :q, NULL, '{}', 0, NULL, 'nl2sql', :rid, :cid,
+                     NULL, :rw_hist::jsonb, :rec_path)
+            """), {
+                "q": query,
+                "rid": request_id,
+                "cid": conversation_id,
+                "rw_hist": rw_hist_json,
+                "rec_path": recovery_path,
+            })
+    except Exception as e:
+        log.warning("寫入稽核日誌失敗 (recovery_path=%s): %s", recovery_path, e)
+
+
 async def _generate_sql_recovery_options(query: str, error: str, context: list = None) -> list[dict]:
     """Generate clarification options when SQL query fails."""
     settings = get_settings()
@@ -637,61 +663,111 @@ async def chat_stream(request: ChatRequest, http_request: Request):
 
             if intent in ("sql",):
                 # === NL→SQL Path with granular thinking steps ===
+                # Fix A: Tool router first — if a specific Maximo tool matches, use it;
+                # otherwise fall through to MaximoNL2SQL.
                 yield sse_event('step', {'id': 'schema', 'label': '搜尋相關資料...', 'status': 'running'})
                 t0 = time.time()
 
-                from app.services.maximo_nl2sql import MaximoNL2SQL
                 from app.db.session import get_db_context
 
                 try:
-                    async with get_db_context() as db:
-                        service = MaximoNL2SQL(db)
-                        service._request_id = tracer.request_id
-                        service._conversation_id = conversation_id
-                        schema_ms = int((time.time() - t0) * 1000)
+                    from app.services.maximo_tools.router_factory import build_router
+                    from app.services.maximo_tools.base import UserContext
+                    from app.services.orchestrator import _adapt_tool_result_to_nl2sql_shape
 
-                        yield sse_event('step', {'id': 'schema', 'label': f'搜尋相關資料（{schema_ms}ms）', 'status': 'done'})
-                        yield sse_event('step', {'id': 'sql_generate', 'label': '分析並查詢資料...', 'status': 'running'})
-                        t0 = time.time()
+                    # Extract SQL history for the fallback fn closure
+                    sql_history = []
+                    if request.context:
+                        for m in request.context:
+                            if m.get("intent") == "sql" and m.get("sql"):
+                                sql_history.append({"question": m.get("content", ""), "sql": m["sql"]})
 
-                        # Extract SQL history from conversation context
-                        sql_history = []
-                        if request.context:
-                            for m in request.context:
-                                if m.get("intent") == "sql" and m.get("sql"):
-                                    sql_history.append({"question": m.get("content", ""), "sql": m["sql"]})
+                    # M1: tool router fallback — 獨立 audit 路徑，不經 recovery flow，recovery_path 由 inner service 自行寫入（預設 None/'direct'）
+                    async def _chat_nl2sql_fallback(q: str, user_ctx: UserContext, query_id) -> dict:
+                        from app.db.session import get_db_context
+                        from app.services.maximo_nl2sql import MaximoNL2SQL
+                        async with get_db_context() as _db:
+                            _svc = MaximoNL2SQL(_db)
+                            _svc._request_id = tracer.request_id
+                            _svc._conversation_id = conversation_id
+                            _nl2sql = await _svc.query(
+                                q, mode="accurate",
+                                conversation_history=sql_history[-3:] if sql_history else None,
+                                prebuilt_schema=_speculative_schema_result,
+                            )
+                        rows = _nl2sql.get("data", [])
+                        return {
+                            "rows": rows,
+                            "row_count": _nl2sql.get("row_count", 0),
+                            "chart_hint": _nl2sql.get("chart_suggestion"),
+                            "debug": {
+                                "sql": _nl2sql.get("sql"),
+                                "explanation": _nl2sql.get("explanation"),
+                                "nl2sql_result": _nl2sql,
+                            },
+                        }
 
-                        sql_result = await service.query(query, mode="accurate",
-                            conversation_history=sql_history[-3:] if sql_history else None,
-                            prebuilt_schema=_speculative_schema_result)
-                        sql_ms = int((time.time() - t0) * 1000)
+                    _user_ctx = UserContext(user_id="chat", role="admin")
+                    _router = build_router(fallback_fn=_chat_nl2sql_fallback)
+                    _router_result = await _router.route(query, _user_ctx)
+                    _route_path = _router_result.get("route_path")
 
-                        # Detailed timing breakdown
-                        llm_ms = sql_result.get("llm_ms")
-                        verify_ms = sql_result.get("verify_ms")
-                        exec_ms = sql_result.get("execution_ms")
-                        iters = sql_result.get("iterations", 1)
-                        timing_parts = [f'總計 {sql_ms}ms']
-                        if llm_ms:
-                            timing_parts.append(f'LLM {llm_ms}ms')
-                        if verify_ms:
-                            timing_parts.append(f'驗證 {verify_ms}ms')
-                        if exec_ms:
-                            timing_parts.append(f'執行 {exec_ms}ms')
-                        timing_str = '，'.join(timing_parts)
-
-                        trace_llm_call(tracer, "sql_generation", llm_url, sql_result.get("model") or llm_model,
-                            [{"query": query}], sql_result.get("sql") or "", sql_ms,
-                            status="ok" if sql_result.get("success") else "error",
-                            error=(sql_result.get("error") or "")[:200])
-                        yield sse_event('step', {'id': 'sql_generate', 'label': f'查詢完成（{sql_ms}ms）', 'status': 'done'})
-
-                        if sql_result.get("success"):
-                            row_count = len(sql_result.get("data", []))
-                            yield sse_event('reasoning', {'phase': 'sql', 'text': f'查詢成功，取得 {row_count} 筆結果（{timing_str}）'})
-                            yield sse_event('step', {'id': 'execute', 'label': '整理查詢結果...', 'status': 'done'})
+                    if _route_path == "tool":
+                        sql_result = _adapt_tool_result_to_nl2sql_shape(_router_result)
+                    elif _route_path == "fallback":
+                        _nl2sql_inner = _router_result.get("debug", {}).get("nl2sql_result")
+                        if _nl2sql_inner:
+                            sql_result = _nl2sql_inner
                         else:
-                            yield sse_event('reasoning', {'phase': 'sql', 'text': f'查詢失敗：{sql_result.get("error", "未知錯誤")[:80]}'})
+                            rows = _router_result.get("rows", [])
+                            sql_result = {
+                                "success": True,
+                                "sql": _router_result.get("debug", {}).get("sql"),
+                                "explanation": _router_result.get("debug", {}).get("explanation"),
+                                "data": rows,
+                                "columns": list(rows[0].keys()) if rows else [],
+                                "row_count": _router_result.get("row_count", 0),
+                                "execution_ms": _router_result.get("elapsed_ms", 0),
+                            }
+                    else:
+                        sql_result = {
+                            "success": False,
+                            "error": _router_result.get("debug", {}).get("error", {}).get("message", "查詢失敗"),
+                            "data": [], "columns": [], "row_count": 0,
+                        }
+
+                    schema_ms = int((time.time() - t0) * 1000)
+                    sql_ms = schema_ms
+
+                    yield sse_event('step', {'id': 'schema', 'label': f'搜尋相關資料（{schema_ms}ms）', 'status': 'done'})
+                    yield sse_event('step', {'id': 'sql_generate', 'label': f'查詢完成（{sql_ms}ms）', 'status': 'done'})
+
+                    exec_ms = sql_result.get("execution_ms")
+                    llm_ms = sql_result.get("llm_ms")
+                    verify_ms = sql_result.get("verify_ms")
+                    timing_parts = [f'總計 {sql_ms}ms']
+                    if llm_ms:
+                        timing_parts.append(f'LLM {llm_ms}ms')
+                    if verify_ms:
+                        timing_parts.append(f'驗證 {verify_ms}ms')
+                    if exec_ms:
+                        timing_parts.append(f'執行 {exec_ms}ms')
+                    timing_str = '，'.join(timing_parts)
+
+                    _model_used = sql_result.get("model") or llm_model
+                    trace_llm_call(tracer, "sql_generation", llm_url, _model_used,
+                        [{"query": query}], sql_result.get("sql") or "", sql_ms,
+                        status="ok" if sql_result.get("success") else "error",
+                        error=(sql_result.get("error") or "")[:200])
+
+                    if sql_result.get("success"):
+                        row_count = len(sql_result.get("data", []))
+                        _route_label = f"（工具：{sql_result.get('tool_name', _route_path)}）" if _route_path == "tool" else ""
+                        yield sse_event('reasoning', {'phase': 'sql', 'text': f'查詢成功，取得 {row_count} 筆結果（{timing_str}）{_route_label}'})
+                        yield sse_event('step', {'id': 'execute', 'label': '整理查詢結果...', 'status': 'done'})
+                    else:
+                        yield sse_event('reasoning', {'phase': 'sql', 'text': f'查詢失敗：{sql_result.get("error", "未知錯誤")[:80]}'})
+
                 except Exception as sql_err:
                     log.exception("NL→SQL error")
                     sql_result = {"success": False, "error": str(sql_err)}
@@ -747,6 +823,12 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                     if follow_ups:
                         yield sse_event('follow_up', follow_ups)
 
+                    # 0-row fallback: pure SQL query returned no data → supplement with RAG
+                    if intent == "sql" and sql_result.get("row_count", 0) == 0:
+                        yield sse_event('reasoning', {'phase': 'fallback', 'text': 'SQL 查無資料，自動補充知識庫搜尋'})
+                        yield sse_event('metadata', {'intent': {'intent': 'hybrid'}, 'fallback_reason': 'sql_zero_rows'})
+                        intent = "hybrid"
+
                     if intent == "sql":
                         asyncio.create_task(tracer.save())
                         yield sse_event('done', {}, terminal=TerminalState.COMPLETED)
@@ -769,28 +851,45 @@ async def chat_stream(request: ChatRequest, http_request: Request):
 
                         sql_recovered = False
                         recovery_options = []
+                        sql_rewrite_history = []
+                        retry_attempted = False  # M2: 區分「有嘗試 retry 但失敗」與「未嘗試 retry（無 options 或 exception）」
 
                         # Layer 1: Rewrite query → retry SQL
                         try:
                             recovery_options = await _generate_sql_recovery_options(query, raw_error, request.context)
                             if recovery_options:
                                 rewritten_query = recovery_options[0]["query"]
+                                rewrite_reason = recovery_options[0].get("reason", "")
                                 yield sse_event('reasoning', {'phase': 'recovery', 'text': f'改寫查詢：「{rewritten_query[:60]}」，重新嘗試 SQL。'})
                                 yield sse_event('step', {'id': 'sql_retry', 'label': f'重試：{rewritten_query[:30]}...', 'status': 'running'})
                                 t0 = time.time()
 
                                 try:
+                                    retry_attempted = True  # M2: 標記已實際呼叫 retry
                                     from app.services.maximo_nl2sql import MaximoNL2SQL
                                     async with get_db_context() as retry_db:
                                         retry_service = MaximoNL2SQL(retry_db)
+                                        retry_service._request_id = tracer.request_id
+                                        retry_service._conversation_id = conversation_id
                                         retry_result = await retry_service.query(
                                             rewritten_query, mode="accurate",
                                             conversation_history=sql_history[-3:] if sql_history else None,
-                                            prebuilt_schema=_speculative_schema_result)
+                                            prebuilt_schema=_speculative_schema_result,
+                                            original_question=query,
+                                            skip_audit=True,
+                                        )
                                     retry_ms = int((time.time() - t0) * 1000)
                                     yield sse_event('step', {'id': 'sql_retry', 'label': f'重試完成（{retry_ms}ms）', 'status': 'done'})
 
-                                    if retry_result.get("success"):
+                                    retry_succeeded = retry_result.get("success", False)
+                                    sql_rewrite_history = [{
+                                        "attempt": 1,
+                                        "query": rewritten_query,
+                                        "reason": rewrite_reason,
+                                        "success": retry_succeeded,
+                                        "ms": retry_ms,
+                                    }]
+                                    if retry_succeeded:
                                         yield sse_event('reasoning', {'phase': 'recovery', 'text': f'改寫後查詢成功！取得 {len(retry_result.get("data", []))} 筆結果。'})
                                         sql_result = retry_result
                                         sql_recovered = True
@@ -798,13 +897,27 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                                     retry_ms = int((time.time() - t0) * 1000)
                                     yield sse_event('step', {'id': 'sql_retry', 'label': f'重試失敗（{retry_ms}ms）', 'status': 'done'})
                                     log.warning("SQL retry with rewritten query failed: %s", retry_err)
+                                    sql_rewrite_history = [{
+                                        "attempt": 1,
+                                        "query": rewritten_query,
+                                        "reason": rewrite_reason,
+                                        "success": False,
+                                        "ms": retry_ms,
+                                    }]
                         except Exception as e:
                             log.warning("SQL recovery rewrite failed: %s", e)
 
                         yield sse_event('step', {'id': 'recovery', 'label': '分析完成', 'status': 'done'})
 
                         if sql_recovered:
-                            # Rewritten SQL succeeded — render result (reuse success path)
+                            # Rewritten SQL succeeded — write audit (outer, single write) then render
+                            await _write_rag_fallback_audit(
+                                query=query,
+                                rewrite_history=sql_rewrite_history,
+                                request_id=tracer.request_id,
+                                conversation_id=conversation_id,
+                                recovery_path="sql_retry",
+                            )
                             explanation = sql_result.get("explanation", "查詢完成")
                             yield sse_event('content', _sanitize_explanation(explanation))
                             budgeted = budget.allocate(
@@ -846,17 +959,38 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                         if recovery_options and len(recovery_options) > 1:
                             yield sse_event('reasoning', {'phase': 'recovery', 'text': f'改寫重試也失敗，提供 {len(recovery_options)} 個替代建議。'})
                             yield sse_event('content', f'{friendly}\n\n我無法直接查詢，但您可以試試以下方式：\n\n')
+                            # M3: audit 必須在 terminal=CLARIFICATION 之前落地，
+                            # 避免前端收到 terminal 後立即關閉 SSE，generator 被 cancel 導致 audit 漏寫
+                            await _write_rag_fallback_audit(
+                                query=query,
+                                rewrite_history=sql_rewrite_history,
+                                request_id=tracer.request_id,
+                                conversation_id=conversation_id,
+                                recovery_path="clarification",
+                            )
+                            asyncio.create_task(tracer.save())
                             yield sse_event('clarification', {
                                 "message": f"{friendly} 請選擇更具體的查詢方式：",
                                 "options": recovery_options,
                             }, terminal=TerminalState.CLARIFICATION)
-                            asyncio.create_task(tracer.save())
                             yield sse_event('done', {}, terminal=TerminalState.CLARIFICATION)
                             return
 
                         # Layer 3: RAG as last resort — 明確標示處理中
                         yield sse_event('reasoning', {'phase': 'recovery', 'text': 'SQL 改寫和釐清均未成功，改用知識庫搜尋中。'})
                         yield sse_event('content', f'⏳ _{friendly}改用知識庫搜尋相關資料中..._\n\n')
+
+                        # M2: retry_attempted=True → 有執行 retry 但仍失敗才轉 RAG（rag_fallback）
+                        #     retry_attempted=False → 無 options 或 exception 未嘗試 retry 就轉 RAG（sql_failed）
+                        _retry_failed_path = "rag_fallback" if retry_attempted else "sql_failed"
+                        await _write_rag_fallback_audit(
+                            query=query,
+                            rewrite_history=sql_rewrite_history,
+                            request_id=tracer.request_id,
+                            conversation_id=conversation_id,
+                            recovery_path=_retry_failed_path,
+                        )
+
                         intent = "rag"
 
             # === RAG Path (intent == "rag" or hybrid fallthrough) ===

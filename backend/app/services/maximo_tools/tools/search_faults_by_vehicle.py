@@ -1,19 +1,23 @@
-"""Tool 3: search_faults_by_vehicle — 依車號查故障通報 (maximo_fault_reports ETL)
+"""Tool 3: search_faults_by_vehicle — 依車號或車型查故障通報 (maximo_fault_reports ETL)
 
 SSH 實測資料（2026-04-20）：
 - 表：maximo_fault_reports（395 筆）
 - status 中文 6 種：立案(360) / 結案(14) / 處理中(10) / 取消(7) / 接件中(2) / 可放車(2)
 - urgency A(20) / B(26) / C(125) / NULL(224) — 224/395 筆為空
 - row filter 欄位：report_unit（段/所）
+
+輸入模式（二擇一，不可同時）：
+- asset_num: 特定車號，e.g. "EMU901"  → WHERE assetnum = %s
+- vehicle_type: 車型前綴，e.g. "EMU900" → WHERE assetnum LIKE 'EMU900%' OR eq4 = 'EMU900'
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.services.maximo_tools.base import (
     Tool,
@@ -38,7 +42,15 @@ _SCHEMA: dict[str, Any] = {
     "properties": {
         "asset_num": {
             "type": "string",
-            "description": "車輛資產編號",
+            "description": "特定車號，如 EMU901。與 vehicle_type 二擇一，不可同時提供。",
+        },
+        "vehicle_type": {
+            "type": "string",
+            "description": (
+                "車型前綴，如 EMU900（會比對 EMU900/EMU901/EMU902 等整個車型系列）。"
+                "用於「EMU900 型的車 故障通報」等車型層級查詢。"
+                "與 asset_num 二擇一，不可同時提供。"
+            ),
         },
         "urgency": {
             "type": "string",
@@ -68,15 +80,16 @@ _SCHEMA: dict[str, Any] = {
             "description": "自訂結束日期 ISO 8601（YYYY-MM-DD）",
         },
     },
-    "required": ["asset_num"],
+    "required": [],
 }
 
 validate_tool_schema(_SCHEMA)  # 啟動時驗證，確保 flat schema 相容
 
 
 class _Input(BaseModel):
-    """內部驗證用，不用於 schema 產生。"""
-    asset_num: str = Field(..., description="車輛資產編號")
+    """內部驗證用，不用於 schema 產生。asset_num 與 vehicle_type 二擇一。"""
+    asset_num: Optional[str] = Field(None, description="特定車號")
+    vehicle_type: Optional[str] = Field(None, description="車型前綴")
     urgency: Literal["A", "B", "C"] | None = None
     status_group: Literal["open", "closed", "cancelled"] | None = None
     date_range: Literal[
@@ -86,14 +99,27 @@ class _Input(BaseModel):
     from_date: str | None = None
     to_date: str | None = None
 
+    @model_validator(mode="after")
+    def _xor_vehicle(self) -> "_Input":
+        has_asset = self.asset_num is not None and self.asset_num.strip() != ""
+        has_type = self.vehicle_type is not None and self.vehicle_type.strip() != ""
+        if has_asset and has_type:
+            raise ValueError("asset_num 與 vehicle_type 不可同時提供，二擇一")
+        if not has_asset and not has_type:
+            raise ValueError("asset_num 或 vehicle_type 必須提供一個")
+        return self
+
 
 class SearchFaultsByVehicleTool(Tool):
     definition = ToolDefinition(
         name="search_faults_by_vehicle",
         description=(
-            "依車號查故障通報。支援故障等級（A/B/C）、狀態分組（open/closed/cancelled）、日期範圍過濾。"
+            "依車號或車型查故障通報。支援故障等級（A/B/C）、狀態分組（open/closed/cancelled）、日期範圍過濾。"
             "回傳欄位：通報號 / 車號 / 狀態 / 故障等級 / 描述 / TCMS碼 / 通報日期。"
-            "使用場景：『A12345 故障』、『urgency A 故障』、『上個月 A 車故障』。"
+            "使用場景：『EMU901 故障』（用 asset_num）、"
+            "『EMU900 型的車故障通報』（用 vehicle_type='EMU900'，比對整個車型系列）、"
+            "『urgency A 故障』、『上個月故障紀錄』。"
+            "注意：asset_num 與 vehicle_type 二擇一，不可同時提供。"
         ),
         input_schema=_SCHEMA,
     )
@@ -133,7 +159,11 @@ class SearchFaultsByVehicleTool(Tool):
         except Exception:
             logger.exception(
                 "search_faults_by_vehicle query failed",
-                extra={"asset_num": validated.asset_num, "user_id": user_ctx.user_id},
+                extra={
+                    "asset_num": validated.asset_num,
+                    "vehicle_type": validated.vehicle_type,
+                    "user_id": user_ctx.user_id,
+                },
             )
             return ToolResult(
                 success=False,
@@ -157,9 +187,18 @@ class SearchFaultsByVehicleTool(Tool):
                    description, fault_symptom, handling_desc,
                    report_date, occurrence_date
             FROM maximo_fault_reports
-            WHERE assetnum = %s
+            WHERE
         """
-        args: list[Any] = [p.asset_num]
+        args: list[Any] = []
+
+        if p.asset_num is not None:
+            sql += " assetnum = %s"
+            args.append(p.asset_num)
+        else:
+            # vehicle_type: match all assets in the series via LIKE prefix or eq4
+            sql += " (assetnum LIKE %s OR eq4 = %s)"
+            args.append(f"{p.vehicle_type}%")
+            args.append(p.vehicle_type)
 
         # urgency filter（NULL 值不會被 '= A' 命中，行為正確）
         if p.urgency is not None:

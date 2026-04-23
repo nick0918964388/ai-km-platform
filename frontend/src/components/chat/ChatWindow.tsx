@@ -764,19 +764,12 @@ export default function ChatWindow() {
     if (sourceVoted[sourceKey]) return;
     setSourceVoted(prev => ({ ...prev, [sourceKey]: true }));
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      await fetch('/api/sources/feedback', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          chunk_id: chunkId,
-          document_id: documentId,
-          question,
-          rating,
-        }),
+      const { apiPost } = await import('@/lib/api');
+      await apiPost('/api/sources/feedback', {
+        chunk_id: chunkId,
+        document_id: documentId,
+        question,
+        rating,
       });
     } catch (e) {
       console.error('Source feedback error:', e);
@@ -1503,10 +1496,8 @@ export default function ChatWindow() {
                       if (sent) return <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>感謝回饋</div>;
                       const submit = async (rating: string) => {
                         try {
-                          await fetch(`${STREAM_API_URL}/api/chat/feedback`, {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ message_id: msg.id, query: messages.filter(m => m.role === 'user').pop()?.content || '', rating }),
-                          });
+                          const { apiPost } = await import('@/lib/api');
+                          await apiPost('/api/chat/feedback', { message_id: msg.id, query: messages.filter(m => m.role === 'user').pop()?.content || '', rating });
                           sessionStorage.setItem(fbKey, rating);
                           // Force re-render
                           setMessageDurations(prev => ({ ...prev }));
