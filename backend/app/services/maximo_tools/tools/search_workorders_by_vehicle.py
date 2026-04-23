@@ -201,31 +201,34 @@ class SearchWorkordersByVehicleTool(Tool):
 
         def _add_subquery(table: str, wo_type_label: str) -> None:
             sub = (
-                f"SELECT wonum, assetnum, status, '{wo_type_label}' AS wo_type,"  # noqa: S608
-                " work_type, description, report_date, act_start, act_finish"
-                f" FROM {table}"
+                f"SELECT wo.wonum, wo.assetnum, wo.status, '{wo_type_label}' AS wo_type,"  # noqa: S608
+                " wo.work_type, wo.description, wo.report_date, wo.act_start, wo.act_finish"
+                f" FROM {table} wo"
+                " LEFT JOIN maximo_mxasset mxa ON mxa.assetnum = wo.assetnum"
                 " WHERE "
             )
             sub_args: list[Any] = []
 
             if params.asset_num is not None:
-                sub += "assetnum = %s"
+                sub += "wo.assetnum = %s"
                 sub_args.append(params.asset_num)
             else:
-                sub += "assetnum LIKE %s"
+                # vehicle_type: match by assetnum prefix OR mxasset.eq4 (車型欄位)
+                sub += "(wo.assetnum LIKE %s OR mxa.eq4 = %s)"
                 sub_args.append(f"{params.vehicle_type}%")
+                sub_args.append(params.vehicle_type)
 
             if status_values is not None:
                 placeholders = ", ".join(["%s"] * len(status_values))
-                sub += f" AND status IN ({placeholders})"
+                sub += f" AND wo.status IN ({placeholders})"
                 sub_args.extend(status_values)
 
             if from_ts and to_ts:
-                sub += " AND report_date BETWEEN %s AND %s"
+                sub += " AND wo.report_date BETWEEN %s AND %s"
                 sub_args.extend([from_ts, to_ts])
 
             if section:
-                sub += " AND maintenance_section = %s"
+                sub += " AND wo.maintenance_section = %s"
                 sub_args.append(section)
 
             subqueries.append(sub)

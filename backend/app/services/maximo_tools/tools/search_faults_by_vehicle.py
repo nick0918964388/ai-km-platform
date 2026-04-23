@@ -183,32 +183,34 @@ class SearchFaultsByVehicleTool(Tool):
 
     def _query(self, p: _Input, section: str | None) -> list[dict[str, Any]]:
         sql = """
-            SELECT ticketid, assetnum, status, urgency, grade, tcms_code,
-                   description, fault_symptom, handling_desc,
-                   report_date, occurrence_date
-            FROM maximo_fault_reports
+            SELECT fr.ticketid, fr.assetnum, fr.status, fr.urgency, fr.grade, fr.tcms_code,
+                   fr.description, fr.fault_symptom, fr.handling_desc,
+                   fr.report_date, fr.occurrence_date
+            FROM maximo_fault_reports fr
+            LEFT JOIN maximo_mxasset mxa ON mxa.assetnum = fr.assetnum
             WHERE
         """
         args: list[Any] = []
 
         if p.asset_num is not None:
-            sql += " assetnum = %s"
+            sql += " fr.assetnum = %s"
             args.append(p.asset_num)
         else:
-            # vehicle_type: match all assets in the series via LIKE prefix
-            sql += " assetnum LIKE %s"
+            # vehicle_type: match by assetnum prefix OR mxasset.eq4 (車型欄位)
+            sql += " (fr.assetnum LIKE %s OR mxa.eq4 = %s)"
             args.append(f"{p.vehicle_type}%")
+            args.append(p.vehicle_type)
 
         # urgency filter（NULL 值不會被 '= A' 命中，行為正確）
         if p.urgency is not None:
-            sql += " AND urgency = %s"
+            sql += " AND fr.urgency = %s"
             args.append(p.urgency)
 
         # status_group 展開
         status_values = self._resolve_statuses(p.status_group)
         if status_values is not None:
             placeholders = ", ".join(["%s"] * len(status_values))
-            sql += f" AND status IN ({placeholders})"
+            sql += f" AND fr.status IN ({placeholders})"
             args.extend(status_values)
 
         # 日期範圍（date_range=all 時不加 WHERE 條件，避免無謂 BETWEEN 1970 AND now）
@@ -218,15 +220,15 @@ class SearchFaultsByVehicleTool(Tool):
                 from_date=p.from_date,
                 to_date=p.to_date,
             )
-            sql += " AND report_date BETWEEN %s AND %s"
+            sql += " AND fr.report_date BETWEEN %s AND %s"
             args.extend([from_ts, to_ts])
 
         # row filter（依段/所過濾，section=None 時不限制）
         if section:
-            sql += " AND report_unit = %s"
+            sql += " AND fr.report_unit = %s"
             args.append(section)
 
-        sql += " ORDER BY report_date DESC NULLS LAST LIMIT 200"
+        sql += " ORDER BY fr.report_date DESC NULLS LAST LIMIT 200"
 
         conn = self._db_pool.getconn()
         try:
