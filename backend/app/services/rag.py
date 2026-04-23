@@ -727,16 +727,25 @@ def chat(
         return "錯誤：未設定 OpenAI API Key。請在環境變數中設定 OPENAI_API_KEY。", sources
 
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-            max_tokens=1500,
-            temperature=0.5,  # 降低溫度提高準確性
-        )
-        answer = response.choices[0].message.content
+        if client == "anthropic":
+            user_text = user_content[0]["text"] if isinstance(user_content, list) else str(user_content)
+            answer = _call_anthropic(
+                messages=[{"role": "user", "content": user_text}],
+                model=model,
+                system=SYSTEM_PROMPT,
+                max_tokens=1500,
+            )
+        else:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+                max_tokens=1500,
+                temperature=0.5,
+            )
+            answer = response.choices[0].message.content
     except Exception as e:
         answer = f"生成回答時發生錯誤: {str(e)}"
 
@@ -799,20 +808,30 @@ def chat_stream(
         return
 
     try:
-        stream = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-            max_tokens=1500,
-            temperature=0.5,
-            stream=True,
-        )
+        if client == "anthropic":
+            user_text = user_content[0]["text"] if isinstance(user_content, list) else str(user_content)
+            for chunk in _call_anthropic_stream(
+                messages=[{"role": "user", "content": user_text}],
+                model=model,
+                system=SYSTEM_PROMPT,
+                max_tokens=1500,
+            ):
+                yield chunk
+        else:
+            stream = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+                max_tokens=1500,
+                temperature=0.5,
+                stream=True,
+            )
 
-        for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
 
     except Exception as e:
         yield f"生成回答時發生錯誤: {str(e)}"

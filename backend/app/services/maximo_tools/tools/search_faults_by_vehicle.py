@@ -8,7 +8,7 @@ SSH 實測資料（2026-04-20）：
 
 輸入模式（二擇一，不可同時）：
 - asset_num: 特定車號，e.g. "EMU901"  → WHERE assetnum = %s
-- vehicle_type: 車型前綴，e.g. "EMU900" → WHERE assetnum LIKE 'EMU900%' OR eq4 = 'EMU900'
+- vehicle_type: 車型前綴，e.g. "EMU900" → WHERE assetnum LIKE 'EMU900%'
 """
 from __future__ import annotations
 
@@ -195,10 +195,9 @@ class SearchFaultsByVehicleTool(Tool):
             sql += " assetnum = %s"
             args.append(p.asset_num)
         else:
-            # vehicle_type: match all assets in the series via LIKE prefix or eq4
-            sql += " (assetnum LIKE %s OR eq4 = %s)"
+            # vehicle_type: match all assets in the series via LIKE prefix
+            sql += " assetnum LIKE %s"
             args.append(f"{p.vehicle_type}%")
-            args.append(p.vehicle_type)
 
         # urgency filter（NULL 值不會被 '= A' 命中，行為正確）
         if p.urgency is not None:
