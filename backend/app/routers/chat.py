@@ -854,8 +854,6 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                 yield sse_event('step', {'id': 'schema', 'label': '搜尋相關資料...', 'status': 'running'})
                 t0 = time.time()
 
-                from app.db.session import get_db_context
-
                 try:
                     from app.services.maximo_tools.router_factory import build_router
                     from app.services.maximo_tools.base import UserContext
