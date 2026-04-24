@@ -451,19 +451,20 @@ async def chat_stream(request: ChatRequest, http_request: Request):
             _use_v2 = False
             if settings.enable_skills_system:
                 from app.services.chat_pipeline_v2 import _should_use_v2 as _v2_gate
-                # Resolve the real user_id for stable grayscale bucketing (C1 fix).
-                # conversation_id is NOT user_id — same user opening multiple conversations
-                # would land in different buckets if we hashed conversation_id.
-                # Anonymous / no conversation → never use v2 (avoids "guest" bucket surprise).
+                # Resolve the real user_id for stable grayscale bucketing.
+                # Previous version queried conversations table, but prod has no such table.
+                # Decode directly from Authorization: Bearer <jwt> → 'sub' claim instead.
+                # Anonymous / no JWT → graceful fallback to None → v2 gate returns False.
                 _grayscale_uid: str | None = None
-                if conversation_id:
-                    async with get_db_context() as _gs_db:
-                        _gs_row = await _gs_db.execute(
-                            text("SELECT user_id FROM conversations WHERE id = :id"),
-                            {"id": conversation_id},
-                        )
-                        _gs_uid = _gs_row.scalar()
-                        _grayscale_uid = str(_gs_uid) if _gs_uid else None
+                try:
+                    _auth_header = http_request.headers.get("authorization", "")
+                    if _auth_header.lower().startswith("bearer "):
+                        _token = _auth_header[7:]
+                        from app.auth import decode_token
+                        _grayscale_uid = decode_token(_token).get("sub")
+                except Exception as _e:
+                    log.debug(f"Grayscale JWT decode failed: {_e}")
+                    _grayscale_uid = None
                 # image_base64 present → always use v2 (old path has no multimodal SQL support)
                 _use_v2 = bool(request.image_base64) or _v2_gate(_grayscale_uid)
 
