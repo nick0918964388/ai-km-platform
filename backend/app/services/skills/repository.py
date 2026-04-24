@@ -18,7 +18,7 @@ async def create_skill(db: AsyncSession, data: dict[str, Any]) -> dict[str, Any]
             INSERT INTO skills (name, description, triggers, sql_template,
                                 params_schema, security, stats, active)
             VALUES (:name, :description, :triggers, :sql_template,
-                    :params_schema::jsonb, :security::jsonb, :stats::jsonb, :active)
+                    CAST(:params_schema AS jsonb), CAST(:security AS jsonb), CAST(:stats AS jsonb), :active)
             RETURNING id, name, version, is_current, description, triggers,
                       sql_template, params_schema, security, stats, active
         """),
@@ -115,7 +115,7 @@ async def create_new_version(db: AsyncSession, name: str, data: dict[str, Any]) 
             INSERT INTO skills (name, version, is_current, description, triggers,
                                 sql_template, params_schema, security, stats, active)
             VALUES (:name, :version, TRUE, :description, :triggers, :sql_template,
-                    :params_schema::jsonb, :security::jsonb, :stats::jsonb, :active)
+                    CAST(:params_schema AS jsonb), CAST(:security AS jsonb), CAST(:stats AS jsonb), :active)
             RETURNING id, name, version, is_current, description, triggers,
                       sql_template, params_schema, security, stats, active
         """),
@@ -156,7 +156,7 @@ async def write_changelog(
     await db.execute(
         text("""
             INSERT INTO skill_changelog (skill_id, version, changed_by, reason, diff)
-            VALUES (:skill_id, :version, :changed_by, :reason, :diff::jsonb)
+            VALUES (:skill_id, :version, :changed_by, :reason, CAST(:diff AS jsonb))
         """),
         {
             "skill_id": str(skill_id),
