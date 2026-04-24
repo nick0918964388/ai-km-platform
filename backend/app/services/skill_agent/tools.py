@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from sqlalchemy import text
+
 from app.services.maximo_nl2sql_tools import _is_safe_select  # noqa: F401
 
 log = logging.getLogger(__name__)
@@ -176,18 +178,20 @@ async def execute_run_sql(
         return {"error": "db_pool 未注入", "rows": [], "row_count": 0, "columns": []}
 
     try:
-        async with db_pool.acquire() as conn:
-            rows_raw = await conn.fetch(sql)
-            if not rows_raw:
-                return {"rows": [], "row_count": 0, "columns": []}
-            columns = list(rows_raw[0].keys())
-            rows = [dict(r) for r in rows_raw]
-            # Serialize non-JSON-serializable types
-            for row in rows:
-                for k, v in row.items():
-                    if hasattr(v, "isoformat"):
-                        row[k] = v.isoformat()
-            return {"rows": rows, "row_count": len(rows), "columns": columns}
+        async with db_pool.begin_nested() as sp:
+            try:
+                result = await db_pool.execute(text(sql), row_filter_params)
+                cols = list(result.keys())
+                rows = [dict(zip(cols, row)) for row in result.fetchall()]
+                for row in rows:
+                    for k, v in row.items():
+                        if hasattr(v, "isoformat"):
+                            row[k] = v.isoformat()
+                return {"rows": rows, "row_count": len(rows), "columns": cols}
+            except Exception as e:
+                await sp.rollback()
+                log.warning("run_sql execution error: %s", e)
+                return {"error": f"SQL 執行失敗：{type(e).__name__}", "rows": [], "row_count": 0, "columns": []}
     except Exception as e:
         log.warning("run_sql execution error: %s", e)
         return {"error": f"SQL 執行失敗：{type(e).__name__}", "rows": [], "row_count": 0, "columns": []}

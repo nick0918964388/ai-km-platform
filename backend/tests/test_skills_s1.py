@@ -62,6 +62,13 @@ def _fake_embedder(text: str) -> list[float]:
     return [0.1] * 16
 
 
+def _make_qp_response(points: list):
+    """Wrap a list of hit mocks into a QueryResponse-like object with .points."""
+    r = MagicMock()
+    r.points = points
+    return r
+
+
 # ─── AC1: create skill v1 ─────────────────────────────────────────────────────
 
 
@@ -243,7 +250,7 @@ def test_ac3_matcher_only_returns_current():
     }
 
     # Qdrant already filters via query_filter on is_current=True, so only hit_current comes back
-    qdrant.search = MagicMock(return_value=[hit_current])
+    qdrant.query_points = MagicMock(return_value=_make_qp_response([hit_current]))
     qdrant.get_collections = MagicMock(return_value=MagicMock(
         collections=[MagicMock(name=SKILLS_COLLECTION)]
     ))
@@ -254,8 +261,8 @@ def test_ac3_matcher_only_returns_current():
     assert len(results) == 1
     assert results[0]["version"] == 2
     assert results[0]["is_current"] is True
-    # Confirm search was called with is_current filter
-    call_kwargs = qdrant.search.call_args.kwargs
+    # Confirm query_points was called with is_current filter
+    call_kwargs = qdrant.query_points.call_args.kwargs
     assert call_kwargs["collection_name"] == SKILLS_COLLECTION
     must_conditions = call_kwargs["query_filter"].must
     assert any(
@@ -271,7 +278,7 @@ def test_ac3_matcher_threshold_filters_low_scores():
     low_hit.id = str(uuid.uuid4())
     low_hit.payload = {"skill_id": "x", "version": 1, "name": "foo", "is_current": True}
 
-    qdrant.search = MagicMock(return_value=[low_hit])
+    qdrant.query_points = MagicMock(return_value=_make_qp_response([low_hit]))
     qdrant.get_collections = MagicMock(return_value=MagicMock(
         collections=[MagicMock(name=SKILLS_COLLECTION)]
     ))
@@ -362,7 +369,7 @@ def test_ac5_matcher_v2_independent_of_v1_feedback():
         "name": "EMU800 有幾組車組",
         "is_current": True,
     }
-    qdrant.search = MagicMock(return_value=[v2_hit])
+    qdrant.query_points = MagicMock(return_value=_make_qp_response([v2_hit]))
     qdrant.get_collections = MagicMock(return_value=MagicMock(
         collections=[MagicMock(name=SKILLS_COLLECTION)]
     ))
@@ -439,7 +446,7 @@ def test_matcher_does_not_return_inactive_skills():
     # Simulate Qdrant returning zero results because the filter on active=True
     # excludes the inactive skill. In practice Qdrant does the filtering;
     # here we assert the filter is constructed correctly.
-    qdrant.search = MagicMock(return_value=[])
+    qdrant.query_points = MagicMock(return_value=_make_qp_response([]))
     qdrant.get_collections = MagicMock(return_value=MagicMock(
         collections=[MagicMock(name=SKILLS_COLLECTION)]
     ))
@@ -450,7 +457,7 @@ def test_matcher_does_not_return_inactive_skills():
     assert results == []
 
     # Verify both is_current AND active filters are in the Qdrant query
-    call_kwargs = qdrant.search.call_args.kwargs
+    call_kwargs = qdrant.query_points.call_args.kwargs
     must_conditions = call_kwargs["query_filter"].must
     filter_keys = {getattr(c, "key", None) for c in must_conditions}
     assert "is_current" in filter_keys, "is_current filter missing"

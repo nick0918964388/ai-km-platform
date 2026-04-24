@@ -40,9 +40,9 @@ class SkillMatcher:
             return []
 
         try:
-            results = self._qdrant.search(
+            response = self._qdrant.query_points(
                 collection_name=SKILLS_COLLECTION,
-                query_vector=vector,
+                query=vector,
                 limit=top_k,
                 query_filter=Filter(
                     must=[
@@ -56,14 +56,13 @@ class SkillMatcher:
                         ),
                     ]
                 ),
-                with_payload=True,
             )
         except Exception as exc:
             log.warning("SkillMatcher: Qdrant search failed — %s", exc)
             return []
 
         hits = []
-        for r in results:
+        for r in response.points:
             if r.score < MATCH_THRESHOLD:
                 continue
             payload = r.payload or {}
