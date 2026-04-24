@@ -151,6 +151,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # Security — REQUIRED in production, no insecure default
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required — 產生：openssl rand -hex 32}
+      # Phase S feature flag (S0)
+      ENABLE_SKILLS_SYSTEM: ${ENABLE_SKILLS_SYSTEM:-false}
       ENV: production
       # Server
       HOST: 0.0.0.0
