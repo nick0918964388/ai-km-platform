@@ -20,6 +20,7 @@ import {
   DataTable,
   SettingsAdjust,
   ChartNetwork,
+  Flash,
 } from '@carbon/icons-react';
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
@@ -40,6 +41,7 @@ const adminNavItems = [
   { href: '/admin/knowledge-graph', label: '知識圖譜', icon: ChartNetwork },
   { href: '/admin/permissions', label: '權限設定', icon: Locked },
   { href: '/admin/pg-viewer', label: 'PG Viewer', icon: DataBase },
+  { href: '/admin/skills', label: 'Skills 管理', icon: Flash },
 ];
 
 const settingsItems = [
