@@ -395,7 +395,7 @@ export function DataTab({ tableName }: DataTabProps) {
             無資料
           </div>
         ) : (
-          <DataTable rows={carbonRows} headers={carbonHeaders} isSortable={false}>
+          <DataTable rows={carbonRows} headers={carbonHeaders} isSortable>
             {({
               rows: tableRows,
               headers: tableHeaders,
@@ -426,6 +426,7 @@ export function DataTab({ tableName }: DataTabProps) {
                         return (
                           <TableHeader
                             key={header.key}
+                            isSortable
                             onClick={() => handleHeaderClick(header.key)}
                             style={{
                               cursor: 'pointer',
