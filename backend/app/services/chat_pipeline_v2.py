@@ -49,11 +49,18 @@ def _fire_audit(coro) -> asyncio.Task:
 # Grayscale helper
 # ---------------------------------------------------------------------------
 
-def _should_use_v2(user_id: str | None) -> bool:
-    """5% grayscale — real user_id UUID hash % 20 == 0.
-    Returns False for anonymous / None (never assume bucket membership)."""
+def _should_use_v2(user_id: str | None, role: str | None = None) -> bool:
+    """Grayscale routing:
+    - admin role → always v2 (force list, easier dogfooding for ops/dev)
+    - else 5% gradient via UUID hash % 20 == 0
+    - anonymous / None → False (never assume bucket membership)
+    """
     if not user_id:
         return False
+    # Admin force-on: makes admin dogfooding easy + bypasses 5% gate.
+    # Regular users still gated by hash for safe rollout.
+    if role == "admin":
+        return True
     h = int(hashlib.md5(str(user_id).encode()).hexdigest()[:8], 16)
     return h % 20 == 0
 
