@@ -456,17 +456,21 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                 # Decode directly from Authorization: Bearer <jwt> → 'sub' claim instead.
                 # Anonymous / no JWT → graceful fallback to None → v2 gate returns False.
                 _grayscale_uid: str | None = None
+                _grayscale_role: str | None = None
                 try:
                     _auth_header = http_request.headers.get("authorization", "")
                     if _auth_header.lower().startswith("bearer "):
                         _token = _auth_header[7:]
                         from app.auth import decode_token
-                        _grayscale_uid = decode_token(_token).get("sub")
+                        _claims = decode_token(_token)
+                        _grayscale_uid = _claims.get("sub")
+                        _grayscale_role = _claims.get("role")
                 except Exception as _e:
                     log.debug(f"Grayscale JWT decode failed: {_e}")
                     _grayscale_uid = None
                 # image_base64 present → always use v2 (old path has no multimodal SQL support)
-                _use_v2 = bool(request.image_base64) or _v2_gate(_grayscale_uid)
+                # Admin role → always v2 (force list, easier dogfooding)
+                _use_v2 = bool(request.image_base64) or _v2_gate(_grayscale_uid, _grayscale_role)
 
             if _use_v2:
                 from app.services.chat_pipeline_v2 import (
