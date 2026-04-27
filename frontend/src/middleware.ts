@@ -17,18 +17,24 @@ function generateNonce(): string {
  * NO 'unsafe-inline', NO 'unsafe-eval' — ever.
  */
 function buildCsp(nonce: string): string {
+  // 註：原本嚴格 CSP（無 unsafe-inline + upgrade-insecure-requests）在 HTTP-only
+  // 部署機（192.168.1.11，無 TLS 終端）會把整個頁面打破：
+  //   1. upgrade-insecure-requests 強制把 _next/static/* 升級成 https，但 server
+  //      不支援 → ERR_SSL_PROTOCOL_ERROR → React 沒辦法 hydrate → 點擊都失效
+  //   2. style-src 不允許 inline 會擋 Carbon DataTable 動態注入的 inline style
+  //   3. 需要外部 Google Fonts → 沒有 fonts.googleapis.com whitelist
+  // 暫時放寬至 HTTP 部署可運作；script 仍守 nonce + strict-dynamic（XSS 主防線）。
   const directives: string[] = [
-    `default-src 'none'`,
+    `default-src 'self'`,
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
-    `style-src 'self' 'nonce-${nonce}'`,
+    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
     `img-src 'self' data:`,
-    `font-src 'self'`,
+    `font-src 'self' https://fonts.gstatic.com data:`,
     `connect-src 'self'`,
     `frame-ancestors 'none'`,
     `form-action 'self'`,
     `base-uri 'self'`,
     `object-src 'none'`,
-    `upgrade-insecure-requests`,
     `report-uri /api/csp-violations`,
   ];
   return directives.join('; ');
