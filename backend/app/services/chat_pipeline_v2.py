@@ -342,7 +342,9 @@ async def run_pipeline_v2(
     # Step 1: PreFilter
     # ------------------------------------------------------------------
     pre_filter = get_pre_filter()
-    verdict = pre_filter.check(query)
+    # 追問放寬：有歷史 SQL → 短查詢可通過進 agent，agent 用 history 補語意
+    _has_history = bool(conversation_history)
+    verdict = pre_filter.check(query, has_history=_has_history)
     log.debug("[v2] pre_filter verdict=%s for %r", verdict.action, query[:60])
 
     if verdict.action != "allow":

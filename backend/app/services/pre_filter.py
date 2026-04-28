@@ -129,8 +129,16 @@ class PreFilter:
     # Public API
     # ------------------------------------------------------------------
 
-    def check(self, query: str) -> Verdict:
-        """Evaluate *query* and return a routing Verdict."""
+    def check(self, query: str, *, has_history: bool = False) -> Verdict:
+        """Evaluate *query* and return a routing Verdict.
+
+        Parameters
+        ----------
+        query: 使用者輸入
+        has_history: 對話前有上一輪 SQL 結果。為 True 時放寬「過短」門檻，
+                    讓「共有幾筆?」「那 EMU800 呢?」等追問通過 PreFilter 進
+                    入 agent，agent 會根據前輪 context 補完語意。
+        """
         stripped = query.strip()
 
         # Rule 1: chitchat detection (before length so "你好" → chitchat not clarify)
@@ -153,8 +161,9 @@ class PreFilter:
                     reason=f"偵測到閒聊輸入（string match confidence={conf:.2f}）",
                 )
 
-        # Rule 2: too short
-        if len(stripped) < 5:
+        # Rule 2: too short — has_history=True 時放寬到 < 2 (允許追問)
+        min_len = 2 if has_history else 5
+        if len(stripped) < min_len:
             return Verdict(
                 action="clarify",
                 reason=f"查詢過短（{len(stripped)} 字元），請提供更多細節",
