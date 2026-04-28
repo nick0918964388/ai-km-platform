@@ -40,12 +40,19 @@ async def run_chat_job(job_id: str, request_data: dict):
         settings = get_settings()
 
         # Construct a minimal ASGI Request scope so chat_stream's rate limiter has a client
-        # (we use conversation_id as rate key when available; fall back to job_id)
+        # (we use conversation_id as rate key when available; fall back to job_id).
+        # Forward Authorization header so v2-gate (chat.py) can decode JWT for grayscale
+        # routing + admin force-on. submit_chat_job extracts it from the original request
+        # and stores it under '_auth_header' in request_data.
+        _headers: list[tuple[bytes, bytes]] = []
+        _auth = request_data.get("_auth_header")
+        if _auth:
+            _headers.append((b"authorization", _auth.encode("latin-1")))
         _scope = {
             "type": "http",
             "method": "POST",
             "path": "/api/chat/stream",
-            "headers": [],
+            "headers": _headers,
             "query_string": b"",
             "client": ("127.0.0.1", 0),
             "server": ("127.0.0.1", 8000),

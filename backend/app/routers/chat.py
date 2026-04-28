@@ -248,12 +248,18 @@ async def _generate_sql_recovery_options(query: str, error: str, context: list =
 # --- Async Chat Job endpoints ---
 
 @router.post("/chat/jobs")
-async def submit_chat_job(request: ChatRequest):
+async def submit_chat_job(request: ChatRequest, http_request: Request):
     """Submit a chat query as an async background job. Returns job_id immediately."""
     from app.services import chat_job_manager as jm
     from app.services.chat_job_runner import run_chat_job
     job_id = jm.create_job(request.query)
-    asyncio.create_task(run_chat_job(job_id, request.model_dump()))
+    # Forward Authorization header to job runner so v2-gate can decode JWT
+    # for grayscale routing + admin force-on.
+    payload = request.model_dump()
+    auth = http_request.headers.get("authorization") or ""
+    if auth:
+        payload["_auth_header"] = auth
+    asyncio.create_task(run_chat_job(job_id, payload))
     return {"job_id": job_id, "status": "pending"}
 
 
