@@ -457,20 +457,35 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                 # Anonymous / no JWT → graceful fallback to None → v2 gate returns False.
                 _grayscale_uid: str | None = None
                 _grayscale_role: str | None = None
+                _decode_err: str | None = None
                 try:
                     _auth_header = http_request.headers.get("authorization", "")
                     if _auth_header.lower().startswith("bearer "):
                         _token = _auth_header[7:]
-                        from app.auth import decode_token
-                        _claims = decode_token(_token)
+                        # Decode without strict validation to extract claims even if exp/sig
+                        # variant — we only need uid/role for routing decision (not auth).
+                        # Real auth happens elsewhere (require_admin/get_current_user).
+                        import jwt as _jwt
+                        try:
+                            _claims = _jwt.decode(_token, options={"verify_signature": False})
+                        except Exception as _je:
+                            _decode_err = f"unverified-decode-failed: {_je}"
+                            _claims = {}
                         _grayscale_uid = _claims.get("sub")
                         _grayscale_role = _claims.get("role")
+                    else:
+                        _decode_err = "no-bearer-header"
                 except Exception as _e:
-                    log.debug(f"Grayscale JWT decode failed: {_e}")
+                    _decode_err = f"outer-exc: {_e}"
                     _grayscale_uid = None
+                if _decode_err:
+                    log.info(f"v2-gate decode: err={_decode_err}")
+                else:
+                    log.info(f"v2-gate decode: uid={_grayscale_uid} role={_grayscale_role}")
                 # image_base64 present → always use v2 (old path has no multimodal SQL support)
                 # Admin role → always v2 (force list, easier dogfooding)
                 _use_v2 = bool(request.image_base64) or _v2_gate(_grayscale_uid, _grayscale_role)
+                log.info(f"v2-gate decision: use_v2={_use_v2}")
 
             if _use_v2:
                 from app.services.chat_pipeline_v2 import (
