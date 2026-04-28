@@ -515,15 +515,18 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                     pass
 
                 # Extract conversation history for agent
+                # Include any prior turn with SQL (regardless of intent label):
+                # v1 sets intent="sql", v2 sets intent="skills_v2", explore sets others.
+                # Filter by sql presence catches all useful prior queries.
                 _v2_history = []
                 if request.context:
                     for _m in request.context:
-                        if _m.get("intent") == "sql" and _m.get("sql"):
+                        if _m.get("sql"):
                             _v2_history.append({
-                                "q": _m.get("content", ""),
+                                "q": _m.get("content", "") or _m.get("question", ""),
                                 "sql": _m["sql"],
                                 "row_count": _m.get("row_count", 0),
-                                "intent": "sql",
+                                "intent": _m.get("intent", "sql"),
                             })
 
                 async with get_db_context() as _v2_db:
