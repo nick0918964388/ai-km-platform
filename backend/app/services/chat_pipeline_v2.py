@@ -105,6 +105,13 @@ async def _exec_skill(skill_hit: dict, normalized_query: str, db) -> dict | None
     """
     Execute the sql_template from the matched skill.
     Returns a dict with rows/row_count/columns/sql on success, None on failure.
+
+    Bound parameters come from params_schema's defaults (each entry's "default"
+    field). sql_template uses :param_name placeholders (asyncpg / SQLAlchemy
+    named-param style). Without this binding, SQL like
+    ``WHERE status = :status_value`` would error and fall back to agent_fallback,
+    causing the LIST and COUNT skills to silently miss + agent picks a random
+    table → user sees inconsistent results across turns.
     """
     from app.services.skills.repository import get_skill_by_id
     from app.services.maximo_nl2sql_tools import _is_safe_select
@@ -121,8 +128,18 @@ async def _exec_skill(skill_hit: dict, normalized_query: str, db) -> dict | None
             log.warning("skill_exec: unsafe or missing SQL template for skill=%s", skill_id)
             return None
 
+        # Bind params_schema defaults to placeholders.
+        # If a param has no "default" but is referenced in SQL, execution will
+        # fail and we'll fall to agent_fallback — that's the safer behaviour
+        # than running with NULLs.
+        params_schema = skill.get("params_schema") or {}
+        params: dict = {}
+        for pname, pmeta in (params_schema.items() if isinstance(params_schema, dict) else []):
+            if isinstance(pmeta, dict) and "default" in pmeta:
+                params[pname] = pmeta["default"]
+
         from sqlalchemy import text as _text
-        result = await db.execute(_text(sql_template))
+        result = await db.execute(_text(sql_template), params)
         rows = [dict(r._mapping) for r in result.fetchall()]
         columns = list(rows[0].keys()) if rows else []
         return {
